@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Good Puppy</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="pet-stage is-initializing" aria-label="Good Puppy desktop pet">
+      <section class="dog-area left-dog" data-user="user_a" aria-label="Left puppy">
+        <div class="message-bubble left-bubble" role="status" aria-live="polite" data-user="user_a" hidden>
+          <span class="message-alert" aria-hidden="true">!</span>
+          <div class="bubble-content">
+            <div class="bubble-text"></div>
+            <div class="bubble-nav" aria-label="Message navigation">
+              <button class="bubble-nav-button bubble-prev" type="button" aria-label="Previous message">&lt;</button>
+              <button class="bubble-nav-button bubble-next" type="button" aria-label="Next message">&gt;</button>
+              <button class="bubble-nav-button bubble-compose" type="button" aria-label="Write message">+</button>
+            </div>
+          </div>
+          <form class="bubble-composer" hidden>
+            <textarea class="bubble-input" aria-label="Message text" rows="1"></textarea>
+            <div class="bubble-actions">
+              <button class="bubble-button bubble-cancel" type="button" aria-label="Cancel">&times;</button>
+              <button class="bubble-button bubble-send" type="submit" aria-label="Send">&#10003;</button>
+            </div>
+          </form>
+        </div>
+        <img
+          class="pet-image left-pet"
+          data-user="user_a"
+          src="../../state_images/state_06.gif"
+          alt="Left puppy"
+          draggable="false"
+        />
+      </section>
+
+      <section class="dog-area right-dog" data-user="user_b" aria-label="Right puppy">
+        <div class="message-bubble right-bubble" role="status" aria-live="polite" data-user="user_b" hidden>
+          <span class="message-alert" aria-hidden="true">!</span>
+          <div class="bubble-content">
+            <div class="bubble-text"></div>
+            <div class="bubble-nav" aria-label="Message navigation">
+              <button class="bubble-nav-button bubble-prev" type="button" aria-label="Previous message">&lt;</button>
+              <button class="bubble-nav-button bubble-next" type="button" aria-label="Next message">&gt;</button>
+              <button class="bubble-nav-button bubble-compose" type="button" aria-label="Write message">+</button>
+            </div>
+          </div>
+          <form class="bubble-composer" hidden>
+            <textarea class="bubble-input" aria-label="Message text" rows="1"></textarea>
+            <div class="bubble-actions">
+              <button class="bubble-button bubble-cancel" type="button" aria-label="Cancel">&times;</button>
+              <button class="bubble-button bubble-send" type="submit" aria-label="Send">&#10003;</button>
+            </div>
+          </form>
+        </div>
+        <img
+          class="pet-image right-pet is-flipped"
+          data-user="user_b"
+          src="../../state_images/state_06.gif"
+          alt="Right puppy"
+          draggable="false"
+        />
+      </section>
+
+    </main>
+    <script src="./renderer.js"></script>
+  </body>
+</html>
