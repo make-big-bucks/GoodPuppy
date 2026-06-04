@@ -6,7 +6,8 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win dir",
-    "dist:users": "node scripts/build-users.js"
+    "dist:users": "node scripts/build-users.js",
+    "dist:mac:user-a": "node scripts/build-mac-user-a.js"
   },
   "keywords": [
     "desktop-pet",
@@ -35,6 +36,20 @@
       "target": [
         "dir"
       ]
+    },
+    "mac": {
+      "identity": null,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "artifactName": "GoodPuppy-user_a-${arch}.${ext}"
     }
   },
   "devDependencies": {
