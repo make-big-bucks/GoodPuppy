@@ -31,8 +31,8 @@ GoodPuppy = **一条只通向你最在乎的那几个人的私密、环境式（
 | 前端 | 移植现有 renderer 的 JS/HTML/CSS | 基本可直接复用 |
 | 后端 | **托管 Supabase（官方一个）** | v1 只做一个托管后端；自部署留架构缝、产品上 later |
 | 实时 | **supabase-js 跑在前端 webview** | Rust 不碰 Supabase；presence/realtime 全在前端 |
-| 认证 | **本地密钥对 + 挑战-应答 Edge Function** | SSH key 模型，无邮箱、可携带身份（见 §5） |
-| 私钥存储 | **系统钥匙串（Tauri keyring 插件）** | 私钥永不离开本机 |
+| 认证 | **Supabase 匿名登录（anonymous sign-in）** | 零摩擦、无邮箱、原生 JWT；无自建 auth 服务（见 §5） |
+| 会话存储 | **supabase-js 默认（refresh token 由 SDK 自管，可选托管至钥匙串）** | 无需自建/自管任何密钥；会话即身份 |
 
 **Tauri 职责划分（关键）：**
 - **Rust 主进程（薄）**：透明窗口、置顶、点击穿透、托盘、窗口定位/多窗口生成。
@@ -54,50 +54,51 @@ ConnectionProfile = { backendUrl, anonKey }
 
 ## 4. 数据模型（合并写死的双表）
 
-用单一 `room` 抽象同时覆盖 1:1 与小圈子：
+所有关系均通过统一的 `room` 抽象表达，不区分 1:1 与小圈子——每个房间都有邀请码，都可以分享给他人加入。
 
-用户标识 = **公钥指纹（GoodPuppy ID）**，所有外键都以它为主键，而非邮箱式 uuid。
+用户标识 = **Supabase `auth.uid()`（一个 uuid）**，所有外键都以它为主键。对外可分享的 **GoodPuppy ID** 是基于此 uuid 派生的短码（如 `gp_7h3k9x...`），仅用于"找人/加好友"，不参与鉴权。
+
+> 注：spec 早期版本用"公钥指纹"作主键（密钥对身份）。v1 改为 Supabase 原生身份后，主键回归 uuid；`public_key` 字段移除，留待 v2 密钥对/自部署回归时再加（见 §5）。
 
 ```
 profiles
-  id            text pk      -- = 公钥指纹（GoodPuppy ID），如 gp_7h3k9x...
-  public_key    text         -- Ed25519 公钥（用于挑战-应答验证）
+  id            uuid pk      -- = auth.uid()（Supabase 匿名/链接后的用户 id）
+  gp_id         text unique  -- 对外可分享的 GoodPuppy 短码，由 id 派生
   display_name  text
   pet_id        text         -- 选用的内置 pet
   created_at    timestamptz
 
 rooms
   id            uuid pk
-  kind          text         -- 'direct'(1:1) | 'circle'(小圈子)
-  invite_code   text unique  -- 圈子房间的邀请码（direct 房间可空）
-  created_by    text fk → profiles.id
+  invite_code   text unique  -- 每个房间都有邀请码，可分享给任意人加入
+  created_by    uuid fk → profiles.id
   created_at    timestamptz
 
 room_members
   room_id       uuid fk
-  user_id       text fk → profiles.id
+  user_id       uuid fk → profiles.id
   joined_at     timestamptz
   primary key (room_id, user_id)
 
-connection_requests          -- 按个人 ID 连接：request + approve
+connection_requests          -- 按 GoodPuppy ID 连接：request + approve
   id            uuid pk
-  from_id       text fk → profiles.id
-  to_id         text fk → profiles.id
+  from_id       uuid fk → profiles.id
+  to_id         uuid fk → profiles.id
   status        text         -- 'pending' | 'accepted' | 'declined'
   created_at    timestamptz
-  -- accepted 时创建一个 kind='direct' 的房间，双方入 room_members
+  -- accepted 时创建一个房间，双方自动加入 room_members
 
 messages
   id            uuid pk
   room_id       uuid fk
-  sender_id     text fk → profiles.id
+  sender_id     uuid fk → profiles.id
   kind          text         -- 'text' | 'emote'
   content       text         -- 文本内容 或 emote 标识
   created_at    timestamptz
 
 presence
   room_id       uuid fk
-  user_id       text fk → profiles.id
+  user_id       uuid fk → profiles.id
   is_online     bool
   last_seen     timestamptz
   primary key (room_id, user_id)
@@ -105,36 +106,34 @@ presence
 
 这消灭了 `user_a_message`/`user_b_message` 双表；多人对话是房间的自然结果，无需额外设计。
 
-**两种连接原语（并存）：**
-- **按个人 ID**（寻址一个人）：B 输入 A 的 GoodPuppy ID → 写 `connection_requests` → A 确认 → 自动建 `direct` 房间。
-- **按房间邀请码**（寻址一个圈子）：`circle` 房间有 `invite_code`，分享给密友加入。
+**两种进入房间的方式（并存）：**
+- **按个人 ID**（找人）：B 输入 A 的 GoodPuppy ID → 写 `connection_requests` → A 确认 → 自动建房间，双方加入。
+- **按邀请码**（找房间）：把房间的 `invite_code` 分享给任何人，对方输入即可加入。两种方式本质相同——都是加入同一种房间。
 
-## 5. 认证与安全（隐藏的 P0）：密钥对 / SSH 模型
+## 5. 认证与安全（隐藏的 P0）：Supabase 匿名登录
 
-无邮箱、无魔法链接。身份是**本地 Ed25519 密钥对**，公钥指纹即可携带的 GoodPuppy ID。
+无邮箱、无魔法链接、**无自建 auth 服务**。v1 身份直接用 **Supabase 匿名登录（anonymous sign-in）**：
 
-**为什么不能只用公开指纹当 ID：** 指纹是公开的，光填指纹谁都能冒充。必须证明"持有对应私钥"。
-
-**挑战-应答认证流程（与 SSH 登录同理）：**
 ```
-1. 客户端 → Edge Function：请求挑战
-2. Edge Function → 返回随机 nonce
-3. 客户端 → 用私钥签名 nonce，连同公钥发回
-4. Edge Function → 验证签名 → 签发 Supabase JWT（sub = 公钥指纹）
-   · JWT 用项目 JWT secret 签，service-role 侧完成
-5. 此后 supabase-js 携带该 JWT；RLS 用 auth.jwt()->>'sub' = 公钥指纹做隔离
+1. 客户端首次启动 → supabase.auth.signInAnonymously()
+2. Supabase 返回一个匿名用户 + 真实 JWT（auth.uid() = uuid）
+3. 客户端持有该会话；supabase-js 自动续期 refresh token
+4. RLS 直接用 auth.uid() 做隔离，无需自定义 claim
+5. 首次登录后写一行 profiles（id = auth.uid()，派生 gp_id）
 ```
+
+**为什么不用密钥对/挑战-应答（原 spec 方案）：** 那个方案要自建一个 Edge Function 来签 JWT——是相比原生方案唯一多出的、且最容易出安全事故的服务端组件；同时"私钥丢 = 身份丢 + 房间丢"且无找回，反而打脸本产品的留存命题。该模型作为"身份握在自己手里"的长期愿景，与 §3 的自部署 seam 一起**推迟到 v2**（见文末"明确排除/推迟"）。
 
 **RLS 策略（按 `room_id` + 身份隔离）：**
-- 用户只能读写自己所属房间（`room_members` 命中当前 `sub`）的 `messages` / `presence`。
-- `messages.sender_id` 必须等于当前 `sub`（不能冒名发消息）。
+- 用户只能读写自己所属房间（`room_members` 命中当前 `auth.uid()`）的 `messages` / `presence`。
+- `messages.sender_id` 必须等于当前 `auth.uid()`（不能冒名发消息）。
 - `connection_requests`：只能看到 `from_id` 或 `to_id` 是自己的；只有 `to_id` 能改 status。
 
-**钥匙备份（一等功能，必须做）：** 无邮箱即无"找回账号"。私钥丢 = 身份丢 + 房间丢。
-- 私钥存系统钥匙串，私钥永不上传。
-- 提供**导出/导入私钥**（换电脑迁移身份、备份恢复）。这正是"握在自己手里"的体现。
+**账号找回（v1 取舍，必须向用户讲清）：** 匿名会话本身绑定本机——会话丢（重装/换机）≈ 身份丢。v1 接受这一限制，但留好升级路径：
+- **可选链接邮箱/OAuth**：用户真正在乎后，调 `supabase.auth.updateUser({ email })` / `linkIdentity()` 把匿名账号**升级为可找回账号**，`auth.uid()` 不变，房间与连接全部保留。
+- v1 默认不强推此步，保持零摩擦；在"换设备/备份"场景的 UI 里引导。
 
-**新增基建：** 一个 Supabase Edge Function（挑战签发 + 签名验证 + JWT 签发）。这是相比邮箱方案唯一多出的服务端组件。
+**新增基建：相比邮箱方案 0 个额外服务端组件。** 匿名登录是 Supabase 原生能力，只需在项目设置里开启 anonymous sign-in，并配好 RLS。
 
 ## 6. presence 驱动渲染（核心"在场"价值）
 
@@ -164,8 +163,8 @@ v1 提供**几个内置 pet 供选择**（沿用 `state_images` 的状态机风�
 | Slice | 内容 | 优先级 |
 |---|---|---|
 | 1 | Tauri 行为保真移植（透明置顶窗口+托盘+点击穿透，行为不变） | P0 基建 |
-| 2 | 密钥对身份 + 挑战-应答 Edge Function + RLS + 数据模型重构（运行时身份，告别单独打包；含钥匙导出/导入） | P0 |
-| 3 | 连接：按个人 ID（request/approve）+ 圈子邀请码加入房间（第一个"陌生人能连上"版本） | P0 |
+| 2 | Supabase 匿名登录身份 + RLS + 数据模型重构（运行时身份，告别单独打包；含可选邮箱/OAuth 链接以升级为可找回账号） | P0 |
+| 3 | 连接：按个人 ID（request/approve）+ 邀请码加入房间（第一个"陌生人能连上"版本） | P0 |
 | 4 | presence 驱动**多窗口**渲染（自己常驻 + 每个在线成员一窗 + 到达动画 + 内置 pet 选） | P0 核心价值 |
 | 5 | emote + 轻历史 | P1 留存 |
 
@@ -174,6 +173,7 @@ v1 提供**几个内置 pet 供选择**（沿用 `state_images` 的状态机风�
 ## 11. 明确排除 / 推迟（v1）
 
 - 自部署后端（留缝，later）
+- **密钥对 / SSH 身份模型**（Ed25519 + 挑战-应答 Edge Function + 私钥导出/导入）——"身份握在自己手里"的长期愿景，与自部署一起留作 v2 差异化；v1 用 Supabase 匿名登录替代（见 §5）
 - 任意上传 pet（先内置）
 - 完整历史浏览 / 搜索
 - AI / Agent、养成成长、陌生人发现、公开大厅
