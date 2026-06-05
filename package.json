@@ -4,10 +4,10 @@
   "description": "A tiny desktop pet app built with Electron.",
   "main": "src/main/main.js",
   "scripts": {
-    "start": "electron .",
-    "dist": "electron-builder --win dir",
-    "dist:users": "node scripts/build-users.js",
-    "dist:mac:user-a": "node scripts/build-mac-user-a.js"
+    "dev": "vite",
+    "build": "vite build",
+    "tauri": "tauri",
+    "test": "vitest run"
   },
   "keywords": [
     "desktop-pet",
@@ -53,10 +53,14 @@
     }
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.2",
     "electron": "42.3.0",
-    "electron-builder": "^26.0.12"
+    "electron-builder": "^26.0.12",
+    "vite": "^6.4.3",
+    "vitest": "^2.1.9"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.106.2"
+    "@supabase/supabase-js": "^2.106.2",
+    "@tauri-apps/api": "^2.11.0"
   }
 }
