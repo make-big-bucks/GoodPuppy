@@ -1,4 +1,5 @@
 import { getSafeState, stateCount } from "./petState.js";
+import { isPointOpaqueInImage } from "./hitTesting.js";
 
 const petStage = document.querySelector(".pet-stage");
 const cloudHitImage = new Image();
@@ -6,6 +7,7 @@ const hitCanvas = document.createElement("canvas");
 const hitContext = hitCanvas.getContext("2d", { willReadFrequently: true });
 const dragThreshold = 4;
 const alphaHitThreshold = 16;
+const alphaHitSlop = 3;
 const longPressInterval = 650;
 const appConfig = window.goodPuppy.getAppConfig();
 const currentUserConfig = appConfig.userConfigs[appConfig.currentUser];
@@ -350,71 +352,15 @@ function showNextState() {
   refreshMousePassthrough();
 }
 
-function getObjectFitContainRect(element, image) {
-  const rect = element.getBoundingClientRect();
-  const imageRatio = image.naturalWidth / image.naturalHeight;
-  const elementRatio = rect.width / rect.height;
-
-  if (elementRatio > imageRatio) {
-    const width = rect.height * imageRatio;
-    return {
-      left: rect.left + (rect.width - width) / 2,
-      top: rect.top,
-      width,
-      height: rect.height
-    };
-  }
-
-  const height = rect.width / imageRatio;
-  return {
-    left: rect.left,
-    top: rect.top + (rect.height - height) / 2,
-    width: rect.width,
-    height
-  };
-}
-
-function isPointOpaqueInImage(event, element, image, { respectObjectFit = false } = {}) {
-  if (!image.complete || !image.naturalWidth || !image.naturalHeight || !hitContext) {
-    return false;
-  }
-
-  const renderRect = respectObjectFit
-    ? getObjectFitContainRect(element, image)
-    : element.getBoundingClientRect();
-  const localX = event.clientX - renderRect.left;
-  const localY = event.clientY - renderRect.top;
-
-  if (localX < 0 || localY < 0 || localX > renderRect.width || localY > renderRect.height) {
-    return false;
-  }
-
-  let sampleX = Math.min(
-    image.naturalWidth - 1,
-    Math.max(0, Math.floor((localX / renderRect.width) * image.naturalWidth))
-  );
-  const sampleY = Math.min(
-    image.naturalHeight - 1,
-    Math.max(0, Math.floor((localY / renderRect.height) * image.naturalHeight))
-  );
-
-  if (element.classList.contains("is-flipped") || element.classList.contains("right-bubble")) {
-    sampleX = image.naturalWidth - 1 - sampleX;
-  }
-
-  hitCanvas.width = image.naturalWidth;
-  hitCanvas.height = image.naturalHeight;
-  hitContext.clearRect(0, 0, hitCanvas.width, hitCanvas.height);
-  hitContext.drawImage(image, 0, 0, hitCanvas.width, hitCanvas.height);
-
-  return hitContext.getImageData(sampleX, sampleY, 1, 1).data[3] > alphaHitThreshold;
-}
-
 function getPetAt(event) {
   return Object.entries(petImages).find(
     ([, targetPetImage]) =>
       targetPetImage &&
-      isPointOpaqueInImage(event, targetPetImage, targetPetImage, { respectObjectFit: true })
+      isPointOpaqueInImage(event, targetPetImage, targetPetImage, hitContext, hitCanvas, {
+        respectObjectFit: true,
+        alphaThreshold: alphaHitThreshold,
+        hitSlop: alphaHitSlop
+      })
   );
 }
 
@@ -424,7 +370,13 @@ function isPetOpaqueAt(event) {
 
 function getBubbleAt(event) {
   return Object.entries(messageBubbles).find(
-    ([, bubble]) => bubble && !bubble.hidden && isPointOpaqueInImage(event, bubble, cloudHitImage)
+    ([, bubble]) =>
+      bubble &&
+      !bubble.hidden &&
+      isPointOpaqueInImage(event, bubble, cloudHitImage, hitContext, hitCanvas, {
+        alphaThreshold: alphaHitThreshold,
+        hitSlop: alphaHitSlop
+      })
   );
 }
 
@@ -592,6 +544,14 @@ document.addEventListener("mouseleave", () => {
   }
 });
 
+// 原生光标流：把 Rust 推送的窗口 client 坐标转成合成事件，复用既有的像素级命中判定。
+// 这是窗口失焦后仍能重新捕获鼠标（恢复点击/拖拽/聚焦）的关键来源。
+window.goodPuppy.onCursorMoved((point) => {
+  if (!point) return;
+  const target = document.elementFromPoint(point.x, point.y) || document.body;
+  updateMousePassthrough({ clientX: point.x, clientY: point.y, target });
+});
+
 petStage.addEventListener("pointerdown", async (event) => {
   setMousePassthrough(false);
 
@@ -648,7 +608,13 @@ petStage.addEventListener("pointerdown", async (event) => {
     }
 
     didShowBubbleFromPetLongPress = true;
-    showMessageBubble(userId);
+
+    // 空历史时，长按自己的小狗直接进输入框（否则气泡因 history 为空永不弹出）
+    if (userId === appConfig.currentUser && messageHistoryByUser[userId].length === 0) {
+      openBubbleComposer(userId);
+    } else {
+      showMessageBubble(userId);
+    }
   }, longPressInterval);
 
   petStage.setPointerCapture(event.pointerId);
@@ -805,7 +771,4 @@ Object.entries(messageBubbles).forEach(([userId, bubble]) => {
 
 subscribeToPresence();
 initializeRemoteMessages();
-window.addEventListener("load", () => {
-  window.goodPuppy.setIgnoreMouseEvents(true);
-  isIgnoringMouseEvents = true;
-});
+window.addEventListener("load", refreshMousePassthrough);

@@ -1,9 +1,12 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
+import { listen } from "@tauri-apps/api/event";
 import appConfig from "./appConfig.js";
+import { createIgnoreMouseEventsController } from "./cursorEventsController.js";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 const appWindow = inTauri ? getCurrentWindow() : null;
+const ignoreMouseEventsController = createIgnoreMouseEventsController(appWindow);
 
 const goodPuppy = {
   async getWindowPosition() {
@@ -24,9 +27,17 @@ const goodPuppy = {
     appWindow.setPosition(new LogicalPosition(Math.round(position.x), Math.round(position.y)));
   },
   setIgnoreMouseEvents(shouldIgnore) {
-    if (!appWindow) return;
-    if (typeof shouldIgnore !== "boolean") return;
-    appWindow.setIgnoreCursorEvents(shouldIgnore);
+    ignoreMouseEventsController.setIgnoreMouseEvents(shouldIgnore);
+  },
+  // 原生侧的窗口 client 光标流：窗口处于鼠标穿透状态时 webview 收不到 mousemove
+  // （失焦时更是完全收不到），这里由 Rust 持续推送坐标，使穿透判定不依赖焦点。
+  onCursorMoved(callback) {
+    if (!inTauri) return () => {};
+    let unlisten = () => {};
+    listen("cursor-moved", (event) => callback(event.payload)).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten();
   },
   getAppConfig() {
     return appConfig;
