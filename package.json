@@ -1,8 +1,7 @@
 {
   "name": "good-puppy",
   "version": "0.1.0",
-  "description": "A tiny desktop pet app built with Electron.",
-  "main": "src/main/main.js",
+  "description": "A desktop pet app built with Tauri.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -11,51 +10,13 @@
   },
   "keywords": [
     "desktop-pet",
-    "electron",
+    "tauri",
     "puppy"
   ],
   "author": "",
   "license": "MIT",
-  "build": {
-    "appId": "com.goodpuppy.desktop",
-    "productName": "GoodPuppy",
-    "directories": {
-      "output": "release"
-    },
-    "electronDist": "node_modules/electron/dist",
-    "files": [
-      "src/**/*",
-      "state_images/**/*",
-      "img/**/*",
-      "package.json"
-    ],
-    "asar": true,
-    "win": {
-      "icon": "img/dog.ico",
-      "signAndEditExecutable": false,
-      "target": [
-        "dir"
-      ]
-    },
-    "mac": {
-      "identity": null,
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64"
-          ]
-        }
-      ]
-    },
-    "dmg": {
-      "artifactName": "GoodPuppy-user_a-${arch}.${ext}"
-    }
-  },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.2",
-    "electron": "42.3.0",
-    "electron-builder": "^26.0.12",
     "vite": "^6.4.3",
     "vitest": "^2.1.9"
   },
