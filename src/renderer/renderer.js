@@ -21,11 +21,6 @@ const messageBubbles = {
   user_b: document.querySelector('.message-bubble[data-user="user_b"]')
 };
 const petImage = petImages[appConfig.currentUser];
-const supabaseConfig = {
-  restUrl: appConfig.supabase.restUrl,
-  apiKey: appConfig.supabase.apiKey,
-  sendTableName: currentUserConfig.tableName
-};
 const userStates = Object.fromEntries(
   Object.entries(appConfig.userConfigs).map(([userId, userConfig]) => [userId, userConfig.initialState])
 );
@@ -46,7 +41,7 @@ let lastPointerEvent = null;
 let longPressTimer = null;
 let didShowBubbleFromPetLongPress = false;
 
-cloudHitImage.src = "../../img/cloud_transparent.png";
+cloudHitImage.src = "/img/cloud_transparent.png";
 Object.entries(appConfig.userConfigs).forEach(([userId, userConfig]) => {
   const userPetImage = petImages[userId];
   const userBubble = messageBubbles[userId];
@@ -270,7 +265,7 @@ function setUserOnline(userId, isOnline) {
 }
 
 function getStateImagePath(stateNumber) {
-  return `../../state_images/state_${String(stateNumber).padStart(2, "0")}.gif`;
+  return `/state_images/state_${String(stateNumber).padStart(2, "0")}.gif`;
 }
 
 function isUserOnline(userId) {
@@ -454,106 +449,16 @@ function closeMessageBubble(userId) {
   refreshMousePassthrough();
 }
 
-function getSupabaseHeaders(extraHeaders = {}) {
-  return {
-    apikey: supabaseConfig.apiKey,
-    Authorization: `Bearer ${supabaseConfig.apiKey}`,
-    ...extraHeaders
-  };
-}
-
-async function fetchLatestRemoteMessages(userId, { updatePetState = userId !== appConfig.currentUser } = {}) {
-  const userConfig = appConfig.userConfigs[userId];
-
-  if (!userConfig) {
-    return;
-  }
-
-  const url = new URL(`${supabaseConfig.restUrl}/${userConfig.tableName}`);
-  url.searchParams.set("select", "id,info,state,created_at");
-  url.searchParams.set("order", "created_at.desc");
-  url.searchParams.set("limit", "5");
-
-  try {
-    const response = await fetch(url, {
-      headers: getSupabaseHeaders()
-    });
-
-    if (!response.ok) {
-      throw new Error(`Supabase receive request failed: ${response.status}`);
-    }
-
-    const messages = await response.json();
-
-    if (!Array.isArray(messages) || messages.length === 0) {
-      return;
-    }
-
-    setLocalMessages(userId, messages, { updatePetState });
-    const latestMessage = sortMessagesByTime(messages).at(-1);
-
-    if (latestMessage?.id) {
-      lastRemoteMessageIds[userId] = latestMessage.id;
-    }
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-function handleRemoteMessage(userId, message) {
-  if (!message || !message.info) {
-    return;
-  }
-
-  if (userId === appConfig.currentUser) {
-    return;
-  }
-
-  if (message.id === lastRemoteMessageIds[userId]) {
-    return;
-  }
-
-  lastRemoteMessageIds[userId] = message.id;
-  addLocalMessage(userId, message, { markUnread: true });
-}
-
-function subscribeToRemoteMessages() {
-  window.goodPuppy.onRemoteMessage((payload) => {
-    handleRemoteMessage(payload.user, payload.message);
-  });
-
-  window.goodPuppy.onRemoteMessageStatus((payload) => {
-    console.log(`Supabase Realtime ${payload.tableName} status: ${payload.status}`);
-
-    if (payload.user !== appConfig.currentUser && ["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(payload.status)) {
-      fetchLatestRemoteMessages(payload.user);
-    }
-  });
-}
 
 function subscribeToPresence() {
+  // Slice 1：无网络。当前用户在线，其它用户离线（Slice 4 由 presence 驱动）。
   Object.keys(appConfig.userConfigs).forEach((userId) => {
     setUserOnline(userId, userId === appConfig.currentUser);
   });
-
-  window.goodPuppy.onPresenceUpdate((payload) => {
-    setUserOnline(payload.user, Boolean(payload.isOnline));
-  });
-
-  window.goodPuppy.onPresenceStatus((payload) => {
-    console.log(`Supabase Realtime ${payload.tableName} status: ${payload.status}`);
-  });
 }
 
-async function initializeRemoteMessages() {
-  await Promise.all(
-    Object.keys(appConfig.userConfigs).map((userId) =>
-      fetchLatestRemoteMessages(userId, {
-        updatePetState: true
-      })
-    )
-  );
-
+function initializeRemoteMessages() {
+  // Slice 1：无远程消息拉取，仅收尾初始化状态
   petStage.classList.remove("is-initializing");
   refreshMousePassthrough();
 }
@@ -609,30 +514,10 @@ async function sendComposerMessage(userId) {
     return;
   }
 
-  const response = await fetch(`${supabaseConfig.restUrl}/${supabaseConfig.sendTableName}`, {
-    method: "POST",
-    headers: getSupabaseHeaders({
-      "Content-Type": "application/json",
-      Prefer: "return=representation"
-    }),
-    body: JSON.stringify({ info, state: currentState })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Supabase send request failed: ${response.status}`);
-  }
-
-  const insertedMessages = await response.json();
-  const insertedMessage = Array.isArray(insertedMessages) ? insertedMessages[0] : null;
-
+  // Slice 1：本地回显（Slice 2 接入网络发送）
   addLocalMessage(
     userId,
-    {
-      id: insertedMessage?.id,
-      info,
-      state: insertedMessage?.state ?? currentState,
-      created_at: insertedMessage?.created_at
-    },
+    { id: `local-${Date.now()}`, info, state: currentState, created_at: new Date().toISOString() },
     { markUnread: false, updatePetState: true }
   );
   closeBubbleComposer(userId);
@@ -923,7 +808,6 @@ Object.entries(messageBubbles).forEach(([userId, bubble]) => {
   });
 });
 
-subscribeToRemoteMessages();
 subscribeToPresence();
 initializeRemoteMessages();
 window.addEventListener("load", () => {
