@@ -26,6 +26,19 @@ const goodPuppy = {
     if (!position || typeof position.x !== "number" || typeof position.y !== "number") return;
     appWindow.setPosition(new LogicalPosition(Math.round(position.x), Math.round(position.y)));
   },
+  // 是否支持系统原生窗口拖拽。macOS/Win/Linux 的 Tauri 都有，缺失时才回退到手动跟随。
+  supportsNativeWindowDrag() {
+    return Boolean(appWindow && typeof appWindow.startDragging === "function");
+  },
+  // 把这次手势交给系统：系统在设备坐标里让窗口与光标锁步移动，跨屏/跨 DPI 都正确。
+  // fire-and-forget：原生拖拽会接管本次鼠标会话（含 mouseup），不返回也无需等待。
+  startWindowDrag() {
+    if (!appWindow || typeof appWindow.startDragging !== "function") return;
+
+    appWindow.startDragging().catch((error) => {
+      console.warn("Native window drag failed.", error);
+    });
+  },
   setIgnoreMouseEvents(shouldIgnore) {
     ignoreMouseEventsController.setIgnoreMouseEvents(shouldIgnore);
   },

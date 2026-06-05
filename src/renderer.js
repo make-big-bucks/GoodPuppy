@@ -11,6 +11,7 @@ const alphaHitSlop = 3;
 const longPressInterval = 650;
 const appConfig = window.goodPuppy.getAppConfig();
 const currentUserConfig = appConfig.userConfigs[appConfig.currentUser];
+const supportsNativeWindowDrag = window.goodPuppy.supportsNativeWindowDrag();
 
 if (!currentUserConfig) {
   throw new Error(`Unknown current user: ${appConfig.currentUser}`);
@@ -649,15 +650,31 @@ petStage.addEventListener("pointermove", (event) => {
   if (!isDragging && Math.hypot(deltaX, deltaY) >= dragThreshold) {
     isDragging = true;
     clearLongPressTimer();
+
+    if (supportsNativeWindowDrag) {
+      // 交给系统原生拖拽：窗口在设备坐标里与光标锁步，跨屏/跨 DPI 都不会闪烁或错位。
+      // 必须先释放指针捕获，否则 webview 占着鼠标会话，macOS 无法接管拖拽。
+      if (petStage.hasPointerCapture(event.pointerId)) {
+        petStage.releasePointerCapture(event.pointerId);
+      }
+
+      window.goodPuppy.startWindowDrag();
+
+      // 原生拖拽会吞掉本次手势剩余事件（含 pointerup），本地不再跟踪；
+      // 状态在下一次 pointerdown 时重置。
+      pointerStart = null;
+      windowStart = null;
+      return;
+    }
   }
 
+  // 回退路径（无原生拖拽的平台）：手动让窗口跟随光标。
   if (isDragging) {
     window.goodPuppy.setWindowPosition({
       x: windowStart.x + deltaX,
       y: windowStart.y + deltaY
     });
   }
-
 });
 
 petStage.addEventListener("pointerup", (event) => {
