@@ -1,8 +1,9 @@
+import { getSafeState, stateCount } from "./petState.js";
+
 const petStage = document.querySelector(".pet-stage");
 const cloudHitImage = new Image();
 const hitCanvas = document.createElement("canvas");
 const hitContext = hitCanvas.getContext("2d", { willReadFrequently: true });
-const stateCount = 24;
 const dragThreshold = 4;
 const alphaHitThreshold = 16;
 const longPressInterval = 650;
@@ -340,12 +341,6 @@ function isBubbleVisible() {
 
 function isComposerVisible() {
   return Object.values(messageBubbles).some((bubble) => bubble?.classList.contains("is-editing"));
-}
-
-function getSafeState(stateNumber, fallback = 3) {
-  return Number.isInteger(stateNumber) && stateNumber >= 1 && stateNumber <= stateCount
-    ? stateNumber
-    : fallback;
 }
 
 function showNextState() {
