@@ -9,13 +9,13 @@ const dragThreshold = 4;
 const alphaHitThreshold = 16;
 const alphaHitSlop = 3;
 const longPressInterval = 650;
-const appConfig = window.goodPuppy.getAppConfig();
-const currentUserConfig = appConfig.userConfigs[appConfig.currentUser];
 const supportsNativeWindowDrag = window.goodPuppy.supportsNativeWindowDrag();
 
-if (!currentUserConfig) {
-  throw new Error(`Unknown current user: ${appConfig.currentUser}`);
-}
+// 固定的显示槽 ID：self 始终对应 user_a（左），remote 对应 user_b（右）
+const SELF_ID = "user_a";
+const REMOTE_ID = "user_b";
+const DEFAULT_PET_STATE = 6;
+
 const petImages = {
   user_a: document.querySelector('.pet-image[data-user="user_a"]'),
   user_b: document.querySelector('.pet-image[data-user="user_b"]')
@@ -24,21 +24,24 @@ const messageBubbles = {
   user_a: document.querySelector('.message-bubble[data-user="user_a"]'),
   user_b: document.querySelector('.message-bubble[data-user="user_b"]')
 };
-const petImage = petImages[appConfig.currentUser];
-const userStates = Object.fromEntries(
-  Object.entries(appConfig.userConfigs).map(([userId, userConfig]) => [userId, userConfig.initialState])
-);
+const petImage = petImages[SELF_ID];
+const userStates = { [SELF_ID]: DEFAULT_PET_STATE, [REMOTE_ID]: DEFAULT_PET_STATE };
 const lastRemoteMessageIds = {};
-const unreadByUser = Object.fromEntries(Object.keys(appConfig.userConfigs).map((userId) => [userId, false]));
-const onlineByUser = Object.fromEntries(Object.keys(appConfig.userConfigs).map((userId) => [userId, false]));
-const messageHistoryByUser = Object.fromEntries(Object.keys(appConfig.userConfigs).map((userId) => [userId, []]));
-const messageIndexByUser = Object.fromEntries(Object.keys(appConfig.userConfigs).map((userId) => [userId, -1]));
+const unreadByUser = { [SELF_ID]: false, [REMOTE_ID]: false };
+const onlineByUser = { [SELF_ID]: false, [REMOTE_ID]: false };
+const messageHistoryByUser = { [SELF_ID]: [], [REMOTE_ID]: [] };
+const messageIndexByUser = { [SELF_ID]: -1, [REMOTE_ID]: -1 };
 const animatedPetSources = {};
-const remoteUserId = Object.keys(appConfig.userConfigs).find((userId) => userId !== appConfig.currentUser);
-let currentState = currentUserConfig.initialState;
+
+// Auth 和房间状态
+let selfAuthId = null;
+let remoteAuthId = null;
+let currentRoomId = null;
 let activeSupabase = null;
-let currentAuthUserId = null;
 let messagesChannel = null;
+
+// UI 状态
+let currentState = DEFAULT_PET_STATE;
 let pointerStart = null;
 let pointerPetUser = null;
 let windowStart = null;
@@ -48,19 +51,20 @@ let isIgnoringMouseEvents = false;
 let lastPointerEvent = null;
 let longPressTimer = null;
 let didShowBubbleFromPetLongPress = false;
+let hasStartedPetApp = false;
 
 cloudHitImage.src = "/img/cloud_transparent.png";
-Object.entries(appConfig.userConfigs).forEach(([userId, userConfig]) => {
-  const userPetImage = petImages[userId];
-  const userBubble = messageBubbles[userId];
+[SELF_ID, REMOTE_ID].forEach((displayId) => {
+  const userPetImage = petImages[displayId];
+  const userBubble = messageBubbles[displayId];
 
   if (userPetImage) {
-    setPetStateImage(userId, userConfig.initialState);
+    setPetStateImage(displayId, DEFAULT_PET_STATE);
   }
 
   if (userBubble) {
-    userBubble.classList.toggle("is-owned", userId === appConfig.currentUser);
-    updateBubbleNav(userId);
+    userBubble.classList.toggle("is-owned", displayId === SELF_ID);
+    updateBubbleNav(displayId);
   }
 });
 
@@ -147,7 +151,7 @@ function updateBubbleNav(userId) {
   }
 }
 
-function renderMessageAt(userId, index, { markUnread = false, updatePetState = userId !== appConfig.currentUser } = {}) {
+function renderMessageAt(userId, index, { markUnread = false, updatePetState = userId !== SELF_ID } = {}) {
   const history = messageHistoryByUser[userId];
   const message = history[index];
   const targetBubble = messageBubbles[userId];
@@ -160,14 +164,14 @@ function renderMessageAt(userId, index, { markUnread = false, updatePetState = u
   messageIndexByUser[userId] = index;
   setBubbleText(userId, message.info);
   targetBubble.hidden = false;
-  setUnread(userId, userId !== appConfig.currentUser && markUnread);
+  setUnread(userId, userId !== SELF_ID && markUnread);
   updateBubbleNav(userId);
 
   if (updatePetState) {
     userStates[userId] = getSafeState(Number(message.state));
     setPetStateImage(userId, userStates[userId]);
 
-    if (userId === appConfig.currentUser) {
+    if (userId === SELF_ID) {
       currentState = userStates[userId];
     }
   }
@@ -175,9 +179,9 @@ function renderMessageAt(userId, index, { markUnread = false, updatePetState = u
   refreshMousePassthrough();
 }
 
-function setLocalMessages(userId, messages, { updatePetState = userId !== appConfig.currentUser } = {}) {
+function setLocalMessages(userId, messages, { updatePetState = userId !== SELF_ID } = {}) {
   const normalizedMessages = sortMessagesByTime(
-    messages.map((message) => normalizeMessage(message, appConfig.userConfigs[userId]?.initialState)).filter(Boolean)
+    messages.map((message) => normalizeMessage(message, DEFAULT_PET_STATE)).filter(Boolean)
   );
 
   messageHistoryByUser[userId] = normalizedMessages;
@@ -196,7 +200,7 @@ function setLocalMessages(userId, messages, { updatePetState = userId !== appCon
   });
 }
 
-function addLocalMessage(userId, message, { markUnread = false, updatePetState = userId !== appConfig.currentUser } = {}) {
+function addLocalMessage(userId, message, { markUnread = false, updatePetState = userId !== SELF_ID } = {}) {
   const normalizedMessage = normalizeMessage(message, userStates[userId]);
 
   if (!normalizedMessage) {
@@ -220,7 +224,7 @@ function showPreviousMessage(userId) {
   if (currentIndex > 0) {
     renderMessageAt(userId, currentIndex - 1, {
       markUnread: false,
-      updatePetState: userId !== appConfig.currentUser
+      updatePetState: userId !== SELF_ID
     });
   }
 }
@@ -232,7 +236,7 @@ function showNextMessage(userId) {
   if (currentIndex >= 0 && currentIndex < history.length - 1) {
     renderMessageAt(userId, currentIndex + 1, {
       markUnread: false,
-      updatePetState: userId !== appConfig.currentUser
+      updatePetState: userId !== SELF_ID
     });
   }
 }
@@ -247,7 +251,7 @@ function showMessageBubble(userId) {
 
   renderMessageAt(userId, currentIndex >= 0 ? currentIndex : history.length - 1, {
     markUnread: false,
-    updatePetState: userId !== appConfig.currentUser
+    updatePetState: userId !== SELF_ID
   });
 }
 
@@ -263,7 +267,7 @@ function setUnread(userId, hasUnread) {
 }
 
 function clearUnreadForRemoteUser(userId) {
-  if (userId !== appConfig.currentUser && unreadByUser[userId]) {
+  if (userId !== SELF_ID && unreadByUser[userId]) {
     setUnread(userId, false);
   }
 }
@@ -275,7 +279,7 @@ function setUserOnline(userId, isOnline) {
     return;
   }
 
-  const shouldShowOnline = userId === appConfig.currentUser || isOnline;
+  const shouldShowOnline = userId === SELF_ID || isOnline;
 
   onlineByUser[userId] = shouldShowOnline;
   targetPetImage.classList.toggle("is-offline", !shouldShowOnline);
@@ -296,7 +300,7 @@ function getStateImagePath(stateNumber) {
 }
 
 function isUserOnline(userId) {
-  return userId === appConfig.currentUser || onlineByUser[userId];
+  return userId === SELF_ID || onlineByUser[userId];
 }
 
 function capturePetStillImage(userId) {
@@ -371,8 +375,8 @@ function isComposerVisible() {
 
 function showNextState() {
   currentState = currentState === stateCount ? 1 : currentState + 1;
-  userStates[appConfig.currentUser] = currentState;
-  setPetStateImage(appConfig.currentUser, currentState);
+  userStates[SELF_ID] = currentState;
+  setPetStateImage(SELF_ID, currentState);
   refreshMousePassthrough();
 }
 
@@ -420,44 +424,50 @@ function closeMessageBubble(userId) {
   refreshMousePassthrough();
 }
 
+// 将数据库消息行转为内部展示格式
+function msgToLocal(msg) {
+  return {
+    id: msg.id,
+    info: msg.content,
+    state: DEFAULT_PET_STATE,
+    from: msg.sender_id,
+    created_at: msg.created_at
+  };
+}
+
+function getDisplayIdForSender(senderId) {
+  if (senderId === selfAuthId) return SELF_ID;
+  if (senderId === remoteAuthId) return REMOTE_ID;
+  return null;
+}
+
 function getMessageDisplayUserId(message) {
-  return message?.from === currentAuthUserId ? appConfig.currentUser : remoteUserId;
+  return getDisplayIdForSender(message?.from);
 }
 
-function getSupabaseMessageSelect() {
-  return "id,info,state,created_at,from";
-}
+async function fetchLatestMessagesForDisplayUser(displayId) {
+  if (!activeSupabase || !currentRoomId) return;
 
-async function fetchLatestMessagesForDisplayUser(userId) {
-  if (!activeSupabase || !currentAuthUserId) {
-    return;
-  }
+  const authId = displayId === SELF_ID ? selfAuthId : remoteAuthId;
+  if (!authId) return;
 
-  let query = activeSupabase
+  const { data, error } = await activeSupabase
     .from("messages")
-    .select(getSupabaseMessageSelect())
+    .select("id, content, created_at, sender_id, kind")
+    .eq("room_id", currentRoomId)
+    .eq("sender_id", authId)
     .order("created_at", { ascending: false })
     .limit(5);
-
-  if (userId === appConfig.currentUser) {
-    query = query.eq("from", currentAuthUserId);
-  } else {
-    query = query.neq("from", currentAuthUserId);
-  }
-
-  const { data, error } = await query;
 
   if (error) {
     throw error;
   }
 
-  setLocalMessages(userId, data || [], {
-    updatePetState: true,
-  });
+  setLocalMessages(displayId, (data || []).map(msgToLocal), { updatePetState: true });
 }
 
 function handleRemoteMessage(message) {
-  if (message?.from === currentAuthUserId) {
+  if (message?.from === selfAuthId) {
     return;
   }
 
@@ -473,15 +483,13 @@ function handleRemoteMessage(message) {
 
   lastRemoteMessageIds[displayUserId] = message.id;
   addLocalMessage(displayUserId, message, {
-    markUnread: displayUserId !== appConfig.currentUser,
+    markUnread: displayUserId !== SELF_ID,
     updatePetState: true,
   });
 }
 
 async function subscribeToRemoteMessages() {
-  if (!activeSupabase || !currentAuthUserId) {
-    return;
-  }
+  if (!activeSupabase || !currentRoomId) return;
 
   if (messagesChannel) {
     await activeSupabase.removeChannel(messagesChannel);
@@ -489,34 +497,35 @@ async function subscribeToRemoteMessages() {
   }
 
   messagesChannel = activeSupabase
-    .channel("good-puppy-messages-inserts")
+    .channel("room-messages-" + currentRoomId)
     .on(
       "postgres_changes",
       {
         event: "INSERT",
         schema: "public",
         table: "messages",
+        filter: `room_id=eq.${currentRoomId}`,
       },
       (payload) => {
-        handleRemoteMessage(payload.new);
+        handleRemoteMessage(msgToLocal(payload.new));
       }
     )
     .subscribe((status) => {
-      console.log(`Supabase Realtime messages status: ${status}`);
+      console.log(`Messages channel status: ${status}`);
     });
 }
 
 function subscribeToPresence() {
-  Object.keys(appConfig.userConfigs).forEach((userId) => {
-    setUserOnline(userId, userId === appConfig.currentUser);
-  });
+  setUserOnline(SELF_ID, true);
+  setUserOnline(REMOTE_ID, false);
 }
 
 async function initializeRemoteMessages() {
   try {
-    await Promise.all(
-      Object.keys(appConfig.userConfigs).map((userId) => fetchLatestMessagesForDisplayUser(userId))
-    );
+    await Promise.all([
+      fetchLatestMessagesForDisplayUser(SELF_ID),
+      fetchLatestMessagesForDisplayUser(REMOTE_ID),
+    ]);
     await subscribeToRemoteMessages();
   } catch (error) {
     console.error(error);
@@ -532,7 +541,7 @@ function clearLongPressTimer() {
 }
 
 function openBubbleComposer(userId) {
-  if (userId !== appConfig.currentUser) {
+  if (userId !== SELF_ID) {
     return;
   }
 
@@ -575,29 +584,30 @@ async function sendComposerMessage(userId) {
   const info = input?.value.trim();
 
   if (!info) {
-    setComposerStatus(userId, "\u8bf7\u5148\u8f93\u5165\u6d88\u606f");
+    setComposerStatus(userId, "请先输入消息");
     input?.focus();
     return;
   }
 
-  if (!activeSupabase || !currentAuthUserId) {
-    setComposerStatus(userId, "\u8bf7\u5148\u767b\u5f55");
+  if (!activeSupabase || !selfAuthId || !currentRoomId) {
+    setComposerStatus(userId, "请先登录");
     input?.focus();
     return;
   }
 
-  setComposerStatus(userId, "\u6b63\u5728\u53d1\u9001...");
+  setComposerStatus(userId, "正在发送...");
 
   const { error } = await activeSupabase
     .from("messages")
     .insert({
-      info,
-      state: currentState,
-      from: currentAuthUserId,
+      room_id: currentRoomId,
+      sender_id: selfAuthId,
+      kind: "text",
+      content: info,
     });
 
   if (error) {
-    setComposerStatus(userId, error.message || "\u53d1\u9001\u5931\u8d25");
+    setComposerStatus(userId, error.message || "发送失败");
     throw error;
   }
 
@@ -607,8 +617,8 @@ async function sendComposerMessage(userId) {
     {
       id: `local-${Date.now()}`,
       info,
-      state: currentState,
-      from: currentAuthUserId,
+      state: DEFAULT_PET_STATE,
+      from: selfAuthId,
       created_at: new Date().toISOString(),
     },
     { markUnread: false, updatePetState: true }
@@ -653,7 +663,7 @@ function isInteractiveAt(event) {
     return true;
   }
 
-  const currentUserBubble = messageBubbles[appConfig.currentUser];
+  const currentUserBubble = messageBubbles[SELF_ID];
 
   if (currentUserBubble && !currentUserBubble.hidden && isPointInsideElement(event, currentUserBubble)) {
     return true;
@@ -705,7 +715,6 @@ document.addEventListener("mouseleave", () => {
 });
 
 // 原生光标流：把 Rust 推送的窗口 client 坐标转成合成事件，复用既有的像素级命中判定。
-// 这是窗口失焦后仍能重新捕获鼠标（恢复点击/拖拽/聚焦）的关键来源。
 window.goodPuppy.onCursorMoved((point) => {
   if (!point) return;
   const target = document.elementFromPoint(point.x, point.y) || document.body;
@@ -770,7 +779,7 @@ petStage.addEventListener("pointerdown", async (event) => {
     didShowBubbleFromPetLongPress = true;
 
     // 空历史时，长按自己的小狗直接进输入框（否则气泡因 history 为空永不弹出）
-    if (userId === appConfig.currentUser && messageHistoryByUser[userId].length === 0) {
+    if (userId === SELF_ID && messageHistoryByUser[userId].length === 0) {
       openBubbleComposer(userId);
     } else {
       showMessageBubble(userId);
@@ -812,15 +821,12 @@ petStage.addEventListener("pointermove", (event) => {
 
     if (supportsNativeWindowDrag) {
       // 交给系统原生拖拽：窗口在设备坐标里与光标锁步，跨屏/跨 DPI 都不会闪烁或错位。
-      // 必须先释放指针捕获，否则 webview 占着鼠标会话，macOS 无法接管拖拽。
       if (petStage.hasPointerCapture(event.pointerId)) {
         petStage.releasePointerCapture(event.pointerId);
       }
 
       window.goodPuppy.startWindowDrag();
 
-      // 原生拖拽会吞掉本次手势剩余事件（含 pointerup），本地不再跟踪；
-      // 状态在下一次 pointerdown 时重置。
       pointerStart = null;
       windowStart = null;
       return;
@@ -874,7 +880,7 @@ petStage.addEventListener("pointerup", (event) => {
     return;
   }
 
-  if (pointerStart && pointerPetUser === appConfig.currentUser && !isDragging) {
+  if (pointerStart && pointerPetUser === SELF_ID && !isDragging) {
     showNextState();
   }
 
@@ -946,20 +952,81 @@ Object.entries(messageBubbles).forEach(([userId, bubble]) => {
   });
 });
 
-let hasStartedPetApp = false;
+// 确保当前用户有 profile（首次登录时自动创建）
+async function ensureProfile() {
+  if (!activeSupabase || !selfAuthId) return;
+
+  const { data, error } = await activeSupabase
+    .from("profiles")
+    .select("id")
+    .eq("id", selfAuthId)
+    .maybeSingle();
+
+  if (error && error.code !== "PGRST116") throw error;
+
+  if (!data) {
+    const { error: insertError } = await activeSupabase
+      .from("profiles")
+      .insert({ id: selfAuthId, display_name: "" });
+    if (insertError) throw insertError;
+  }
+}
+
+// 加载用户的第一个房间，确定 remoteAuthId
+async function loadCurrentRoom() {
+  if (!activeSupabase || !selfAuthId) return;
+
+  const { data: memberships, error } = await activeSupabase
+    .from("room_members")
+    .select("room_id")
+    .limit(1);
+
+  if (error) throw error;
+
+  if (!memberships || memberships.length === 0) {
+    // 还没有房间，暂时直接移除初始化状态
+    petStage.classList.remove("is-initializing");
+    refreshMousePassthrough();
+    return;
+  }
+
+  currentRoomId = memberships[0].room_id;
+
+  const { data: members, error: membersError } = await activeSupabase
+    .from("room_members")
+    .select("user_id")
+    .eq("room_id", currentRoomId)
+    .neq("user_id", selfAuthId);
+
+  if (membersError) throw membersError;
+
+  if (members && members.length > 0) {
+    remoteAuthId = members[0].user_id;
+  }
+
+  await initializeRemoteMessages();
+}
 
 export function startPetApp({ supabase, session } = {}) {
   activeSupabase = supabase || activeSupabase;
-  currentAuthUserId = session?.user?.id || currentAuthUserId;
+  selfAuthId = session?.user?.id || selfAuthId;
+
+  const doLoad = () =>
+    ensureProfile()
+      .then(() => loadCurrentRoom())
+      .catch((error) => {
+        console.error(error);
+        petStage.classList.remove("is-initializing");
+      });
 
   if (hasStartedPetApp) {
-    initializeRemoteMessages();
+    doLoad();
     return;
   }
 
   hasStartedPetApp = true;
   subscribeToPresence();
-  initializeRemoteMessages();
+  doLoad();
 }
 
 window.addEventListener("load", refreshMousePassthrough);
