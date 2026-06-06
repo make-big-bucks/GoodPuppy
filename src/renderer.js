@@ -34,7 +34,11 @@ const onlineByUser = Object.fromEntries(Object.keys(appConfig.userConfigs).map((
 const messageHistoryByUser = Object.fromEntries(Object.keys(appConfig.userConfigs).map((userId) => [userId, []]));
 const messageIndexByUser = Object.fromEntries(Object.keys(appConfig.userConfigs).map((userId) => [userId, -1]));
 const animatedPetSources = {};
+const remoteUserId = Object.keys(appConfig.userConfigs).find((userId) => userId !== appConfig.currentUser);
 let currentState = currentUserConfig.initialState;
+let activeSupabase = null;
+let currentAuthUserId = null;
+let messagesChannel = null;
 let pointerStart = null;
 let pointerPetUser = null;
 let windowStart = null;
@@ -84,6 +88,20 @@ function getBubbleInput(userId) {
   return messageBubbles[userId]?.querySelector(".bubble-input");
 }
 
+function getBubbleStatus(userId) {
+  return messageBubbles[userId]?.querySelector(".bubble-status");
+}
+
+function setComposerStatus(userId, message) {
+  const status = getBubbleStatus(userId);
+
+  if (!status) {
+    return;
+  }
+
+  status.textContent = message || "";
+}
+
 function setBubbleText(userId, text) {
   const textElement = getBubbleTextElement(userId);
 
@@ -101,6 +119,7 @@ function normalizeMessage(message, fallbackState = 3) {
     id: message.id ?? `${Date.now()}-${Math.random()}`,
     info: message.info,
     state: getSafeState(Number(message.state), fallbackState),
+    from: message.from,
     created_at: message.created_at || new Date().toISOString()
   };
 }
@@ -161,12 +180,16 @@ function setLocalMessages(userId, messages, { updatePetState = userId !== appCon
     messages.map((message) => normalizeMessage(message, appConfig.userConfigs[userId]?.initialState)).filter(Boolean)
   );
 
+  messageHistoryByUser[userId] = normalizedMessages;
+
   if (normalizedMessages.length === 0) {
+    messageIndexByUser[userId] = -1;
+    setBubbleText(userId, "");
+    setUnread(userId, false);
     updateBubbleNav(userId);
     return;
   }
 
-  messageHistoryByUser[userId] = normalizedMessages;
   renderMessageAt(userId, normalizedMessages.length - 1, {
     markUnread: false,
     updatePetState
@@ -397,16 +420,108 @@ function closeMessageBubble(userId) {
   refreshMousePassthrough();
 }
 
+function getMessageDisplayUserId(message) {
+  return message?.from === currentAuthUserId ? appConfig.currentUser : remoteUserId;
+}
+
+function getSupabaseMessageSelect() {
+  return "id,info,state,created_at,from";
+}
+
+async function fetchLatestMessagesForDisplayUser(userId) {
+  if (!activeSupabase || !currentAuthUserId) {
+    return;
+  }
+
+  let query = activeSupabase
+    .from("messages")
+    .select(getSupabaseMessageSelect())
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  if (userId === appConfig.currentUser) {
+    query = query.eq("from", currentAuthUserId);
+  } else {
+    query = query.neq("from", currentAuthUserId);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  setLocalMessages(userId, data || [], {
+    updatePetState: true,
+  });
+}
+
+function handleRemoteMessage(message) {
+  if (message?.from === currentAuthUserId) {
+    return;
+  }
+
+  const displayUserId = getMessageDisplayUserId(message);
+
+  if (!displayUserId) {
+    return;
+  }
+
+  if (message.id === lastRemoteMessageIds[displayUserId]) {
+    return;
+  }
+
+  lastRemoteMessageIds[displayUserId] = message.id;
+  addLocalMessage(displayUserId, message, {
+    markUnread: displayUserId !== appConfig.currentUser,
+    updatePetState: true,
+  });
+}
+
+async function subscribeToRemoteMessages() {
+  if (!activeSupabase || !currentAuthUserId) {
+    return;
+  }
+
+  if (messagesChannel) {
+    await activeSupabase.removeChannel(messagesChannel);
+    messagesChannel = null;
+  }
+
+  messagesChannel = activeSupabase
+    .channel("good-puppy-messages-inserts")
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "messages",
+      },
+      (payload) => {
+        handleRemoteMessage(payload.new);
+      }
+    )
+    .subscribe((status) => {
+      console.log(`Supabase Realtime messages status: ${status}`);
+    });
+}
 
 function subscribeToPresence() {
-  // Slice 1：无网络。当前用户在线，其它用户离线（Slice 4 由 presence 驱动）。
   Object.keys(appConfig.userConfigs).forEach((userId) => {
     setUserOnline(userId, userId === appConfig.currentUser);
   });
 }
 
-function initializeRemoteMessages() {
-  // Slice 1：无远程消息拉取，仅收尾初始化状态
+async function initializeRemoteMessages() {
+  try {
+    await Promise.all(
+      Object.keys(appConfig.userConfigs).map((userId) => fetchLatestMessagesForDisplayUser(userId))
+    );
+    await subscribeToRemoteMessages();
+  } catch (error) {
+    console.error(error);
+  }
+
   petStage.classList.remove("is-initializing");
   refreshMousePassthrough();
 }
@@ -432,6 +547,7 @@ function openBubbleComposer(userId) {
   bubble.hidden = false;
   bubble.classList.add("is-editing");
   setUnread(userId, false);
+  setComposerStatus(userId, "");
   composer.hidden = false;
   input.value = "";
   input.focus();
@@ -449,6 +565,7 @@ function closeBubbleComposer(userId) {
 
   bubble.classList.remove("is-editing");
   composer.hidden = true;
+  setComposerStatus(userId, "");
   input.value = "";
   refreshMousePassthrough();
 }
@@ -458,14 +575,42 @@ async function sendComposerMessage(userId) {
   const info = input?.value.trim();
 
   if (!info) {
+    setComposerStatus(userId, "\u8bf7\u5148\u8f93\u5165\u6d88\u606f");
     input?.focus();
     return;
   }
 
-  // Slice 1：本地回显（Slice 2 接入网络发送）
+  if (!activeSupabase || !currentAuthUserId) {
+    setComposerStatus(userId, "\u8bf7\u5148\u767b\u5f55");
+    input?.focus();
+    return;
+  }
+
+  setComposerStatus(userId, "\u6b63\u5728\u53d1\u9001...");
+
+  const { error } = await activeSupabase
+    .from("messages")
+    .insert({
+      info,
+      state: currentState,
+      from: currentAuthUserId,
+    });
+
+  if (error) {
+    setComposerStatus(userId, error.message || "\u53d1\u9001\u5931\u8d25");
+    throw error;
+  }
+
+  setComposerStatus(userId, "");
   addLocalMessage(
     userId,
-    { id: `local-${Date.now()}`, info, state: currentState, created_at: new Date().toISOString() },
+    {
+      id: `local-${Date.now()}`,
+      info,
+      state: currentState,
+      from: currentAuthUserId,
+      created_at: new Date().toISOString(),
+    },
     { markUnread: false, updatePetState: true }
   );
   closeBubbleComposer(userId);
@@ -494,7 +639,16 @@ function isPointInsideElement(event, element) {
   );
 }
 
+function isAuthPanelVisible() {
+  const authPanel = document.querySelector(".auth-panel");
+  return Boolean(authPanel && !authPanel.hidden);
+}
+
 function isInteractiveAt(event) {
+  if (isAuthPanelVisible()) {
+    return true;
+  }
+
   if (isComposerVisible() && event.target.closest(".message-bubble")) {
     return true;
   }
@@ -540,6 +694,11 @@ function refreshMousePassthrough() {
 
 document.addEventListener("mousemove", updateMousePassthrough);
 document.addEventListener("mouseleave", () => {
+  if (isAuthPanelVisible()) {
+    setMousePassthrough(false);
+    return;
+  }
+
   if (!pointerStart && !bubblePointerStart) {
     setMousePassthrough(true);
   }
@@ -758,6 +917,7 @@ Object.entries(messageBubbles).forEach(([userId, bubble]) => {
       await sendComposerMessage(userId);
     } catch (error) {
       console.error(error);
+      getBubbleInput(userId)?.focus();
     }
   });
 
@@ -786,6 +946,20 @@ Object.entries(messageBubbles).forEach(([userId, bubble]) => {
   });
 });
 
-subscribeToPresence();
-initializeRemoteMessages();
+let hasStartedPetApp = false;
+
+export function startPetApp({ supabase, session } = {}) {
+  activeSupabase = supabase || activeSupabase;
+  currentAuthUserId = session?.user?.id || currentAuthUserId;
+
+  if (hasStartedPetApp) {
+    initializeRemoteMessages();
+    return;
+  }
+
+  hasStartedPetApp = true;
+  subscribeToPresence();
+  initializeRemoteMessages();
+}
+
 window.addEventListener("load", refreshMousePassthrough);

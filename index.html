@@ -6,6 +6,30 @@
     <title>Good Puppy</title>
   </head>
   <body>
+    <section class="auth-panel" aria-label="Good Puppy login">
+      <form class="auth-card">
+        <h1>GoodPuppy</h1>
+        <input class="auth-input" name="email" type="email" autocomplete="email" placeholder="邮箱" required />
+        <label class="auth-password-field">
+          <input
+            class="auth-input auth-password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            placeholder="密码"
+            minlength="6"
+            required
+          />
+          <button class="auth-password-toggle" type="button" aria-label="显示密码">显示</button>
+        </label>
+        <p class="auth-message" role="status"></p>
+        <div class="auth-actions">
+          <button class="auth-button auth-login" type="submit">登录</button>
+          <button class="auth-button auth-register" type="button">注册</button>
+        </div>
+      </form>
+    </section>
+
     <main class="pet-stage is-initializing" aria-label="Good Puppy desktop pet">
       <section class="dog-area left-dog" data-user="user_a" aria-label="Left puppy">
         <div class="message-bubble left-bubble" role="status" aria-live="polite" data-user="user_a" hidden>
@@ -20,6 +44,7 @@
           </div>
           <form class="bubble-composer" hidden>
             <textarea class="bubble-input" aria-label="Message text" rows="1"></textarea>
+            <div class="bubble-status" role="status"></div>
             <div class="bubble-actions">
               <button class="bubble-button bubble-cancel" type="button" aria-label="Cancel">&times;</button>
               <button class="bubble-button bubble-send" type="submit" aria-label="Send">&#10003;</button>
@@ -42,6 +67,7 @@
           </div>
           <form class="bubble-composer" hidden>
             <textarea class="bubble-input" aria-label="Message text" rows="1"></textarea>
+            <div class="bubble-status" role="status"></div>
             <div class="bubble-actions">
               <button class="bubble-button bubble-cancel" type="button" aria-label="Cancel">&times;</button>
               <button class="bubble-button bubble-send" type="submit" aria-label="Send">&#10003;</button>

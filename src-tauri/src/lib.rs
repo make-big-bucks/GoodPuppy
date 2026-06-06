@@ -258,16 +258,21 @@ pub fn run() {
             }
             spawn_cursor_monitor(app);
 
-            let quit = MenuItemBuilder::with_id("quit", "退出").build(app)?;
-            let menu = MenuBuilder::new(app).items(&[&quit]).build()?;
+            let logout = MenuItemBuilder::with_id("logout", "\u{9000}\u{51fa}\u{767b}\u{5f55}").build(app)?;
+            let quit = MenuItemBuilder::with_id("quit", "\u{9000}\u{51fa}").build(app)?;
+            let menu = MenuBuilder::new(app).items(&[&logout, &quit]).build()?;
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("GoodPuppy")
                 .menu(&menu)
-                .show_menu_on_left_click(true)
+                .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| {
-                    if event.id() == "quit" {
-                        app.exit(0);
+                    match event.id().as_ref() {
+                        "logout" => {
+                            let _ = app.emit("auth-logout-requested", ());
+                        }
+                        "quit" => app.exit(0),
+                        _ => {}
                     }
                 })
                 .build(app)?;
