@@ -396,7 +396,7 @@ function isPetOpaqueAt(event) {
 }
 
 function isBubbleOpaqueAt(event) {
-  const bubble = event.target?.closest?.(".message-bubble");
+  const bubble = getBubbleForPoint(event);
   if (!bubble || bubble.hidden) return false;
   return isPointOpaqueInImage(event, bubble, cloudHitImage, hitContext, hitCanvas, {
     alphaThreshold: alphaHitThreshold,
@@ -422,10 +422,32 @@ function isPointInsideElement(event, element) {
   );
 }
 
+function getBubbleForPoint(event) {
+  const targetBubble = event.target?.closest?.(".message-bubble");
+  if (targetBubble && !targetBubble.hidden && isPointInsideElement(event, targetBubble)) {
+    return targetBubble;
+  }
+
+  return (
+    [...document.querySelectorAll(".message-bubble:not([hidden])")].find((bubble) =>
+      isPointInsideElement(event, bubble)
+    ) || null
+  );
+}
+
+function isBubbleControlAt(event) {
+  const bubble = getBubbleForPoint(event);
+  if (!bubble) return false;
+  return [...bubble.querySelectorAll("button, textarea, input")].some((control) =>
+    isPointInsideElement(event, control)
+  );
+}
+
 function isInteractiveAt(event) {
-  if (isComposerVisible() && event.target.closest(".message-bubble")) return true;
-  const bubble = event.target?.closest?.(".message-bubble");
-  if (bubble && !bubble.hidden && isPointInsideElement(event, bubble)) return true;
+  const bubble = getBubbleForPoint(event);
+  if (isBubbleControlAt(event)) return true;
+  if (isComposerVisible() && bubble) return true;
+  if (bubble) return true;
   if (isBubbleVisible() && isBubbleOpaqueAt(event)) return true;
   return isPetOpaqueAt(event);
 }
