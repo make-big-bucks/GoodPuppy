@@ -1,19 +1,12 @@
-import { createClient } from "@supabase/supabase-js";
 import { emit } from "@tauri-apps/api/event";
-import appConfig from "./appConfig.js";
+import { createAppSupabaseClient } from "./supabaseClient.js";
 
 const authForm = document.querySelector(".auth-card");
 const authMessage = document.querySelector(".auth-message");
 const passwordInput = document.querySelector(".auth-password");
 const passwordToggle = document.querySelector(".auth-password-toggle");
 
-const supabase = createClient(appConfig.supabase.url, appConfig.supabase.apiKey, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: false,
-  },
-});
+const supabase = createAppSupabaseClient();
 
 // 防止重复触发（已有 session 时 onAuthStateChange 和 getSession 可能同时命中）
 let authHandled = false;

@@ -33,7 +33,7 @@
 - 主窗口尺寸、层级和必要的原生光标采样（Slice 4 单窗口 presence 渲染，见 [ADR-0007](0007-单窗口-presence-渲染.md)）
 
 **前端 webview 职责（所有业务逻辑）：**
-- Supabase 连接与认证（`supabase.auth.signInAnonymously()`）
+- Supabase 连接与认证（邮箱密码登录/注册，`auth.uid()` 作为业务身份）
 - Presence 心跳与实时订阅（`supabase-js` Realtime channel）
 - 消息收发
 - Pet 渲染、单窗口内布局与动画
@@ -48,7 +48,7 @@
 - 前端调试工具链（浏览器 DevTools）可直接用于业务逻辑调试。
 
 **负面：**
-- webview 中的 JS 可以直接访问 Supabase anon key（与 Electron 现状相同，非新增风险）。
+- webview 中的 JS 可以直接访问 Supabase publishable key；该 key 不作为秘密处理，数据隔离依赖 Auth JWT + RLS。
 - 单窗口 presence 渲染（Slice 4）需要前端同时协调在线成员集合、DOM 布局、窗口尺寸和点击穿透判定。
 - 若未来需要离线能力或后台任务，需要在 Rust 侧补充，届时架构需演进。
 

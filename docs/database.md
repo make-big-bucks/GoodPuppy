@@ -16,17 +16,25 @@
 | 表 | `connection_requests` | 按 GoodPuppy ID 发起的好友请求 |
 | 表 | `messages` | 房间内的消息 |
 | 表 | `presence` | 各房间内用户的在线状态 |
-| 函数 | `get_my_room_ids()` | 返回当前用户所在的所有 room_id（防 RLS 递归） |
+| 私有函数 | `private.get_my_room_ids()` | 返回当前用户所在的所有 room_id（防 RLS 递归） |
 | 函数 | `generate_gp_id(uuid)` | 从 auth.uid() 派生 gp_id 短码 |
 | 函数 | `generate_invite_code()` | 生成 8 位随机邀请码 |
-| 函数 | `accept_connection(uuid)` | 原子接受好友请求并建房间 |
-| 函数 | `join_room_by_invite(text)` | 按邀请码加入房间 |
+| RPC | `public.accept_connection(uuid)` | 原子接受好友请求并建房间的 public wrapper |
+| RPC | `public.join_room_by_invite(text)` | 按邀请码加入房间的 public wrapper |
+| 私有函数 | `private.accept_connection(uuid)` | 接受请求的 `SECURITY DEFINER` 实现 |
+| 私有函数 | `private.join_room_by_invite(text)` | 邀请码加入房间的 `SECURITY DEFINER` 实现 |
 | 触发器 | `profiles_set_gp_id` | INSERT profiles 时自动生成 gp_id |
 | 触发器 | `rooms_set_invite_code` | INSERT rooms 时自动生成 invite_code |
 | 保留表 | `user_a_message` | 历史原型遗留，不参与业务，勿删 |
 | 保留表 | `user_b_message` | 历史原型遗留，不参与业务，勿删 |
 
 所有业务表均启用 RLS。Realtime 已开启：`messages`、`presence`、`connection_requests`。
+
+安全边界：
+- 客户端只允许使用 Supabase `sb_publishable_` key。publishable key 可出现在桌面客户端中，不作为秘密处理。
+- 数据访问安全由 Supabase Auth JWT + RLS 策略承担；任何没有登录的 `anon` 角色都没有业务表访问权限。
+- `user_a_message` / `user_b_message` 保留为历史原型表，但无 `anon` / `authenticated` 表权限、无 RLS policy，默认拒绝客户端访问。
+- 需要绕过 RLS 做原子写入的逻辑放在 `private` schema；`public` schema 只暴露薄 RPC wrapper。
 
 ---
 
@@ -180,19 +188,25 @@ CREATE TABLE public.presence (
 
 ## Postgres 函数 & 触发器
 
-### `get_my_room_ids()`
+### `private.get_my_room_ids()`
 
 ```sql
-CREATE OR REPLACE FUNCTION get_my_room_ids()
-RETURNS SETOF uuid LANGUAGE sql SECURITY DEFINER STABLE
-SET search_path = public AS $$
-  SELECT room_id FROM room_members WHERE user_id = auth.uid()
+CREATE SCHEMA IF NOT EXISTS private;
+
+CREATE OR REPLACE FUNCTION private.get_my_room_ids()
+RETURNS SETOF uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT room_id FROM public.room_members WHERE user_id = auth.uid()
 $$;
 ```
 
 **作用：** 返回当前登录用户所在的所有 `room_id`。
 
-**为什么是 `SECURITY DEFINER`：** 所有需要"判断当前用户在哪些房间"的 RLS 策略（`rooms`、`room_members`、`messages`、`presence`）都依赖此函数。如果在 RLS 策略里直接查 `room_members`，会触发对 `room_members` 自身 RLS 的递归调用，导致死循环。`SECURITY DEFINER` 使该函数以定义者身份（超级权限）绕过 RLS 直接查底层数据，打破递归。
+**为什么放在 `private` schema：** 所有需要"判断当前用户在哪些房间"的 RLS 策略（`rooms`、`room_members`、`messages`、`presence`）都依赖此函数。如果在 RLS 策略里直接查 `room_members`，会触发对 `room_members` 自身 RLS 的递归调用。`SECURITY DEFINER` 打破递归；`private` schema 避免把 helper 暴露成 public RPC。
 
 ---
 
@@ -283,9 +297,12 @@ CREATE TRIGGER rooms_set_invite_code
 ### `accept_connection(p_request_id uuid)` → `uuid`
 
 ```sql
-CREATE OR REPLACE FUNCTION accept_connection(p_request_id uuid)
-RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = public AS $$
+CREATE OR REPLACE FUNCTION private.accept_connection(p_request_id uuid)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
 DECLARE
   v_from_id uuid;
   v_to_id   uuid;
@@ -293,7 +310,7 @@ DECLARE
 BEGIN
   -- 验证：请求存在、当前用户是接收方、状态为 pending
   SELECT from_id, to_id INTO v_from_id, v_to_id
-  FROM connection_requests
+  FROM public.connection_requests
   WHERE id = p_request_id
     AND to_id = auth.uid()
     AND status = 'pending';
@@ -303,24 +320,33 @@ BEGIN
   END IF;
 
   -- 原子执行：改状态 → 建房间 → 加双方成员
-  UPDATE connection_requests SET status = 'accepted' WHERE id = p_request_id;
+  UPDATE public.connection_requests SET status = 'accepted' WHERE id = p_request_id;
 
-  INSERT INTO rooms (created_by, invite_code)
-  VALUES (auth.uid(), generate_invite_code())
+  INSERT INTO public.rooms (created_by)
+  VALUES (auth.uid())
   RETURNING id INTO v_room_id;
 
-  INSERT INTO room_members (room_id, user_id) VALUES
+  INSERT INTO public.room_members (room_id, user_id) VALUES
     (v_room_id, v_from_id),
     (v_room_id, v_to_id);
 
   RETURN v_room_id;
 END;
 $$;
+
+CREATE OR REPLACE FUNCTION public.accept_connection(p_request_id uuid)
+RETURNS uuid
+LANGUAGE sql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+  SELECT private.accept_connection(p_request_id)
+$$;
 ```
 
 **作用：** 接受好友请求，同时建房间并将双方加入。三步操作在同一事务内原子执行，不会出现"房间建了但成员没加上"的断点状态。
 
-**为什么是 `SECURITY DEFINER`：** 需要同时写 `connection_requests`（只有 `to_id` 能更新）、`rooms`（`created_by = auth.uid()` 才能 INSERT）、`room_members`（只能加自己）。以定义者权限绕过 RLS，在一个函数内代表双方完成所有写入。
+**为什么拆成 private 实现 + public wrapper：** 需要同时写 `connection_requests`、`rooms`、`room_members`，所以 private 实现使用 `SECURITY DEFINER` 绕过 RLS 做原子写入。public wrapper 是 `SECURITY INVOKER`，只负责给客户端提供 RPC 入口，并且只授予 `authenticated` 执行权限。
 
 **前端调用：**
 
@@ -335,24 +361,36 @@ const { data: roomId, error } = await supabase.rpc('accept_connection', {
 ### `join_room_by_invite(p_invite_code text)` → `uuid`
 
 ```sql
-CREATE OR REPLACE FUNCTION join_room_by_invite(p_invite_code text)
-RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = public AS $$
+CREATE OR REPLACE FUNCTION private.join_room_by_invite(p_invite_code text)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
 DECLARE
   v_room_id uuid;
 BEGIN
-  SELECT id INTO v_room_id FROM rooms WHERE invite_code = p_invite_code;
+  SELECT id INTO v_room_id FROM public.rooms WHERE invite_code = p_invite_code;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Invalid invite code';
   END IF;
 
-  INSERT INTO room_members (room_id, user_id)
+  INSERT INTO public.room_members (room_id, user_id)
   VALUES (v_room_id, auth.uid())
   ON CONFLICT DO NOTHING;  -- 已在房间中则静默忽略
 
   RETURN v_room_id;
 END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.join_room_by_invite(p_invite_code text)
+RETURNS uuid
+LANGUAGE sql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+  SELECT private.join_room_by_invite(p_invite_code)
 $$;
 ```
 
@@ -370,7 +408,7 @@ const { data: roomId, error } = await supabase.rpc('join_room_by_invite', {
 
 ## RLS 策略
 
-所有表均启用 RLS（`ALTER TABLE ... ENABLE ROW LEVEL SECURITY`）。核心原则：**用户只能访问自己所在房间的数据**，通过 `get_my_room_ids()` 函数实现无递归的成员关系查询。
+所有表均启用 RLS（`ALTER TABLE ... ENABLE ROW LEVEL SECURITY`）。核心原则：**用户只能访问自己所在房间的数据**，通过 `private.get_my_room_ids()` 函数实现无递归的成员关系查询。
 
 ### `profiles`
 
@@ -399,7 +437,7 @@ CREATE POLICY "profiles_update" ON public.profiles
 
 ```sql
 CREATE POLICY "rooms_select" ON public.rooms
-  FOR SELECT TO authenticated USING (id IN (SELECT get_my_room_ids()));
+  FOR SELECT TO authenticated USING (id IN (SELECT private.get_my_room_ids()));
 CREATE POLICY "rooms_insert" ON public.rooms
   FOR INSERT TO authenticated WITH CHECK (created_by = auth.uid());
 ```
@@ -413,7 +451,7 @@ CREATE POLICY "rooms_insert" ON public.rooms
 
 ```sql
 CREATE POLICY "room_members_select" ON public.room_members
-  FOR SELECT TO authenticated USING (room_id IN (SELECT get_my_room_ids()));
+  FOR SELECT TO authenticated USING (room_id IN (SELECT private.get_my_room_ids()));
 CREATE POLICY "room_members_insert" ON public.room_members
   FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
 ```
@@ -424,7 +462,7 @@ CREATE POLICY "room_members_insert" ON public.room_members
 |---|---|
 | SELECT | `from_id = auth.uid() OR to_id = auth.uid()` |
 | INSERT | `from_id = auth.uid() AND to_id <> auth.uid()` |
-| UPDATE | `to_id = auth.uid()`（只有接收方能改状态） |
+| UPDATE | `to_id = auth.uid()` 且只授予 `status` 列更新权限 |
 
 ```sql
 CREATE POLICY "connection_requests_select" ON public.connection_requests
@@ -432,42 +470,43 @@ CREATE POLICY "connection_requests_select" ON public.connection_requests
 CREATE POLICY "connection_requests_insert" ON public.connection_requests
   FOR INSERT TO authenticated WITH CHECK (from_id = auth.uid() AND to_id <> auth.uid());
 CREATE POLICY "connection_requests_update" ON public.connection_requests
-  FOR UPDATE TO authenticated USING (to_id = auth.uid());
+  FOR UPDATE TO authenticated
+  USING (to_id = auth.uid()) WITH CHECK (to_id = auth.uid());
 ```
 
 ### `messages`
 
 | 操作 | 策略 |
 |---|---|
-| SELECT | `room_id IN get_my_room_ids()` |
-| INSERT | `sender_id = auth.uid()` 且 `room_id IN get_my_room_ids()` |
+| SELECT | `room_id IN private.get_my_room_ids()` |
+| INSERT | `sender_id = auth.uid()` 且 `room_id IN private.get_my_room_ids()` |
 
 ```sql
 CREATE POLICY "messages_select" ON public.messages
-  FOR SELECT TO authenticated USING (room_id IN (SELECT get_my_room_ids()));
+  FOR SELECT TO authenticated USING (room_id IN (SELECT private.get_my_room_ids()));
 CREATE POLICY "messages_insert" ON public.messages
   FOR INSERT TO authenticated
-  WITH CHECK (sender_id = auth.uid() AND room_id IN (SELECT get_my_room_ids()));
+  WITH CHECK (sender_id = auth.uid() AND room_id IN (SELECT private.get_my_room_ids()));
 ```
 
 ### `presence`
 
 | 操作 | 策略 |
 |---|---|
-| SELECT | `room_id IN get_my_room_ids()` |
-| INSERT | `user_id = auth.uid()` 且 `room_id IN get_my_room_ids()` |
-| UPDATE | `user_id = auth.uid()` 且 `room_id IN get_my_room_ids()` |
+| SELECT | `room_id IN private.get_my_room_ids()` |
+| INSERT | `user_id = auth.uid()` 且 `room_id IN private.get_my_room_ids()` |
+| UPDATE | `user_id = auth.uid()` 且 `room_id IN private.get_my_room_ids()` |
 
 ```sql
 CREATE POLICY "presence_select" ON public.presence
-  FOR SELECT TO authenticated USING (room_id IN (SELECT get_my_room_ids()));
+  FOR SELECT TO authenticated USING (room_id IN (SELECT private.get_my_room_ids()));
 CREATE POLICY "presence_insert" ON public.presence
   FOR INSERT TO authenticated
-  WITH CHECK (user_id = auth.uid() AND room_id IN (SELECT get_my_room_ids()));
+  WITH CHECK (user_id = auth.uid() AND room_id IN (SELECT private.get_my_room_ids()));
 CREATE POLICY "presence_update" ON public.presence
   FOR UPDATE TO authenticated
   USING (user_id = auth.uid())
-  WITH CHECK (user_id = auth.uid() AND room_id IN (SELECT get_my_room_ids()));
+  WITH CHECK (user_id = auth.uid() AND room_id IN (SELECT private.get_my_room_ids()));
 ```
 
 ---
@@ -504,8 +543,8 @@ supabase
 
 ## 关键设计决策 & 已知约束
 
-**1. 为什么用 `get_my_room_ids()` 而不是直接查 `room_members`？**
-在 `room_members` 的 RLS 策略里查询 `room_members` 自身会触发递归：策略 → 查表 → 触发策略 → 死循环。`SECURITY DEFINER` 函数绕过 RLS 直接访问底层数据，一次性返回所有 room_id，其他表的 RLS 策略引用此函数即可。
+**1. 为什么用 `private.get_my_room_ids()` 而不是直接查 `room_members`？**
+在 `room_members` 的 RLS 策略里查询 `room_members` 自身会触发递归：策略 → 查表 → 触发策略 → 死循环。`private` schema 中的 `SECURITY DEFINER` 函数绕过 RLS 直接访问底层数据，一次性返回所有 room_id，其他表的 RLS 策略引用此函数即可。
 
 **2. `gp_id` 是确定性的还是随机的？**
 确定性（从 uuid 派生）。好处：同一个用户的 gp_id 永远不变，重建 profile 不会漂移。坏处：如果两个 uuid 前 8 位相同会碰撞（约四十亿分之一概率），`UNIQUE` 约束会报错，极罕见场景下需要手动处理。

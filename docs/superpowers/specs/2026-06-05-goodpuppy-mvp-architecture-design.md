@@ -17,7 +17,7 @@ GoodPuppy = **一条只通向你最在乎的那几个人的私密、环境式（
 当前是一个"写死的双人原型"：
 - `currentUser` 编译时写死，靠 `build-mac-user-a.js` 给每人单独打包。
 - 仅 `user_a`/`user_b`，presence id 写死 1/2，消息分 `user_a_message` / `user_b_message` 双表。
-- Supabase anon key 打进二进制，表无 RLS（裸奔）。
+- Supabase 客户端 key 被当作安全边界，表无 RLS（裸奔）。
 - Electron，DMG ~112M（资产仅 650K，体积全部来自 Electron）。
 - 渲染固定显示两只 pet。
 
@@ -31,7 +31,7 @@ GoodPuppy = **一条只通向你最在乎的那几个人的私密、环境式（
 | 前端 | 移植现有 renderer 的 JS/HTML/CSS | 基本可直接复用 |
 | 后端 | **托管 Supabase（官方一个）** | v1 只做一个托管后端；自部署留架构缝、产品上 later |
 | 实时 | **supabase-js 跑在前端 webview** | Rust 不碰 Supabase；presence/realtime 全在前端 |
-| 认证 | **Supabase 匿名登录（anonymous sign-in）** | 零摩擦、无邮箱、原生 JWT；无自建 auth 服务（见 §5） |
+| 认证 | **Supabase 邮箱密码登录/注册** | 原生 JWT、账号可找回、无自建 auth 服务（见 §5） |
 | 会话存储 | **supabase-js 默认（refresh token 由 SDK 自管，可选托管至钥匙串）** | 无需自建/自管任何密钥；会话即身份 |
 
 **Tauri 职责划分（关键）：**
@@ -45,7 +45,7 @@ GoodPuppy = **一条只通向你最在乎的那几个人的私密、环境式（
 把 `appConfig` 抽象为**连接 Profile**：
 
 ```
-ConnectionProfile = { backendUrl, anonKey }
+ConnectionProfile = { backendUrl, publishableKey }
 ```
 
 - 默认指向官方托管后端，硬编码在构建里。
@@ -110,13 +110,13 @@ presence
 - **按个人 ID**（找人）：B 输入 A 的 GoodPuppy ID → 写 `connection_requests` → A 确认 → 自动建房间，双方加入。
 - **按邀请码**（找房间）：把房间的 `invite_code` 分享给任何人，对方输入即可加入。两种方式本质相同——都是加入同一种房间。
 
-## 5. 认证与安全（隐藏的 P0）：Supabase 匿名登录
+## 5. 认证与安全（隐藏的 P0）：Supabase Auth 邮箱密码
 
-无邮箱、无魔法链接、**无自建 auth 服务**。v1 身份直接用 **Supabase 匿名登录（anonymous sign-in）**：
+无自建 auth 服务。v1 身份直接用 **Supabase Auth 邮箱密码登录/注册**：
 
 ```
-1. 客户端首次启动 → supabase.auth.signInAnonymously()
-2. Supabase 返回一个匿名用户 + 真实 JWT（auth.uid() = uuid）
+1. 用户登录或注册邮箱密码账号
+2. Supabase 返回登录用户 + 真实 JWT（auth.uid() = uuid）
 3. 客户端持有该会话；supabase-js 自动续期 refresh token
 4. RLS 直接用 auth.uid() 做隔离，无需自定义 claim
 5. 首次登录后写一行 profiles（id = auth.uid()，派生 gp_id）
@@ -129,11 +129,9 @@ presence
 - `messages.sender_id` 必须等于当前 `auth.uid()`（不能冒名发消息）。
 - `connection_requests`：只能看到 `from_id` 或 `to_id` 是自己的；只有 `to_id` 能改 status。
 
-**账号找回（v1 取舍，必须向用户讲清）：** 匿名会话本身绑定本机——会话丢（重装/换机）≈ 身份丢。v1 接受这一限制，但留好升级路径：
-- **可选链接邮箱/OAuth**：用户真正在乎后，调 `supabase.auth.updateUser({ email })` / `linkIdentity()` 把匿名账号**升级为可找回账号**，`auth.uid()` 不变，房间与连接全部保留。
-- v1 默认不强推此步，保持零摩擦；在"换设备/备份"场景的 UI 里引导。
+**账号找回：** 邮箱密码账号天然支持换机/重装后的身份恢复，`auth.uid()` 不变，房间与连接全部保留。
 
-**新增基建：相比邮箱方案 0 个额外服务端组件。** 匿名登录是 Supabase 原生能力，只需在项目设置里开启 anonymous sign-in，并配好 RLS。
+**新增基建：0 个额外服务端组件。** 邮箱密码登录是 Supabase 原生能力，只需配好 RLS。
 
 ## 6. presence 驱动渲染（核心"在场"价值）
 
@@ -164,7 +162,7 @@ v1 提供**几个内置 pet 供选择**（沿用 `state_images` 的状态机风�
 | Slice | 内容 | 优先级 |
 |---|---|---|
 | 1 | Tauri 行为保真移植（透明置顶窗口+托盘+点击穿透，行为不变） | P0 基建 |
-| 2 | Supabase 匿名登录身份 + RLS + 数据模型重构（运行时身份，告别单独打包） | P0 |
+| 2 | Supabase Auth 身份 + RLS + 数据模型重构（运行时身份，告别单独打包） | P0 |
 | 3 | 连接：按个人 ID（request/approve）+ 邀请码加入房间（第一个"陌生人能连上"版本） | P0 |
 | 4 | presence 驱动**单窗口动态多 pet**渲染（自己常驻 + 在线成员 DOM 节点 + 到达动画 + 内置 pet 选） | P0 核心价值 |
 | 5 | emote + 轻历史 | P1 留存 |
@@ -173,7 +171,7 @@ v1 提供**几个内置 pet 供选择**（沿用 `state_images` 的状态机风�
 ## 11. 明确排除 / 推迟（v1）
 
 - 自部署后端（留缝，later）
-- **密钥对 / SSH 身份模型**（Ed25519 + 挑战-应答 Edge Function + 私钥导出/导入）——"身份握在自己手里"的长期愿景，与自部署一起留作 v2 差异化；v1 用 Supabase 匿名登录替代（见 §5）
+- **密钥对 / SSH 身份模型**（Ed25519 + 挑战-应答 Edge Function + 私钥导出/导入）——"身份握在自己手里"的长期愿景，与自部署一起留作 v2 差异化；v1 用 Supabase Auth 邮箱密码替代（见 §5）
 - 任意上传 pet（先内置）
 - 完整历史浏览 / 搜索
 - AI / Agent、养成成长、陌生人发现、公开大厅

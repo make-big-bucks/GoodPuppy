@@ -1,17 +1,10 @@
 import "./styles.css";
-import { createClient } from "@supabase/supabase-js";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import appConfig from "./appConfig.js";
 import { initConnectPanel, openConnectPanel } from "./connect.js";
+import { createAppSupabaseClient } from "./supabaseClient.js";
 
-const supabase = createClient(appConfig.supabase.url, appConfig.supabase.apiKey, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: false,
-  },
-});
+const supabase = createAppSupabaseClient();
 
 async function init() {
   const { data } = await supabase.auth.getSession();

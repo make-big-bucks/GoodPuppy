@@ -5,7 +5,7 @@
 
 ## 背景
 
-GoodPuppy v1 使用官方托管的 Supabase 后端，`backendUrl` 和 `anonKey` 当前直接硬编码在构建配置中（与现有 Electron 原型相同）。
+GoodPuppy v1 使用官方托管的 Supabase 后端，`backendUrl` 和 `publishableKey` 当前由构建配置提供。
 
 长期来看，GoodPuppy 有"身份握在自己手里"的产品愿景，对应的技术路径是允许用户自部署后端（自己的 Supabase 实例或兼容后端）。如果现在不做任何抽象，未来支持自部署时需要在代码中全局搜索替换 Supabase 配置，改动面难以控制。
 
@@ -18,7 +18,7 @@ GoodPuppy v1 使用官方托管的 Supabase 后端，`backendUrl` 和 `anonKey` 
 ```typescript
 type ConnectionProfile = {
   backendUrl: string;
-  anonKey: string;
+  publishableKey: string;
 };
 ```
 
@@ -41,4 +41,4 @@ type ConnectionProfile = {
 **约束：**
 - v1 的 `ConnectionProfile` 值通过构建时注入（如环境变量 → 构建产物），不在运行时从用户输入读取。
 - 不提前实现"配置切换"逻辑，仅确保 Supabase client 初始化入口统一。
-- 该决策与 ADR-0002（Supabase 匿名登录）配合：anon key 通过 `ConnectionProfile` 传入，不单独硬编码。
+- 该决策与 ADR-0002（Supabase Auth 身份方案）配合：publishable key 通过 `ConnectionProfile` 传入，不允许 service-role/secret key 进入客户端。

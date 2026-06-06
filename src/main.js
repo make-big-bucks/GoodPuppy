@@ -1,19 +1,12 @@
 // 顺序重要：bridge 必须先于 renderer 执行（renderer 顶层会读 window.goodPuppy）
 import "./bridge.js";
 import "./styles.css";
-import { createClient } from "@supabase/supabase-js";
 import { listen, emit } from "@tauri-apps/api/event";
-import appConfig from "./appConfig.js";
 import { startPetApp, switchRoom } from "./renderer.js";
+import { createAppSupabaseClient } from "./supabaseClient.js";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
-const supabase = createClient(appConfig.supabase.url, appConfig.supabase.apiKey, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: false,
-  },
-});
+const supabase = createAppSupabaseClient();
 
 if (inTauri) {
   // Rust 确认窗口已显示后触发，从 localStorage 读取已有 session 启动 Pet

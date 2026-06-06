@@ -297,7 +297,7 @@ async function handleJoinByCode(inviteCode) {
   setFormMessage(form, "");
 
   try {
-    const { error } = await _supabase.rpc("join_room_by_invite", { invite_code: inviteCode });
+    const { error } = await _supabase.rpc("join_room_by_invite", { p_invite_code: inviteCode });
     if (error) throw error;
 
     hideActiveForm();
