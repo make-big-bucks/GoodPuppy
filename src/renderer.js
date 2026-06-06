@@ -972,6 +972,23 @@ async function ensureProfile() {
   }
 }
 
+// 激活指定房间（拉远端成员 + 初始化消息订阅）
+async function activateRoom(roomId) {
+  currentRoomId = roomId;
+
+  const { data: members, error: membersError } = await activeSupabase
+    .from("room_members")
+    .select("user_id")
+    .eq("room_id", currentRoomId)
+    .neq("user_id", selfAuthId);
+
+  if (membersError) throw membersError;
+
+  remoteAuthId = members && members.length > 0 ? members[0].user_id : null;
+
+  await initializeRemoteMessages();
+}
+
 // 加载用户的第一个房间，确定 remoteAuthId
 async function loadCurrentRoom() {
   if (!activeSupabase || !selfAuthId) return;
@@ -984,27 +1001,23 @@ async function loadCurrentRoom() {
   if (error) throw error;
 
   if (!memberships || memberships.length === 0) {
-    // 还没有房间，暂时直接移除初始化状态
+    // 还没有房间，移除初始化状态（connect panel 将引导用户建立连接）
     petStage.classList.remove("is-initializing");
     refreshMousePassthrough();
     return;
   }
 
-  currentRoomId = memberships[0].room_id;
+  await activateRoom(memberships[0].room_id);
+}
 
-  const { data: members, error: membersError } = await activeSupabase
-    .from("room_members")
-    .select("user_id")
-    .eq("room_id", currentRoomId)
-    .neq("user_id", selfAuthId);
-
-  if (membersError) throw membersError;
-
-  if (members && members.length > 0) {
-    remoteAuthId = members[0].user_id;
+// 切换活跃房间（由 connect panel 的"进入此房间"触发）
+export async function switchRoom(roomId) {
+  if (!activeSupabase || !selfAuthId || roomId === currentRoomId) return;
+  try {
+    await activateRoom(roomId);
+  } catch (error) {
+    console.error(error);
   }
-
-  await initializeRemoteMessages();
 }
 
 export function startPetApp({ supabase, session } = {}) {

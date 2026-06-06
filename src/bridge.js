@@ -60,6 +60,14 @@ const goodPuppy = {
     });
     return () => unlisten();
   },
+  onOpenConnectPanel(callback) {
+    if (!inTauri) return () => {};
+    let unlisten = () => {};
+    listen("open-connect-panel", () => callback()).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten();
+  },
   getAppConfig() {
     return appConfig;
   },

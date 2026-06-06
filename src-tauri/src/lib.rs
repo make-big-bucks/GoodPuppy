@@ -258,9 +258,10 @@ pub fn run() {
             }
             spawn_cursor_monitor(app);
 
+            let manage = MenuItemBuilder::with_id("manage-connections", "\u{8fde}\u{63a5}\u{7ba1}\u{7406}").build(app)?;
             let logout = MenuItemBuilder::with_id("logout", "\u{9000}\u{51fa}\u{767b}\u{5f55}").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "\u{9000}\u{51fa}").build(app)?;
-            let menu = MenuBuilder::new(app).items(&[&logout, &quit]).build()?;
+            let menu = MenuBuilder::new(app).items(&[&manage, &logout, &quit]).build()?;
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("GoodPuppy")
@@ -268,6 +269,9 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| {
                     match event.id().as_ref() {
+                        "manage-connections" => {
+                            let _ = app.emit("open-connect-panel", ());
+                        }
                         "logout" => {
                             let _ = app.emit("auth-logout-requested", ());
                         }
