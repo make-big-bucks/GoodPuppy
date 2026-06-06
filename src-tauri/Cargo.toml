@@ -25,4 +25,5 @@ tauri = { version = "2.11.2", features = ["macos-private-api", "tray-icon", "ima
 tauri-plugin-log = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = "0.3.2"
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", features = ["NSPanel"] }

@@ -13,7 +13,16 @@ use tauri::{
 };
 
 #[cfg(target_os = "macos")]
-use objc2_app_kit::NSWindow;
+use objc2::ClassType;
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{NSPanel, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowStyleMask};
+
+// NSPopUpMenuWindowLevel (101) — the same level Electron uses for always-on-top panel windows.
+// Appearing above fullscreen apps is determined by FullScreenAuxiliary collection behavior, not
+// by a high window level; using 1500 (CGAssistiveTechHighWindowLevel) caused the window manager
+// to treat the window as an accessibility overlay, breaking Space membership on some macOS versions.
+#[cfg(target_os = "macos")]
+const NS_POPUP_MENU_WINDOW_LEVEL: objc2_app_kit::NSWindowLevel = 101;
 
 /// How often the native cursor monitor samples the cursor position.
 const CURSOR_POLL_INTERVAL: Duration = Duration::from_millis(16);
@@ -87,6 +96,91 @@ fn cursor_client_position<R: Runtime>(
     macos_window_cursor_position(window).or_else(|| fallback_global_cursor_position(handle, window))
 }
 
+/// Returns the collection behavior needed for a persistent overlay window that appears above
+/// macOS fullscreen apps on every Space.
+///
+/// Tao (Tauri's windowing layer) sets Managed and FullScreenPrimary by default, which conflict
+/// with FullScreenAuxiliary and Stationary. We clear the full set of conflicting flags before
+/// setting the overlay flags so the window correctly joins all Spaces.
+#[cfg(target_os = "macos")]
+fn macos_overlay_collection_behavior(
+    existing: NSWindowCollectionBehavior,
+) -> NSWindowCollectionBehavior {
+    let clear = NSWindowCollectionBehavior::MoveToActiveSpace
+        | NSWindowCollectionBehavior::Managed
+        | NSWindowCollectionBehavior::Transient
+        | NSWindowCollectionBehavior::ParticipatesInCycle
+        | NSWindowCollectionBehavior::FullScreenPrimary
+        | NSWindowCollectionBehavior::FullScreenNone
+        | NSWindowCollectionBehavior::FullScreenAllowsTiling
+        | NSWindowCollectionBehavior::Primary
+        | NSWindowCollectionBehavior::Auxiliary
+        | NSWindowCollectionBehavior::CanJoinAllApplications;
+
+    let set = NSWindowCollectionBehavior::CanJoinAllSpaces
+        | NSWindowCollectionBehavior::Stationary
+        | NSWindowCollectionBehavior::FullScreenAuxiliary
+        | NSWindowCollectionBehavior::IgnoresCycle;
+
+    (existing & !clear) | set
+}
+
+#[cfg(target_os = "macos")]
+fn configure_macos_overlay_level<R: Runtime>(window: &WebviewWindow<R>) {
+    let Ok(ns_window_ptr) = window.ns_window() else {
+        return;
+    };
+    let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
+
+    // Promote the Tauri NSWindow instance to the NSPanel class at runtime.
+    //
+    // Why this is needed: macOS AppKit's Space/fullscreen management internally calls
+    // -[window isKindOfClass:[NSPanel class]]. An NSWindow with the same style mask and
+    // collection behavior flags still fails that check and does not join fullscreen Spaces.
+    // Setting NSWindowStyleMaskNonactivatingPanel alone (our previous attempt) is not enough.
+    //
+    // How: objc2::ffi::object_setClass swaps the isa pointer. NSPanel has no extra ivars
+    // versus NSWindow, so the instance layouts are identical — objc2's AnyObject::set_class
+    // asserts size equality in debug builds, giving us a compile-time safety net.
+    //
+    // This is the same technique Electron's ElectronNSPanel uses (they override styleMask to
+    // add NSWindowStyleMaskNonactivatingPanel on an NSWindow subclass), except we go one step
+    // further and make isKindOfClass:[NSPanel class] return YES.
+    unsafe {
+        let panel_class = <NSPanel as ClassType>::class();
+        objc2::ffi::object_setClass(
+            ns_window as *const NSWindow as *mut objc2::runtime::AnyObject,
+            panel_class,
+        );
+    }
+
+    // Now safe to call NSPanel-specific methods.
+    let ns_panel: &NSPanel = unsafe { &*ns_window_ptr.cast() };
+    ns_panel.setFloatingPanel(true);
+    ns_panel.setBecomesKeyOnlyIfNeeded(true);
+
+    ns_window.setStyleMask(ns_window.styleMask() | NSWindowStyleMask::NonactivatingPanel);
+    ns_window.setLevel(NS_POPUP_MENU_WINDOW_LEVEL);
+    ns_window.setHidesOnDeactivate(false);
+    ns_window.setCanHide(false);
+    ns_window.setAnimationBehavior(NSWindowAnimationBehavior::None);
+    ns_window.setCollectionBehavior(macos_overlay_collection_behavior(
+        ns_window.collectionBehavior(),
+    ));
+    ns_window.orderFrontRegardless();
+}
+
+#[cfg(not(target_os = "macos"))]
+fn configure_macos_overlay_level<R: Runtime>(_window: &WebviewWindow<R>) {}
+
+#[cfg(target_os = "macos")]
+fn configure_macos_app_activation_policy(app: &mut tauri::App) {
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn configure_macos_app_activation_policy(_app: &mut tauri::App) {}
+
 /// Streams cursor positions relative to the webview content area.
 ///
 /// The pet window is mostly transparent and uses `set_ignore_cursor_events` to let
@@ -158,6 +252,10 @@ fn spawn_cursor_monitor(app: &tauri::App) {
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            configure_macos_app_activation_policy(app);
+            if let Some(window) = app.get_webview_window("main") {
+                configure_macos_overlay_level(&window);
+            }
             spawn_cursor_monitor(app);
 
             let quit = MenuItemBuilder::with_id("quit", "退出").build(app)?;
@@ -189,5 +287,35 @@ mod tests {
 
         assert_eq!(point.x, 25.5);
         assert_eq!(point.y, 300.0);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_overlay_collection_behavior_clears_conflicting_flags() {
+        let existing = NSWindowCollectionBehavior::Managed
+            | NSWindowCollectionBehavior::MoveToActiveSpace
+            | NSWindowCollectionBehavior::ParticipatesInCycle
+            | NSWindowCollectionBehavior::FullScreenPrimary;
+
+        let result = macos_overlay_collection_behavior(existing);
+
+        assert!(!result.contains(NSWindowCollectionBehavior::Managed));
+        assert!(!result.contains(NSWindowCollectionBehavior::MoveToActiveSpace));
+        assert!(!result.contains(NSWindowCollectionBehavior::ParticipatesInCycle));
+        assert!(!result.contains(NSWindowCollectionBehavior::FullScreenPrimary));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_overlay_collection_behavior_sets_all_required_overlay_flags() {
+        let existing = NSWindowCollectionBehavior::empty();
+
+        let result = macos_overlay_collection_behavior(existing);
+
+        assert!(result.contains(NSWindowCollectionBehavior::CanJoinAllSpaces));
+        assert!(result.contains(NSWindowCollectionBehavior::Stationary));
+        assert!(result.contains(NSWindowCollectionBehavior::FullScreenAuxiliary));
+        assert!(result.contains(NSWindowCollectionBehavior::IgnoresCycle));
+        assert!(!result.contains(NSWindowCollectionBehavior::FullScreenDisallowsTiling));
     }
 }
