@@ -1,13 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
+import { emit } from "@tauri-apps/api/event";
 import appConfig from "./appConfig.js";
 
-const authPanel = document.querySelector(".auth-panel");
 const authForm = document.querySelector(".auth-card");
-const authRegisterButton = document.querySelector(".auth-register");
 const authMessage = document.querySelector(".auth-message");
 const passwordInput = document.querySelector(".auth-password");
 const passwordToggle = document.querySelector(".auth-password-toggle");
-const petStage = document.querySelector(".pet-stage");
 
 const supabase = createClient(appConfig.supabase.url, appConfig.supabase.apiKey, {
   auth: {
@@ -17,7 +15,8 @@ const supabase = createClient(appConfig.supabase.url, appConfig.supabase.apiKey,
   },
 });
 
-let petAppStarted = false;
+// 防止重复触发（已有 session 时 onAuthStateChange 和 getSession 可能同时命中）
+let authHandled = false;
 
 function setAuthMessage(message, { isError = false } = {}) {
   if (!authMessage) return;
@@ -26,8 +25,8 @@ function setAuthMessage(message, { isError = false } = {}) {
 }
 
 function setAuthBusy(isBusy) {
-  authForm?.querySelectorAll("input, button").forEach((element) => {
-    element.disabled = isBusy;
+  authForm?.querySelectorAll("input, button").forEach((el) => {
+    el.disabled = isBusy;
   });
 }
 
@@ -39,41 +38,23 @@ function getAuthCredentials() {
   };
 }
 
-function showLoginPanel() {
-  authPanel.hidden = false;
-  petStage.classList.add("is-initializing");
-  window.goodPuppy.setIgnoreMouseEvents(false);
-  setAuthMessage("");
+async function notifyAuthReady() {
+  if (authHandled) return;
+  authHandled = true;
+  await emit("auth-ready");
 }
 
-async function showPetApp(session, startPetApp) {
-  if (!session?.user) {
-    showLoginPanel();
-    return;
-  }
-
-  authPanel.hidden = true;
-
-  if (!petAppStarted) {
-    petAppStarted = true;
-  }
-
-  startPetApp({ supabase, session });
-}
-
-async function signIn(startPetApp) {
+async function signIn() {
   const { email, password } = getAuthCredentials();
-
   setAuthBusy(true);
-  setAuthMessage("\u6b63\u5728\u767b\u5f55...");
+  setAuthMessage("正在登录...");
 
   try {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
-    await showPetApp(data.session, startPetApp);
+    await notifyAuthReady();
   } catch (error) {
-    setAuthMessage(error.message || "\u767b\u5f55\u5931\u8d25", { isError: true });
+    setAuthMessage(error.message || "登录失败", { isError: true });
   } finally {
     setAuthBusy(false);
   }
@@ -81,22 +62,19 @@ async function signIn(startPetApp) {
 
 async function signUp() {
   const { email, password } = getAuthCredentials();
-
   setAuthBusy(true);
-  setAuthMessage("\u6b63\u5728\u6ce8\u518c...");
+  setAuthMessage("正在注册...");
 
   try {
     const { data, error } = await supabase.auth.signUp({ email, password });
-
     if (error) throw error;
-
     if (data.session) {
-      setAuthMessage("\u6ce8\u518c\u6210\u529f");
+      setAuthMessage("注册成功");
     } else {
-      setAuthMessage("\u6ce8\u518c\u6210\u529f\uff0c\u8bf7\u68c0\u67e5\u90ae\u7bb1\u786e\u8ba4\u8d26\u53f7");
+      setAuthMessage("注册成功，请检查邮箱确认账号");
     }
   } catch (error) {
-    setAuthMessage(error.message || "\u6ce8\u518c\u5931\u8d25", { isError: true });
+    setAuthMessage(error.message || "注册失败", { isError: true });
   } finally {
     setAuthBusy(false);
   }
@@ -106,46 +84,31 @@ function setupPasswordToggle() {
   passwordToggle?.addEventListener("click", () => {
     const shouldShow = passwordInput.type === "password";
     passwordInput.type = shouldShow ? "text" : "password";
-    passwordToggle.textContent = shouldShow ? "\u9690\u85cf" : "\u663e\u793a";
-    passwordToggle.setAttribute("aria-label", shouldShow ? "\u9690\u85cf\u5bc6\u7801" : "\u663e\u793a\u5bc6\u7801");
+    passwordToggle.textContent = shouldShow ? "隐藏" : "显示";
+    passwordToggle.setAttribute("aria-label", shouldShow ? "隐藏密码" : "显示密码");
     passwordInput.focus();
   });
 }
 
-function setupAuthDrag() {
-  authPanel?.addEventListener("pointerdown", (event) => {
-    if (event.target.closest("input, button")) {
-      return;
-    }
-
-    window.goodPuppy.startWindowDrag();
-  });
-}
-
-export async function initializeAuth(startPetApp) {
-  showLoginPanel();
+export async function initializeAuth() {
   setupPasswordToggle();
-  setupAuthDrag();
 
-  authForm?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    signIn(startPetApp);
+  authForm?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    signIn();
   });
 
-  authRegisterButton?.addEventListener("click", () => {
+  document.querySelector(".auth-register")?.addEventListener("click", () => {
     signUp();
-  });
-
-  window.goodPuppy.onTrayLogoutRequest(async () => {
-    await supabase.auth.signOut();
-    showLoginPanel();
   });
 
   supabase.auth.onAuthStateChange((_event, session) => {
     if (session) {
-      showPetApp(session, startPetApp);
+      notifyAuthReady();
     } else {
-      showLoginPanel();
+      // 退出登录后重置，允许下次重新登录
+      authHandled = false;
+      setAuthMessage("");
     }
   });
 
@@ -157,6 +120,6 @@ export async function initializeAuth(startPetApp) {
   }
 
   if (data.session) {
-    await showPetApp(data.session, startPetApp);
+    await notifyAuthReady();
   }
 }

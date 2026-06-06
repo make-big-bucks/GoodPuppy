@@ -1,3 +1,5 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
 let _supabase = null;
 let _selfAuthId = null;
 let _onEnterRoom = null;
@@ -448,10 +450,13 @@ export function openConnectPanel() {
 }
 
 export function closeConnectPanel() {
-  const p = panel();
-  if (!p) return;
-
-  p.hidden = true;
   selectedRoom = null;
   activeForm = null;
+
+  if (window.__TAURI_INTERNALS__) {
+    getCurrentWindow().hide();
+  } else {
+    const p = panel();
+    if (p) p.hidden = true;
+  }
 }

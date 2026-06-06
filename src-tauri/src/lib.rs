@@ -9,7 +9,7 @@ use serde::Serialize;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager, Runtime, WebviewWindow,
+    AppHandle, Emitter, Listener, Manager, Runtime, WebviewUrl, WebviewWindowBuilder, WebviewWindow,
 };
 
 #[cfg(target_os = "macos")]
@@ -258,6 +258,38 @@ pub fn run() {
             }
             spawn_cursor_monitor(app);
 
+            // 登录成功：隐藏登录窗口，显示 Pet 窗口并通知初始化
+            let handle = app.handle().clone();
+            app.listen("auth-ready", move |_| {
+                let h = handle.clone();
+                let h2 = h.clone();
+                let _ = h.run_on_main_thread(move || {
+                    if let Some(w) = h2.get_webview_window("login") {
+                        let _ = w.hide();
+                    }
+                    if let Some(w) = h2.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.emit("pet-init", ());
+                    }
+                });
+            });
+
+            // 退出登录：隐藏 Pet 窗口，显示登录窗口
+            let handle2 = app.handle().clone();
+            app.listen("auth-cleared", move |_| {
+                let h = handle2.clone();
+                let h2 = h.clone();
+                let _ = h.run_on_main_thread(move || {
+                    if let Some(w) = h2.get_webview_window("main") {
+                        let _ = w.hide();
+                    }
+                    if let Some(w) = h2.get_webview_window("login") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                });
+            });
+
             let manage = MenuItemBuilder::with_id("manage-connections", "\u{8fde}\u{63a5}\u{7ba1}\u{7406}").build(app)?;
             let logout = MenuItemBuilder::with_id("logout", "\u{9000}\u{51fa}\u{767b}\u{5f55}").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "\u{9000}\u{51fa}").build(app)?;
@@ -270,10 +302,27 @@ pub fn run() {
                 .on_menu_event(|app, event| {
                     match event.id().as_ref() {
                         "manage-connections" => {
-                            let _ = app.emit("open-connect-panel", ());
+                            if let Some(w) = app.get_webview_window("connect") {
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                                let _ = w.emit("connect-refresh", ());
+                            } else {
+                                let _ = WebviewWindowBuilder::new(
+                                    app,
+                                    "connect",
+                                    WebviewUrl::App("connect.html".into()),
+                                )
+                                .title("\u{8fde}\u{63a5}\u{7ba1}\u{7406}")
+                                .inner_size(280.0, 560.0)
+                                .resizable(false)
+                                .maximizable(false)
+                                .build();
+                            }
                         }
                         "logout" => {
-                            let _ = app.emit("auth-logout-requested", ());
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.emit("auth-logout-requested", ());
+                            }
                         }
                         "quit" => app.exit(0),
                         _ => {}

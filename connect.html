@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>连接管理 - GoodPuppy</title>
+  </head>
+  <body>
+    <section class="connect-panel" aria-label="连接管理">
+      <!-- Main view -->
+      <div class="connect-main">
+        <div class="connect-header">
+          <h2 class="connect-title">连接管理</h2>
+          <button class="connect-close" type="button" aria-label="关闭">✕</button>
+        </div>
+
+        <!-- My profile -->
+        <div class="connect-profile">
+          <div class="connect-profile-name-row">
+            <span class="connect-label">显示名</span>
+            <span class="connect-display-name"></span>
+          </div>
+          <div class="connect-profile-id-row">
+            <span class="connect-label">我的 ID</span>
+            <span class="connect-gp-id"></span>
+            <button class="connect-copy-btn" type="button" data-copy="gp-id">复制</button>
+          </div>
+        </div>
+
+        <!-- Pending requests (hidden when none) -->
+        <div class="connect-requests" hidden>
+          <div class="connect-section-title">待处理请求</div>
+          <ul class="connect-request-list"></ul>
+        </div>
+
+        <!-- Room list -->
+        <div class="connect-section-title">我的房间</div>
+        <ul class="connect-room-list">
+          <li class="connect-empty-hint">还没有房间</li>
+        </ul>
+
+        <!-- Action buttons -->
+        <div class="connect-actions">
+          <button class="connect-action-btn" type="button" data-action="id">按 ID 连接</button>
+          <button class="connect-action-btn" type="button" data-action="code">输入邀请码</button>
+        </div>
+
+        <!-- Inline form: connect by GoodPuppy ID -->
+        <form class="connect-form connect-form-id" hidden>
+          <input class="connect-input" name="gp-id" placeholder="对方的 GoodPuppy ID" autocomplete="off" />
+          <p class="connect-form-message" role="status"></p>
+          <div class="connect-form-actions">
+            <button type="button" class="connect-form-cancel">取消</button>
+            <button type="submit" class="connect-form-submit">发送请求</button>
+          </div>
+        </form>
+
+        <!-- Inline form: join by invite code -->
+        <form class="connect-form connect-form-code" hidden>
+          <input class="connect-input" name="invite-code" placeholder="房间邀请码" autocomplete="off" />
+          <p class="connect-form-message" role="status"></p>
+          <div class="connect-form-actions">
+            <button type="button" class="connect-form-cancel">取消</button>
+            <button type="submit" class="connect-form-submit">加入房间</button>
+          </div>
+        </form>
+
+        <p class="connect-message" role="status"></p>
+      </div>
+
+      <!-- Room detail view -->
+      <div class="connect-room-detail" hidden>
+        <div class="connect-header">
+          <button class="connect-back" type="button">← 返回</button>
+          <button class="connect-close" type="button" aria-label="关闭">✕</button>
+        </div>
+
+        <div class="connect-section-title">房间成员</div>
+        <ul class="connect-member-list"></ul>
+
+        <div class="connect-section-title">邀请码</div>
+        <div class="connect-invite-row">
+          <span class="connect-invite-code"></span>
+          <button class="connect-copy-btn" type="button" data-copy="invite-code">复制</button>
+        </div>
+
+        <button class="connect-enter-room" type="button">进入此房间</button>
+
+        <p class="connect-message" role="status"></p>
+      </div>
+    </section>
+
+    <script type="module" src="/src/connect-main.js"></script>
+  </body>
+</html>

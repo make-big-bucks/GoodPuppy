@@ -52,22 +52,6 @@ const goodPuppy = {
     });
     return () => unlisten();
   },
-  onTrayLogoutRequest(callback) {
-    if (!inTauri) return () => {};
-    let unlisten = () => {};
-    listen("auth-logout-requested", () => callback()).then((fn) => {
-      unlisten = fn;
-    });
-    return () => unlisten();
-  },
-  onOpenConnectPanel(callback) {
-    if (!inTauri) return () => {};
-    let unlisten = () => {};
-    listen("open-connect-panel", () => callback()).then((fn) => {
-      unlisten = fn;
-    });
-    return () => unlisten();
-  },
   getAppConfig() {
     return appConfig;
   },

@@ -1,6 +1,9 @@
 import { defineConfig } from "vite";
+import { resolve } from "path";
+import { fileURLToPath } from "url";
 
-// Tauri expects the frontend dev server to match tauri.conf.json devUrl.
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+
 export default defineConfig({
   clearScreen: false,
   server: {
@@ -14,5 +17,12 @@ export default defineConfig({
     outDir: "dist",
     target: "esnext",
     emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        login: resolve(__dirname, "login.html"),
+        connect: resolve(__dirname, "connect.html"),
+      },
+    },
   },
 });

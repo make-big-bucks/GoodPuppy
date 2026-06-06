@@ -15,10 +15,21 @@
     "security": { "csp": null },
     "windows": [
       {
+        "label": "login",
+        "title": "GoodPuppy",
+        "url": "login.html",
+        "width": 320,
+        "height": 300,
+        "resizable": false,
+        "maximizable": false,
+        "center": true
+      },
+      {
         "label": "main",
         "title": "GoodPuppy",
         "width": 780,
         "height": 340,
+        "visible": false,
         "resizable": false,
         "maximizable": false,
         "decorations": false,
