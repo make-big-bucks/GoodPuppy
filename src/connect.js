@@ -229,7 +229,7 @@ async function loadPanelData() {
 
 async function handleAcceptRequest(requestId) {
   try {
-    const { error } = await _supabase.rpc("accept_connection", { request_id: requestId });
+    const { error } = await _supabase.rpc("accept_connection", { p_request_id: requestId });
     if (error) throw error;
     setMainMessage("已接受，房间已创建");
     await loadPanelData();
@@ -422,8 +422,9 @@ export function initConnectPanel({ supabase, selfAuthId, onEnterRoom }) {
   // Enter room
   detailView()?.querySelector(".connect-enter-room")?.addEventListener("click", () => {
     if (!selectedRoom) return;
+    const roomId = selectedRoom.id;
     closeConnectPanel();
-    _onEnterRoom?.(selectedRoom.id);
+    _onEnterRoom?.(roomId);
   });
 
   // Drag to move window (click on panel background)
