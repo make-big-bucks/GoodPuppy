@@ -4,8 +4,10 @@
   "description": "A desktop pet app built with Tauri.",
   "scripts": {
     "dev": "vite",
+    "dev:peer": "DEV_PORT=1421 vite",
     "build": "vite build",
     "tauri": "tauri",
+    "tauri:dev:peer": "tauri dev --config src-tauri/tauri.peer.conf.json",
     "test": "vitest run"
   },
   "keywords": [

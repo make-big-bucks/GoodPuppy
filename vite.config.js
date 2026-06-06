@@ -7,7 +7,7 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 export default defineConfig({
   clearScreen: false,
   server: {
-    port: 1420,
+    port: Number(process.env.DEV_PORT) || 1420,
     strictPort: true,
     watch: {
       ignored: ["**/src-tauri/target/**"],

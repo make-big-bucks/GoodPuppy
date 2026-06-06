@@ -45,6 +45,20 @@ npm install
 npm run tauri dev
 ```
 
+## 开发：双账号同时登录测试
+
+在两个终端分别运行，可同时登录不同账号：
+
+```bash
+# 终端 1（账号 A，端口 1420）
+npm run tauri dev
+
+# 终端 2（账号 B，端口 1421）
+npm run tauri:dev:peer
+```
+
+两个实例拥有独立的数据目录，Supabase session 互不干扰，适合测试连接、房间邀请等双向交互功能。
+
 ## Build
 
 To produce a distributable installer:

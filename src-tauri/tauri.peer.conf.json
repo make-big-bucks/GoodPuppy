@@ -1,0 +1,7 @@
+{
+  "identifier": "com.goodpuppy.desktop.peer",
+  "build": {
+    "devUrl": "http://localhost:1421",
+    "beforeDevCommand": "npm run dev:peer"
+  }
+}
