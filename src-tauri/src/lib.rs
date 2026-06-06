@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -181,25 +182,14 @@ fn configure_macos_app_activation_policy(app: &mut tauri::App) {
 #[cfg(not(target_os = "macos"))]
 fn configure_macos_app_activation_policy(_app: &mut tauri::App) {}
 
-/// Streams cursor positions relative to the webview content area.
-///
-/// The pet window is mostly transparent and uses `set_ignore_cursor_events` to let
-/// clicks fall through to apps behind it. The decision of when to re-enable
-/// interactivity is pixel-perfect and lives in the webview, but once the window is
-/// ignoring cursor events the webview stops receiving `mousemove` entirely (and it
-/// never receives them at all while another app is focused). Tauri has no
-/// `forward`-style option for this (unlike Electron's `setIgnoreMouseEvents(true,
-/// { forward: true })`), so we feed cursor positions from the native side. On
-/// macOS we use NSWindow-relative mouse coordinates to avoid mixed-monitor global
-/// coordinate conversion bugs; other platforms fall back to Tauri's global cursor
-/// position APIs.
+/// Streams cursor positions relative to the pet webview's content area so the
+/// transparent overlay can perform pixel-perfect hit testing while ignoring mouse events.
 fn spawn_cursor_monitor(app: &tauri::App) {
     let handle = app.handle().clone();
     thread::spawn(move || {
-        // Native window/cursor APIs reach into main-thread-only handles, so every sample
-        // must run on the main thread via `run_on_main_thread`.
-        let last_emitted: Arc<std::sync::Mutex<Option<((i64, i64), Instant)>>> =
-            Arc::new(std::sync::Mutex::new(None));
+        // Per-window dedup: label → (last rounded position, last emit time).
+        let last_emitted: Arc<std::sync::Mutex<HashMap<String, ((i64, i64), Instant)>>> =
+            Arc::new(std::sync::Mutex::new(HashMap::new()));
         let stop = Arc::new(AtomicBool::new(false));
 
         loop {
@@ -212,35 +202,38 @@ fn spawn_cursor_monitor(app: &tauri::App) {
             let last_emitted = last_emitted.clone();
             let stop = stop.clone();
             let posted = handle.clone().run_on_main_thread(move || {
-                let Some(window) = handle.get_webview_window("main") else {
-                    // Window is gone; signal the polling loop to exit.
+                if handle.get_webview_window("main").is_none() {
                     stop.store(true, Ordering::Relaxed);
                     return;
-                };
-
-                let Some(client_point) = cursor_client_position(&handle, &window) else {
-                    return;
-                };
-
-                // Dedupe at integer-pixel granularity while keeping a slow heartbeat.
-                // Events emitted before the frontend listener exists are not buffered.
-                let rounded = (client_point.x.round() as i64, client_point.y.round() as i64);
-                {
-                    let mut guard = last_emitted.lock().unwrap();
-                    if let Some((last_position, last_time)) = *guard {
-                        if last_position == rounded
-                            && last_time.elapsed() < CURSOR_HEARTBEAT_INTERVAL
-                        {
-                            return;
-                        }
-                    }
-                    *guard = Some((rounded, Instant::now()));
                 }
 
-                let _ = window.emit("cursor-moved", client_point.clone());
+                let mut guard = last_emitted.lock().unwrap();
+                let now = Instant::now();
+
+                for (label, window) in handle.webview_windows() {
+                    if label != "main" {
+                        continue;
+                    }
+
+                    let Some(client_point) = cursor_client_position(&handle, &window) else {
+                        continue;
+                    };
+
+                    let rounded = (client_point.x.round() as i64, client_point.y.round() as i64);
+                    let should_emit = match guard.get(&label) {
+                        Some((last_pos, last_time)) => {
+                            *last_pos != rounded || last_time.elapsed() >= CURSOR_HEARTBEAT_INTERVAL
+                        }
+                        None => true,
+                    };
+
+                    if should_emit {
+                        guard.insert(label, (rounded, now));
+                        let _ = window.emit("cursor-moved", client_point);
+                    }
+                }
             });
 
-            // If the event loop is gone, stop polling.
             if posted.is_err() {
                 break;
             }

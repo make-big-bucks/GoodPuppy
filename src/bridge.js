@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { LogicalPosition } from "@tauri-apps/api/dpi";
+import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
 import appConfig from "./appConfig.js";
 import { createIgnoreMouseEventsController } from "./cursorEventsController.js";
@@ -18,13 +18,18 @@ const goodPuppy = {
   },
   async getWindowLayout() {
     const pos = await this.getWindowPosition();
-    const bounds = { x: pos.x, y: pos.y, width: 780, height: 340 };
+    const bounds = { x: pos.x, y: pos.y, width: 260, height: 360 };
     return { windowBounds: bounds, workArea: bounds };
   },
   setWindowPosition(position) {
     if (!appWindow) return;
     if (!position || typeof position.x !== "number" || typeof position.y !== "number") return;
     appWindow.setPosition(new LogicalPosition(Math.round(position.x), Math.round(position.y)));
+  },
+  setWindowSize(size) {
+    if (!appWindow) return;
+    if (!size || typeof size.width !== "number" || typeof size.height !== "number") return;
+    appWindow.setSize(new LogicalSize(Math.round(size.width), Math.round(size.height)));
   },
   // 是否支持系统原生窗口拖拽。macOS/Win/Linux 的 Tauri 都有，缺失时才回退到手动跟随。
   supportsNativeWindowDrag() {
@@ -55,11 +60,6 @@ const goodPuppy = {
   getAppConfig() {
     return appConfig;
   },
-  // 网络订阅：Slice 1 为 no-op，Slice 2 接入新数据层
-  onRemoteMessage() {},
-  onRemoteMessageStatus() {},
-  onPresenceUpdate() {},
-  onPresenceStatus() {},
 };
 
 window.goodPuppy = goodPuppy;
