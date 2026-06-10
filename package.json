@@ -8,6 +8,7 @@
     "build": "vite build",
     "tauri": "tauri",
     "tauri:dev:peer": "tauri dev --config src-tauri/tauri.peer.conf.json",
+    "gen:skins": "node tools/generate-skins.mjs",
     "test": "vitest run"
   },
   "keywords": [
@@ -19,6 +20,8 @@
   "license": "MIT",
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.2",
+    "gifenc": "^1.0.3",
+    "gifuct-js": "^2.1.2",
     "vite": "^6.4.3",
     "vitest": "^4.1.8"
   },

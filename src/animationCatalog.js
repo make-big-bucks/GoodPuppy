@@ -80,12 +80,21 @@ const PET_REGISTRY = Object.freeze({
 
 export const DEFAULT_PET = "shiba";
 
+// 皮肤（换肤）：default = 基础形象（资源在 pet 目录根），其余皮肤的变体 GIF 放在
+// `public/pets/<dir>/skins/<skin>/`，由 tools/generate-skins.mjs 离线生成。
+// 每只 pet 支持哪些皮肤是「资源事实」，由 pet.json 的 `skins` 声明（见 loadPetManifest）。
+export const DEFAULT_SKIN = "default";
+
 export function resolvePetDir(petId) {
   return PET_REGISTRY[petId] || DEFAULT_PET;
 }
 
-export function getStateImagePath(petId, stateName) {
-  return `/pets/${resolvePetDir(petId)}/${stateName}.gif`;
+export function getStateImagePath(petId, stateName, skin = DEFAULT_SKIN) {
+  const dir = resolvePetDir(petId);
+  if (skin && skin !== DEFAULT_SKIN) {
+    return `/pets/${dir}/skins/${skin}/${stateName}.gif`;
+  }
+  return `/pets/${dir}/${stateName}.gif`;
 }
 
 export function isStatusState(stateName) {
@@ -118,14 +127,17 @@ export async function loadPetManifest(petId, { fetchImpl = fetch } = {}) {
   const dir = resolvePetDir(petId);
   if (manifestCache.has(dir)) return manifestCache.get(dir);
 
-  let manifest = { id: dir, states: {} };
+  let manifest = { id: dir, states: {}, skins: [] };
   try {
     const res = await fetchImpl(`/pets/${dir}/pet.json`);
     if (res.ok) {
       const json = await res.json();
       const states = {};
       for (const s of json.states || []) states[s.state] = s;
-      manifest = { id: json.id || dir, states };
+      const skins = (json.skins || [])
+        .filter((s) => s && s.id && s.id !== DEFAULT_SKIN)
+        .map((s) => ({ id: s.id, label: s.label || s.id }));
+      manifest = { id: json.id || dir, states, skins };
     }
   } catch {
     // 网络/解析失败：留空 states，使用兜底时长。

@@ -7,7 +7,7 @@ let presenceChannel = null;
 let knownUsers = new Map(); // userId -> { status, petId }
 let _selfId = null;
 let _onPresenceChange = () => {};
-let _localPayload = { status: null, pet_id: "default" };
+let _localPayload = { status: null, pet_id: "default", skin: "default" };
 
 function emitPresence() {
   _onPresenceChange(
@@ -15,6 +15,7 @@ function emitPresence() {
       userId,
       status: info.status ?? null,
       petId: info.petId || "default",
+      skin: info.skin || "default",
     }))
   );
 }
@@ -29,14 +30,23 @@ function syncOnlineState() {
     // 同一 key 可能累积多个 meta（再次 track() 更新时 Supabase 会追加而非替换），
     // 取 online_at 最新的那个，否则会读到过期状态。见 latestMeta()。
     const meta = latestMeta(metas);
-    next.set(key, { status: meta?.status ?? null, petId: meta?.pet_id || "default" });
+    next.set(key, {
+      status: meta?.status ?? null,
+      petId: meta?.pet_id || "default",
+      skin: meta?.skin || "default",
+    });
   }
 
   const changed =
     next.size !== knownUsers.size ||
     [...next.entries()].some(([id, info]) => {
       const prev = knownUsers.get(id);
-      return !prev || prev.status !== info.status || prev.petId !== info.petId;
+      return (
+        !prev ||
+        prev.status !== info.status ||
+        prev.petId !== info.petId ||
+        prev.skin !== info.skin
+      );
     });
 
   knownUsers = next;
@@ -59,12 +69,13 @@ export function latestMeta(metas) {
   return best;
 }
 
-export async function joinRoom(supabase, roomId, selfId, { onPresenceChange, status, petId } = {}) {
+export async function joinRoom(supabase, roomId, selfId, { onPresenceChange, status, petId, skin } = {}) {
   _selfId = selfId;
   _onPresenceChange = typeof onPresenceChange === "function" ? onPresenceChange : () => {};
   _localPayload = {
     status: status ?? _localPayload.status ?? null,
     pet_id: petId || _localPayload.pet_id || "default",
+    skin: skin || _localPayload.skin || "default",
   };
 
   if (presenceChannel) {
@@ -87,9 +98,10 @@ export async function joinRoom(supabase, roomId, selfId, { onPresenceChange, sta
 }
 
 // 更新本地持续状态 / 形象并重新广播。无房间时仅记录，下次 joinRoom 生效。
-export async function updateLocalPresence({ status, petId } = {}) {
+export async function updateLocalPresence({ status, petId, skin } = {}) {
   if (status !== undefined) _localPayload.status = status;
   if (petId !== undefined) _localPayload.pet_id = petId || "default";
+  if (skin !== undefined) _localPayload.skin = skin || "default";
   if (presenceChannel) {
     await presenceChannel.track({
       user_id: _selfId,

@@ -91,6 +91,24 @@ describe("PetAnimator three-layer priority", () => {
     expect(greetPaths[1]).toContain("?r=");
   });
 
+  it("setSkin routes image paths into the skin subdir and reloads on change", () => {
+    const paths = [];
+    const { animator } = makeAnimator({ onState: (_n, p) => paths.push(p) });
+    expect(paths[paths.length - 1]).toBe("/pets/shiba/idle.gif");
+    animator.setSkin("pink");
+    const last = paths[paths.length - 1];
+    expect(last).toContain("/pets/shiba/skins/pink/idle.gif");
+    expect(last).toContain("?r="); // 同状态切肤也强制换图
+  });
+
+  it("setSkin is a no-op when the skin is unchanged", () => {
+    const paths = [];
+    const { animator } = makeAnimator({ onState: (_n, p) => paths.push(p) });
+    const before = paths.length;
+    animator.setSkin("default");
+    expect(paths.length).toBe(before);
+  });
+
   it("does not start cycle timers when autoCycle is false", () => {
     const { timers } = makeAnimator();
     expect(timers.pending()).toBe(0);

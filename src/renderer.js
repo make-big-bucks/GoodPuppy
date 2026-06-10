@@ -4,12 +4,13 @@ import {
   durationFromManifest,
   INTERACTIONS,
   STATUS_OPTIONS,
+  DEFAULT_SKIN,
 } from "./animationCatalog.js";
 import { isPointOpaqueInImage } from "./hitTesting.js";
 import * as presence from "./presence.js";
 import { joinInteractions, leaveInteractions, sendInteraction } from "./interactions.js";
 import { getPetWindowLayout, orderRemotePetIds } from "./petLayout.js";
-import { Menu } from "@tauri-apps/api/menu";
+import { Menu, Submenu, CheckMenuItem } from "@tauri-apps/api/menu";
 
 const petStage = document.querySelector(".pet-stage");
 const cloudHitImage = new Image();
@@ -28,6 +29,10 @@ const selfArea = document.querySelector('.dog-area[data-user="self"]');
 messageBubble?.classList.add("is-owned");
 
 let selfPetId = "default";
+// 换肤：纯本地偏好，存 localStorage（不进 Supabase，避免 schema 变更）；
+// 进房后通过 presence 广播给房间里其他人，让对方渲染我所选皮肤。
+const SKIN_STORAGE_KEY = "goodpuppy.skin";
+let selfSkin = readStoredSkin();
 let selfAuthId = null;
 let currentRoomId = null;
 let activeSupabase = null;
@@ -57,8 +62,17 @@ function applyStateToImage(img, path, meta) {
 
 // ── Self pet animator ─────────────────────────────────────────
 
+function readStoredSkin() {
+  try {
+    return localStorage.getItem(SKIN_STORAGE_KEY) || DEFAULT_SKIN;
+  } catch {
+    return DEFAULT_SKIN;
+  }
+}
+
 const selfAnimator = new PetAnimator({
   petId: selfPetId,
+  skin: selfSkin,
   onState: (_state, path, meta) => applyStateToImage(petImage, path, meta),
 });
 
@@ -136,6 +150,7 @@ function createRemotePet(userId, info) {
   const img = element.querySelector(".pet-image");
   const animator = new PetAnimator({
     petId: info.petId,
+    skin: info.skin,
     onState: (_state, path, meta) => applyStateToImage(img, path, meta),
   });
   loadPetManifest(info.petId).then((manifest) => animator.setManifest(manifest));
@@ -180,6 +195,7 @@ function applyPresence(users) {
       }
     }
     entry.animator.setPetId(info.petId);
+    entry.animator.setSkin(info.skin);
     entry.animator.setStatus(info.status);
   }
 
@@ -231,6 +247,21 @@ function triggerInteraction(action, targetId) {
 function setSelfStatus(status) {
   selfAnimator.setStatus(status);
   presence.updateLocalPresence({ status }).catch(console.error);
+}
+
+// ── Skin (换肤) ───────────────────────────────────────────────
+
+function setSelfSkin(skin) {
+  const next = skin || DEFAULT_SKIN;
+  if (next === selfSkin) return;
+  selfSkin = next;
+  selfAnimator.setSkin(next);
+  try {
+    localStorage.setItem(SKIN_STORAGE_KEY, next);
+  } catch {
+    // localStorage 不可用时仅保留本会话选择。
+  }
+  presence.updateLocalPresence({ skin: next }).catch(console.error);
 }
 
 // ── Message bubble ────────────────────────────────────────────
@@ -614,6 +645,25 @@ function showRemoteBubble(userId) {
   refreshMousePassthrough();
 }
 
+// 「换肤」子菜单：选项来自 self pet 的 manifest.skins（pet.json 声明），
+// 加一个「原色」回到 default。当前所选打勾。无皮肤声明时返回 null（不显示该项）。
+async function buildSkinSubmenu() {
+  const skins = selfAnimator.manifest?.skins || [];
+  if (skins.length === 0) return null;
+  const options = [{ id: DEFAULT_SKIN, label: "原色" }, ...skins];
+  const items = await Promise.all(
+    options.map((opt) =>
+      CheckMenuItem.new({
+        id: `skin-${opt.id}`,
+        text: opt.label,
+        checked: selfSkin === opt.id,
+        action: () => setSelfSkin(opt.id),
+      })
+    )
+  );
+  return Submenu.new({ text: "换肤", items });
+}
+
 async function showPetContextMenu(event) {
   const identity = getPetIdentityForEvent(event);
   const hasSelfMessages = messageHistory.length > 0;
@@ -638,6 +688,7 @@ async function showPetContextMenu(event) {
     return;
   }
 
+  const skinMenu = await buildSkinSubmenu();
   const menu = await Menu.new({
     items: [
       {
@@ -663,6 +714,7 @@ async function showPetContextMenu(event) {
         text: "恢复正常",
         action: () => setSelfStatus(null),
       },
+      ...(skinMenu ? [skinMenu] : []),
     ],
   });
   await menu.popup();
@@ -846,6 +898,7 @@ async function activateRoom(roomId) {
     onPresenceChange: applyPresence,
     status: selfAnimator.status,
     petId: selfPetId,
+    skin: selfSkin,
   });
   await joinInteractions(activeSupabase, roomId, { onInteraction: applyInteraction });
 }

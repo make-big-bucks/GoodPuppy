@@ -1,0 +1,55 @@
+{
+  "_comment": "皮肤变体定义。fur 段圈出「毛色」像素（按 HSL 色相+饱和度），skins 里每套只对这些像素做变换：改饱和度/明度，保留相对明暗层次。鼻子/描边/白色高光因低饱和被排除。",
+  "fur": {
+    "hueMin": 16,
+    "hueMax": 56,
+    "satMin": 0.22,
+    "tolerance": 24,
+    "referenceStates": [
+      "idle",
+      "idle-stretch",
+      "idle-shake",
+      "happy",
+      "sad",
+      "busy",
+      "bored",
+      "drag-lift"
+    ]
+  },
+  "skins": [
+    {
+      "id": "pink",
+      "label": "樱花粉",
+      "hue": { "set": 343 },
+      "sat": { "mul": 0.62 },
+      "light": { "add": 0.08 }
+    },
+    {
+      "id": "blue",
+      "label": "天蓝",
+      "hue": { "set": 208 },
+      "sat": { "mul": 0.8 }
+    },
+    {
+      "id": "purple",
+      "label": "薰衣草紫",
+      "hue": { "set": 270 },
+      "sat": { "mul": 0.78 },
+      "light": { "add": 0.03 }
+    },
+    {
+      "id": "mint",
+      "label": "薄荷绿",
+      "hue": { "set": 162 },
+      "sat": { "mul": 0.55 },
+      "light": { "add": 0.06 }
+    },
+    {
+      "id": "cream",
+      "label": "奶白",
+      "hue": { "set": 44 },
+      "sat": { "mul": 0.32 },
+      "light": { "add": 0.06 }
+    }
+  ]
+}

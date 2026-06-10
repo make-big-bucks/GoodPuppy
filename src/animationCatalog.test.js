@@ -8,6 +8,7 @@ import {
   LAYER,
   durationFromManifest,
   DEFAULT_ONESHOT_MS,
+  DEFAULT_SKIN,
   INTERACTIONS,
   STATUS_OPTIONS,
 } from "./animationCatalog.js";
@@ -27,6 +28,16 @@ describe("getStateImagePath", () => {
   it("builds a semantic path under the resolved pet dir", () => {
     expect(getStateImagePath("default", "idle")).toBe("/pets/shiba/idle.gif");
     expect(getStateImagePath("shiba", "kicked")).toBe("/pets/shiba/kicked.gif");
+  });
+
+  it("keeps the base path for the default skin", () => {
+    expect(getStateImagePath("shiba", "idle", DEFAULT_SKIN)).toBe("/pets/shiba/idle.gif");
+    expect(getStateImagePath("shiba", "idle", undefined)).toBe("/pets/shiba/idle.gif");
+  });
+
+  it("routes non-default skins into the skins subdir", () => {
+    expect(getStateImagePath("shiba", "idle", "pink")).toBe("/pets/shiba/skins/pink/idle.gif");
+    expect(getStateImagePath("default", "feed", "blue")).toBe("/pets/shiba/skins/blue/feed.gif");
   });
 });
 

@@ -9,6 +9,7 @@
 
 import {
   BASE_STATE,
+  DEFAULT_SKIN,
   getBehavior,
   isIdleVariant,
   durationFromManifest,
@@ -26,6 +27,7 @@ export class PetAnimator {
   // onState(stateName, imagePath) 在解算出的当前状态变化时被调用，由调用方换 img.src。
   constructor({
     petId = "default",
+    skin = DEFAULT_SKIN,
     manifest = null,
     onState = () => {},
     autoCycle = true,
@@ -33,6 +35,7 @@ export class PetAnimator {
     random = Math.random,
   } = {}) {
     this.petId = petId;
+    this.skin = skin || DEFAULT_SKIN;
     this.manifest = manifest;
     this.onState = onState;
     this.autoCycle = autoCycle;
@@ -69,7 +72,7 @@ export class PetAnimator {
     const next = this.resolve();
     if (next === this.shown && !this._forceReload) return;
     this.shown = next;
-    let path = getStateImagePath(this.petId, next);
+    let path = getStateImagePath(this.petId, next, this.skin);
     if (this._forceReload) {
       path += `?r=${++this.reloadToken}`;
       this._forceReload = false;
@@ -82,6 +85,14 @@ export class PetAnimator {
     if (petId === this.petId) return;
     this.petId = petId;
     this._forceReload = true;
+    this.applyRender();
+  }
+
+  setSkin(skin) {
+    const next = skin || DEFAULT_SKIN;
+    if (next === this.skin) return;
+    this.skin = next;
+    this._forceReload = true; // 切肤后即便状态名不变也要换图
     this.applyRender();
   }
 

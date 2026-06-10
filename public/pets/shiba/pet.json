@@ -6,6 +6,13 @@
     "width": 240,
     "height": 240
   },
+  "skins": [
+    { "id": "pink", "label": "樱花粉" },
+    { "id": "blue", "label": "天蓝" },
+    { "id": "purple", "label": "薰衣草紫" },
+    { "id": "mint", "label": "薄荷绿" },
+    { "id": "cream", "label": "奶白" }
+  ],
   "states": [
     {
       "state": "idle",
