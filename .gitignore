@@ -5,3 +5,5 @@ release/
 src-tauri/target/
 *.log
 backups/
+tmp/
+output/
