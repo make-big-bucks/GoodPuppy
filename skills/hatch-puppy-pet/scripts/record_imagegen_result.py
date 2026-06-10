@@ -6,20 +6,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
 from PIL import Image
 
+from manifest_lock import locked_manifest
+
 CANONICAL_BASE_PATH = "references/canonical-base.png"
-
-
-def load_jobs(path: Path) -> dict[str, object]:
-    if not path.exists():
-        raise SystemExit(f"job manifest not found: {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def job_list(manifest: dict[str, object]) -> list[dict[str, object]]:
@@ -104,6 +102,87 @@ def validate_source_path(
     return "built-in-imagegen"
 
 
+def load_run_chroma_key(run_dir: Path) -> tuple[int, int, int] | None:
+    request_path = run_dir / "pet_request.json"
+    if not request_path.is_file():
+        return None
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    chroma_key = request.get("chroma_key")
+    if not isinstance(chroma_key, dict):
+        return None
+    rgb = chroma_key.get("rgb")
+    if isinstance(rgb, list) and len(rgb) == 3 and all(isinstance(v, int) for v in rgb):
+        return (rgb[0], rgb[1], rgb[2])
+    hex_value = chroma_key.get("hex")
+    if isinstance(hex_value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", hex_value):
+        return tuple(int(hex_value[index : index + 2], 16) for index in (1, 3, 5))
+    return None
+
+
+def check_background_flatness(
+    source: Path,
+    chroma_key: tuple[int, int, int],
+    *,
+    border: int,
+    key_threshold: float,
+    flatness: float,
+) -> None:
+    """Reject sources whose chroma background has a gradient instead of one flat color.
+
+    Only border-band pixels that already read as chroma-key background are
+    measured, so a sprite touching the border does not trip this check; that
+    case is caught later by inspect_frames.py edge checks.
+    """
+    with Image.open(source) as opened:
+        rgba = opened.convert("RGBA")
+    width, height = rgba.size
+    band = max(1, min(border, width // 2, height // 2))
+    pixels = rgba.load()
+
+    background_pixels = 0
+    worst_distance = 0.0
+    for x in range(width):
+        for y in (*range(band), *range(height - band, height)):
+            red, green, blue, alpha = pixels[x, y]
+            if alpha <= 16:
+                continue
+            distance = math.sqrt(
+                (red - chroma_key[0]) ** 2
+                + (green - chroma_key[1]) ** 2
+                + (blue - chroma_key[2]) ** 2
+            )
+            if distance <= key_threshold:
+                background_pixels += 1
+                worst_distance = max(worst_distance, distance)
+    for y in range(band, height - band):
+        for x in (*range(band), *range(width - band, width)):
+            red, green, blue, alpha = pixels[x, y]
+            if alpha <= 16:
+                continue
+            distance = math.sqrt(
+                (red - chroma_key[0]) ** 2
+                + (green - chroma_key[1]) ** 2
+                + (blue - chroma_key[2]) ** 2
+            )
+            if distance <= key_threshold:
+                background_pixels += 1
+                worst_distance = max(worst_distance, distance)
+
+    if background_pixels == 0:
+        raise SystemExit(
+            f"{source} has no chroma-key background in its {band}px border band; "
+            "the generated image does not sit on the requested flat chroma background. "
+            "Regenerate it instead of recording."
+        )
+    if worst_distance > flatness:
+        raise SystemExit(
+            f"{source} background is not flat: border chroma pixels drift up to "
+            f"{worst_distance:.0f} from the chroma key (allowed {flatness:.0f}). "
+            "A gradient background breaks chroma-key removal; regenerate this image "
+            "or pass --skip-background-check to override."
+        )
+
+
 def validate_required_grounding(job: dict[str, object], run_dir: Path) -> None:
     if job.get("allow_prompt_only_generation") is not False:
         return
@@ -164,6 +243,14 @@ def main() -> None:
     parser.add_argument("--source", required=True)
     parser.add_argument("--force", action="store_true")
     parser.add_argument(
+        "--skip-background-check",
+        action="store_true",
+        help="Record the image even when its chroma background is not flat.",
+    )
+    parser.add_argument("--background-border", type=int, default=6)
+    parser.add_argument("--background-key-threshold", type=float, default=96.0)
+    parser.add_argument("--background-flatness", type=float, default=48.0)
+    parser.add_argument(
         "--allow-synthetic-test-source", action="store_true", help=argparse.SUPPRESS
     )
     args = parser.parse_args()
@@ -178,61 +265,71 @@ def main() -> None:
         allow_synthetic_test_source=args.allow_synthetic_test_source,
     )
 
+    if not args.skip_background_check:
+        chroma_key = load_run_chroma_key(run_dir)
+        if chroma_key is not None:
+            check_background_flatness(
+                source,
+                chroma_key,
+                border=args.background_border,
+                key_threshold=args.background_key_threshold,
+                flatness=args.background_flatness,
+            )
+
     manifest_path = run_dir / "imagegen-jobs.json"
-    manifest = load_jobs(manifest_path)
-    job = find_job(manifest, args.job_id)
+    with locked_manifest(manifest_path) as manifest:
+        job = find_job(manifest, args.job_id)
 
-    missing_deps = [
-        dep
-        for dep in job.get("depends_on", [])
-        if isinstance(dep, str) and dep not in completed_job_ids(manifest)
-    ]
-    if missing_deps:
-        raise SystemExit(
-            f"job {args.job_id} is not ready; missing dependency result(s): {', '.join(missing_deps)}"
+        missing_deps = [
+            dep
+            for dep in job.get("depends_on", [])
+            if isinstance(dep, str) and dep not in completed_job_ids(manifest)
+        ]
+        if missing_deps:
+            raise SystemExit(
+                f"job {args.job_id} is not ready; missing dependency result(s): {', '.join(missing_deps)}"
+            )
+        validate_required_grounding(job, run_dir)
+
+        output_raw = job.get("output_path")
+        if not isinstance(output_raw, str):
+            raise SystemExit(f"job {args.job_id} has no output_path")
+        output = run_dir / output_raw
+        if output.exists() and not args.force:
+            raise SystemExit(f"{output} already exists; pass --force to replace it")
+
+        output.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, output)
+        metadata = image_metadata(output)
+
+        job["status"] = "complete"
+        job["source_path"] = str(source)
+        job["source_provenance"] = source_provenance
+        job["source_sha256"] = file_sha256(source)
+        job["output_sha256"] = file_sha256(output)
+        if source_provenance == "synthetic-test":
+            job["synthetic_test_source"] = True
+        else:
+            job.pop("synthetic_test_source", None)
+        job["completed_at"] = datetime.now(timezone.utc).isoformat()
+        job["metadata"] = metadata
+        for key in [
+            "last_error",
+            "secondary_fallback",
+            "derived_from",
+            "mirror_decision",
+            "repair_reason",
+            "queued_at",
+        ]:
+            job.pop(key, None)
+        update_base_canonical_reference(
+            run_dir=run_dir,
+            output=output,
+            manifest=manifest,
+            job=job,
+            metadata=metadata,
         )
-    validate_required_grounding(job, run_dir)
 
-    output_raw = job.get("output_path")
-    if not isinstance(output_raw, str):
-        raise SystemExit(f"job {args.job_id} has no output_path")
-    output = run_dir / output_raw
-    if output.exists() and not args.force:
-        raise SystemExit(f"{output} already exists; pass --force to replace it")
-
-    output.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, output)
-    metadata = image_metadata(output)
-
-    job["status"] = "complete"
-    job["source_path"] = str(source)
-    job["source_provenance"] = source_provenance
-    job["source_sha256"] = file_sha256(source)
-    job["output_sha256"] = file_sha256(output)
-    if source_provenance == "synthetic-test":
-        job["synthetic_test_source"] = True
-    else:
-        job.pop("synthetic_test_source", None)
-    job["completed_at"] = datetime.now(timezone.utc).isoformat()
-    job["metadata"] = metadata
-    for key in [
-        "last_error",
-        "secondary_fallback",
-        "derived_from",
-        "mirror_decision",
-        "repair_reason",
-        "queued_at",
-    ]:
-        job.pop(key, None)
-    update_base_canonical_reference(
-        run_dir=run_dir,
-        output=output,
-        manifest=manifest,
-        job=job,
-        metadata=metadata,
-    )
-
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(
         json.dumps(
             {

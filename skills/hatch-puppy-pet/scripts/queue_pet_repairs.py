@@ -9,6 +9,9 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+from manifest_lock import locked_manifest
+from puppy_states import REPAIR_GUIDANCE, parse_states
+
 
 def load_json(path: Path) -> dict[str, object]:
     if not path.exists():
@@ -40,7 +43,9 @@ def rows_to_repair(
     return repairs
 
 
-def append_repair_note(run_dir: Path, state: str, attempt: int, reason: str) -> None:
+def append_repair_note(
+    run_dir: Path, state: str, attempt: int, reason: str, extra_note: str = ""
+) -> None:
     prompt_path = run_dir / "prompts" / "rows" / f"{state}.md"
     if not prompt_path.exists():
         raise SystemExit(f"row prompt not found: {prompt_path}")
@@ -57,6 +62,10 @@ Repair attempt {attempt}:
 - Do not redesign the pet. Keep the exact same head shape, face design, markings, body proportions, palette, outline weight, materials, and props as the approved base pet.
 - If the contact sheet shows identity drift, repair only this row while preserving the canonical base identity.
 """
+    for guidance in REPAIR_GUIDANCE.get(state, []):
+        note += f"- {guidance}\n"
+    if extra_note.strip():
+        note += f"- Reviewer note: {extra_note.strip()}\n"
     prompt_path.write_text(existing.rstrip() + note.rstrip() + "\n", encoding="utf-8")
 
 
@@ -142,29 +151,54 @@ def main() -> None:
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--review", default="")
     parser.add_argument("--repair-on-warnings", action="store_true")
+    parser.add_argument(
+        "--states",
+        default="",
+        help="Comma-separated states to repair directly (manual/visual QA), bypassing review.json.",
+    )
+    parser.add_argument(
+        "--reason",
+        default="",
+        help="Failure reason recorded for --states repairs (required with --states).",
+    )
+    parser.add_argument(
+        "--note",
+        default="",
+        help="Extra reviewer guidance appended verbatim to the repair prompt note.",
+    )
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir).expanduser().resolve()
-    review_path = (
-        Path(args.review).expanduser().resolve()
-        if args.review
-        else run_dir / "qa" / "review.json"
-    )
     manifest_path = run_dir / "imagegen-jobs.json"
-    review = load_json(review_path)
-    manifest = load_json(manifest_path)
 
-    repairs = rows_to_repair(review, repair_on_warnings=args.repair_on_warnings)
+    if args.states:
+        if not args.reason.strip():
+            raise SystemExit("--states requires --reason describing the visual QA failure")
+        repairs = [
+            {"state": state, "reason": args.reason.strip()}
+            for state in parse_states(args.states)
+        ]
+    else:
+        if args.reason or args.note:
+            raise SystemExit("--reason/--note require --states; review-driven repairs carry their own reasons")
+        review_path = (
+            Path(args.review).expanduser().resolve()
+            if args.review
+            else run_dir / "qa" / "review.json"
+        )
+        review = load_json(review_path)
+        repairs = rows_to_repair(review, repair_on_warnings=args.repair_on_warnings)
+
     queued: list[dict[str, object]] = []
-    for repair in repairs:
-        state = str(repair["state"])
-        reason = str(repair["reason"])
-        queued_repair = queue_repair(manifest, run_dir, state, reason)
-        attempt = int(queued_repair["attempt"])
-        append_repair_note(run_dir, state, attempt, reason)
-        queued.append({"state": state, "reason": reason, **queued_repair})
+    with locked_manifest(manifest_path) as manifest:
+        for repair in repairs:
+            state = str(repair["state"])
+            reason = str(repair["reason"])
+            queued_repair = queue_repair(manifest, run_dir, state, reason)
+            attempt = int(queued_repair["attempt"])
+            append_repair_note(run_dir, state, attempt, reason, extra_note=args.note)
+            queued.append({"state": state, "reason": reason, **queued_repair})
 
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"ok": True, "queued": queued}, indent=2))
 
 

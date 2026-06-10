@@ -17,7 +17,8 @@ Do not accept the pet until all checks pass.
 - Same silhouette and proportions across every state.
 - Same face and expression language.
 - Same material, palette, lighting, and prop design.
-- No frame introduces a new unintended character or object.
+- No frame introduces a new unintended character or object beyond the state's
+  explicitly allowed prop (see `STATE_REQUIREMENTS` in `scripts/prepare_pet_run.py`).
 - No GIF contains a second pet, a friend, or a hand — every state is single-character.
 
 ## Sprite Style
@@ -33,8 +34,13 @@ Do not accept the pet until all checks pass.
 
 - Each state uses the exact expected number of frames.
 - Looping states loop without an obvious pop between the last and first frame.
-- Directional states (`wander`, `drag-trot`, `enter-run`, `kicked`, `leave-thrown`)
-  read as the intended direction/motion.
+- Directional states (`cuddle`, `kicked`, `enter`, `leave`) read as the intended
+  direction/motion; `cuddle` must press against the RIGHT slot edge (the app mirrors
+  the other side), and `drag-lift` must read direction-neutral.
+- Prop states (`enter`/`leave` door, `feed` food pack, `message` paper plane,
+  `cast` wand, `busy` desk/laptop) show exactly the one allowed prop, opaque and
+  pixel-style; `enter` first frame and `leave` last frame may be door-only, and
+  that is not a missing-sprite failure.
 - State-specific actions are recognizable at pet size.
 - Poses are generated animation variants, not repeated copies of the same source image.
 

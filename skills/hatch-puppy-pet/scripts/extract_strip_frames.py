@@ -11,7 +11,13 @@ from pathlib import Path
 
 from PIL import Image
 
-from puppy_states import CELL_HEIGHT, CELL_WIDTH, FRAME_COUNTS as ROW_FRAME_COUNTS, parse_states
+from puppy_states import (
+    CELL_HEIGHT,
+    CELL_WIDTH,
+    FRAME_COUNTS as ROW_FRAME_COUNTS,
+    SLOT_EXTRACT_STATES,
+    parse_states,
+)
 
 
 def parse_hex_color(value: str) -> tuple[int, int, int]:
@@ -224,6 +230,10 @@ def extract_state(
 
     frames = None
     used_method = method
+    # 含大体量分离道具的状态（门/食物包/纸飞机）按槽位切割更稳：
+    # 连通组件提取可能把道具归到相邻帧的种子上。
+    if method == "auto" and state in SLOT_EXTRACT_STATES:
+        method = "slots"
     if method in {"auto", "components"}:
         frames = extract_component_frames(strip, frame_count)
         if frames is None and method == "components":

@@ -22,56 +22,78 @@ TRANSPARENCY_ARTIFACT_RULES = [
     "Prefer pose, expression, and silhouette changes over decorative effects.",
     "Effects are allowed only when they are state-relevant, opaque, hard-edged, pixel-style, fully inside the same frame slot, and physically touching or overlapping the pet silhouette.",
     "Allowed attached effects can include a tear touching the face, a small smoke puff touching the pet or prop, or tiny stars overlapping the pet during a dizzy reaction.",
-    "Do not draw detached effects: floating stars, loose sparkles, floating punctuation, floating icons, falling tear drops, separated smoke clouds, loose dust, disconnected outline bits, or stray pixels.",
+    "Do not draw detached effects: floating stars, loose sparkles, floating punctuation, floating icons, falling tear drops, separated smoke clouds, loose dust, disconnected outline bits, or stray pixels. The only exception is a prop explicitly allowed by this state's state-specific requirements, which must still be opaque, hard-edged, pixel-style, and inside the same frame slot.",
     "Do not draw wave marks, motion arcs, speed lines, action streaks, afterimages, blur, smears, halos, glows, auras, floor patches, cast shadows, contact shadows, drop shadows, oval floor shadows, landing marks, or impact bursts.",
     "Do not include text, labels, frame numbers, visible grids, guide marks, speech bubbles, thought bubbles, UI panels, code snippets, scenery, checkerboard transparency, white backgrounds, or black backgrounds.",
     "Do not use the chroma-key color or chroma-key-adjacent colors in the pet, prop, effects, highlights, shadows, or outlines.",
-    "Reject any pose that is cropped, overlaps another pose, crosses into a neighboring frame slot, or creates a separate disconnected component that is not attached to the pet.",
+    "Reject any pose that is cropped, overlaps another pose, crosses into a neighboring frame slot, or creates a separate disconnected component that is not attached to the pet and not a prop explicitly allowed by this state's state-specific requirements.",
     "This is a single-character animation: never draw a second pet, a friend, a hand, or another actor in the frame, even for interaction states.",
 ]
 
 STATE_REQUIREMENTS = {
-    "wander": [
-        "Show walking through leg, body, and ear movement only, with a small horizontal drift across the cycle.",
-        "Do not draw speed lines, dust clouds, floor shadows, motion trails, or detached motion effects.",
-    ],
-    "sit-stand": [
-        "Show the sit and rise through body height and leg pose only: standing, folding down, seated, settled, pushing up, standing.",
-        "Do not draw motion lines, dust, floor shadows, cushions, or seating props.",
-    ],
-    "drag-trot": [
-        "Show the trot through leg, body, and ear movement only.",
-        "Do not draw speed lines, dust clouds, floor shadows, motion trails, a hand, a leash, or detached motion effects.",
+    "drag-lift": [
+        "Show the pet held aloft by an invisible grip: body hangs upright in mid-air, all four limbs dangle and paddle, head tilts up and wiggles between frames.",
+        "Use a symmetric front or 3/4 view with no left/right travel so the pose reads the same for any drag direction.",
+        "Do not draw a hand, a leash, a claw, speed lines, dust clouds, floor shadows, motion trails, or detached motion effects.",
     ],
     "message": [
-        "Show sending a message through head lean and a paw-forward gesture only.",
-        "Do not draw speech bubbles, thought bubbles, envelopes, hearts, punctuation, symbols, or any floating UI or icon.",
+        "Allowed prop: one small opaque pixel-style paper plane. It starts held in the mouth or a paw (touching the pet) and may detach only in the final 1-2 frames as it is tossed up toward the top of the slot.",
+        "Sequence: pick up the plane, rear the head back, toss it upward, then settle watching it go; the last frame may show the pet alone after the plane leaves the slot.",
+        "Do not draw speech bubbles, thought bubbles, envelopes, hearts, punctuation, symbols, or any floating UI or icon other than the allowed paper plane.",
     ],
     "cuddle": [
-        "Show the cuddle through a leaning, nuzzling body and a happy face only.",
-        "Do not draw hearts, sparkles, motion lines, or a second character; only the single pet appears.",
+        "Show the pet scooting toward and pressing against the RIGHT edge of its frame slot: body leans and squashes against that edge, cheek squished, eyes happily closed.",
+        "Generate only this rightward lean; the app mirrors the GIF at runtime for the other side, so left/right symmetry of details matters less than a clear rightward press.",
+        "Do not draw hearts, sparkles, motion lines, a wall, or a second character; only the single pet appears.",
+    ],
+    "cast": [
+        "Allowed prop: one small opaque pixel-style magic wand held in a paw for the entire animation, never detached from the pet.",
+        "Sequence: raise the wand, two quick flourish waves, then lower it; a single tiny opaque spark is allowed only while touching the wand tip.",
+        "Do not draw beams, glows, auras, trailing sparkles, floating symbols, or the target of the spell.",
     ],
     "feed": [
-        "Show eating through head dip, mouth, and chewing poses only.",
-        "A food item, if shown, must be a small opaque pixel-style morsel touching or overlapping the mouth inside the same frame slot; do not draw floating crumbs, a separate bowl, sparkles, or symbols.",
-        "Do not draw a feeding hand or a second character crossing into the cell.",
+        "Allowed prop: one small opaque pixel-style food pack sitting on the ground directly in front of the pet inside the same frame slot; it may be separate from the pet in early frames.",
+        "Sequence: the pack appears, the pet dips its head in and eats it bite by bite (pack shrinking each frame), the pack is gone, and the pet looks up satisfied.",
+        "Do not draw floating crumbs, a feeding hand, sparkles, symbols, or a second character.",
     ],
     "kicked": [
         "Show being kicked through a tumbling, airborne body-pose sequence that lands dazed; convey the launch with body rotation and position only.",
         "Do not draw speed lines, motion arcs, impact bursts, dust, motion trails, or a kicking character.",
         "Tiny dizzy stars are allowed only if attached to or overlapping the head inside the same frame slot, opaque and pixel-style.",
     ],
-    "enter-run": [
-        "Show running in and skidding to a stop through leg and body pose only.",
-        "Do not draw speed lines, dust clouds, floor shadows, motion trails, a doorway, or detached motion effects.",
+    "enter": [
+        "Allowed prop: one simple opaque pixel-style door (a flat rectangular door with a frame, no scenery around it). The first frame shows only the closed door, no pet.",
+        "Sequence: the door opens, the pet steps out of the doorway a bit more each frame (pet overlapping the door while emerging), the door shrinks away or closes behind, and the final frame shows the pet standing alone in a near-idle pose so the app can hand off to idle smoothly.",
+        "Do not draw walls, floors, scenery, light rays, speed lines, dust, or shadows around the door.",
     ],
     "greet": [
         "Show the greeting through paw and head pose only: paw down, paw raised, head tilt, return.",
         "Do not draw wave marks, motion arcs, lines, sparkles, symbols, or floating effects around the paw.",
     ],
-    "leave-thrown": [
-        "Show being thrown out through a leaning-back, flung, then shrinking-away body pose only.",
-        "Do not draw speed lines, motion arcs, dust, impact effects, or a throwing character.",
+    "leave": [
+        "Allowed prop: one simple opaque pixel-style door (same design language as the enter door). The final frame shows only the closed door, no pet.",
+        "Sequence: the door appears beside the pet, the door opens, the pet walks into the doorway and disappears deeper each frame (pet overlapping the door while leaving), and the last frame shows only the closed door.",
+        "Do not draw walls, floors, scenery, light rays, speed lines, dust, or shadows around the door.",
+    ],
+    "idle-stretch": [
+        "Show one long satisfying stretch through body pose only: front paws slide forward, chest dips, rump rises, then rise back to a near-idle pose.",
+        "Do not draw motion lines, dust, floor shadows, or detached effects; the last frame should hand off cleanly to idle.",
+    ],
+    "idle-shake": [
+        "Show one quick full-body shake from head to tail through pose and fur/body ruffle only, ending composed near the idle pose.",
+        "Do not draw motion lines, droplets, dust, loose fur tufts, or detached effects.",
+    ],
+    "idle-sniff": [
+        "Show curious sniffing through head and body pose only: nose lowers toward the ground, sniffs side to side, then looks back up.",
+        "Do not draw scent trails, wavy smell lines, floating symbols, or detached effects.",
+    ],
+    "idle-tail-chase": [
+        "Show one playful spin chasing the tail through body rotation poses only, stopping slightly dizzy and recovering.",
+        "Tiny dizzy stars are allowed only if attached to or overlapping the head inside the same frame slot, opaque and pixel-style; do not draw motion arcs or speed lines.",
+    ],
+    "idle-scratch": [
+        "Show the pet sitting briefly and scratching behind one ear with a hind leg, then settling back toward the idle pose.",
+        "Do not draw motion lines, dust, loose fur, or detached effects.",
     ],
     "happy": [
         "Show happiness through bouncy posture, raised ears or tail, and a bright face only.",
@@ -83,8 +105,9 @@ STATE_REQUIREMENTS = {
         "Do not draw rain clouds, droplets falling away from the body, floating symbols, or a separate puddle.",
     ],
     "busy": [
-        "Show busyness through a head-down, focused working posture with small repetitive motion only.",
-        "Do not draw tools, papers, code, screens, sweat drops, motion lines, or floating symbols unless that prop already exists in the base pet identity.",
+        "Show deep do-not-disturb focus: body hunched with the back half-turned toward the viewer, head down, paws tapping steadily, never looking up.",
+        "Allowed prop: one tiny opaque pixel-style desk or laptop touching/overlapping the pet's paws or body for the entire loop, never detached.",
+        "Do not draw papers, readable code, screen glow, sweat drops, motion lines, or floating symbols.",
     ],
     "bored": [
         "Show boredom through a slack, swaying, sighing posture and slow head movement only.",

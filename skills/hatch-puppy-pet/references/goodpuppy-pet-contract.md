@@ -23,7 +23,7 @@ Place files under the package directory (defaults to
 <package-dir>/
 ├── pet.json
 ├── idle.gif
-├── wander.gif
+├── idle-stretch.gif (selected idle variants)
 ├── ... (one GIF per state)
 └── bored.gif
 ```

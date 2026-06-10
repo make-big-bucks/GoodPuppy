@@ -5,7 +5,7 @@ Reads the 240x240 RGBA frame PNGs produced by extract_strip_frames.py (one folde
 per state under --frames-root) and assembles one transparent animated GIF per state
 using the per-frame durations and loop flag from puppy_states.STATES.
 
-Looping states (idle, ambient, emotions) loop forever; one-shot states (sit-stand,
+Looping states (idle, ambient, emotions) loop forever; one-shot states (idle variants,
 greet, kicked, ...) play once and hold the final frame, which is what the GoodPuppy
 renderer wants when it swaps the <img> src.
 """

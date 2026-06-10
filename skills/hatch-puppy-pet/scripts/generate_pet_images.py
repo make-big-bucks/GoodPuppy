@@ -13,6 +13,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+from manifest_lock import locked_manifest
 from puppy_states import parse_states
 
 CANONICAL_BASE_PATH = "references/canonical-base.png"
@@ -260,7 +261,18 @@ def main() -> None:
             write_canonical_base(run_dir, manifest, output_image)
         completed.append({"job_id": job_id, "output": str(output_image)})
 
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    # 生成阶段耗时较长，不持锁；落盘时在锁内重读 manifest 并按 job id 合并，
+    # 避免并发的 record_imagegen_result.py / queue_pet_repairs.py 写入被覆盖。
+    updated_by_id = {str(job.get("id")): job for job in jobs}
+    with locked_manifest(manifest_path) as fresh:
+        fresh_jobs = fresh.get("jobs")
+        if not isinstance(fresh_jobs, list):
+            raise SystemExit("invalid imagegen-jobs.json: jobs must be a list")
+        for index, fresh_job in enumerate(fresh_jobs):
+            if isinstance(fresh_job, dict) and str(fresh_job.get("id")) in updated_by_id:
+                fresh_jobs[index] = updated_by_id[str(fresh_job.get("id"))]
+        if "canonical_identity_reference" in manifest:
+            fresh["canonical_identity_reference"] = manifest["canonical_identity_reference"]
     print(json.dumps({"ok": True, "completed": completed}, indent=2))
 
 

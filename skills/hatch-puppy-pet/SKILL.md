@@ -14,9 +14,11 @@ generation to `$imagegen`.
 
 GoodPuppy renders one transparent animated GIF per state (240x240), swapped into the
 pet `<img>` by `src/renderer.js`. This skill produces those per-state GIFs plus a
-`pet.json` manifest. The 15 animation states come from `docs/桌宠动画清单.md`
-("待制作" items), with multi-action entries split into independent single-character
-animations and named by action semantics. See `references/animation-rows.md`.
+`pet.json` manifest. The animation states come from `docs/桌宠动画清单.md` and
+ADR-0009: 14 required states plus a selectable pool of per-pet `idle-*` variants
+(default 2 per run, 16 rows total). Multi-action entries are split into independent
+single-character animations named by action semantics. See
+`references/animation-rows.md`.
 
 User-facing inputs are optional. If the user omits a pet name, infer one from the
 concept or reference filenames; if that is not possible, choose a short appropriate
@@ -51,8 +53,9 @@ the per-state GIFs, creating QA media, and packaging.
 
 Hard boundary: do not create, draw, tile, warp, mirror, or synthesize pet visuals with
 local Python/Pillow scripts, SVG, canvas, HTML/CSS, or other code-native art as a
-substitute for `$imagegen`. For a normal pet run, expect up to 16 visual generation
-jobs: 1 base pet plus 15 row-strip jobs. The deterministic scripts may only process
+substitute for `$imagegen`. For a normal pet run, expect up to 17 visual generation
+jobs: 1 base pet plus 16 row-strip jobs (14 required states + 2 selected idle
+variants). The deterministic scripts may only process
 already-generated visual outputs. If those calls are too expensive, blocked, or
 unavailable, stop and explain the blocker instead of fabricating row strips locally.
 
@@ -115,24 +118,43 @@ component extraction:
   overlapping poses, or any pose that crosses into a neighboring frame slot
 - a second pet, a friend, or a hand: every state is single-character
 
+Some states explicitly allow ONE inanimate prop, declared in `STATE_REQUIREMENTS`
+in `scripts/prepare_pet_run.py`. Allowed props must be opaque, hard-edged,
+pixel-style, non-chroma-key, and stay inside their frame slot; they are the only
+permitted exception to the "no detached component" rule, and only as the state's
+requirements describe.
+
 State-specific guidance:
 
-- `wander`, `drag-trot`, `enter-run`: show locomotion through body, limb, and prop
-  movement only. Do not draw speed lines, dust clouds, floor shadows, or motion trails.
-- `sit-stand`: show the sit and rise through body height and leg pose only; no dust,
-  shadows, or seating props.
+- `drag-lift`: held aloft by an invisible grip, limbs dangling and paddling,
+  symmetric front/3/4 view with no left/right travel. Never draw a hand, leash,
+  speed lines, dust, or motion trails.
+- `idle-*` variants (stretch/shake/sniff/tail-chase/scratch): one flourish through
+  body pose only, ending near the idle pose. No motion lines, dust, or detached bits.
 - `greet`: show the greeting through paw and head pose only. Do not draw wave marks,
   motion arcs, lines, sparkles, or symbols around the paw.
-- `message`: show it through head lean and a paw-forward gesture only. Do not draw
-  speech bubbles, envelopes, hearts, punctuation, or floating UI.
-- `cuddle`, `feed`: show through leaning/eating poses only; no hearts, sparkles, or a
-  second character. A food morsel for `feed` is allowed only if opaque and touching
-  the mouth inside the same frame slot.
-- `kicked`, `leave-thrown`: show the launch/toss through body rotation and position
-  only. Do not draw speed lines, motion arcs, impact bursts, dust, or another actor.
-- `happy`, `sad`, `busy`, `bored`: show emotion/work through posture and face only.
-  Tears (`sad`) or tiny dizzy stars (`bored`) are allowed only when attached to the
-  pet inside the same frame slot; otherwise no floating symbols, zzz text, or bubbles.
+- `message`: allowed prop = one pixel paper plane, held in mouth/paw and detaching
+  only in the final 1-2 frames as it is tossed off the top of the slot. No speech
+  bubbles, envelopes, or other floating UI.
+- `cuddle`: press against the RIGHT edge of the frame slot (cheek squish, happy
+  closed eyes). Generate only the rightward lean; the app mirrors the other side at
+  runtime. No hearts, sparkles, walls, or a second character.
+- `cast`: allowed prop = one pixel magic wand always held in a paw; a tiny spark may
+  touch the wand tip. No beams, glows, trailing sparkles, or the spell's target.
+- `feed`: allowed prop = one pixel food pack on the ground in front of the pet (may
+  be separate from the pet early on), eaten up across the frames. No crumbs, hand,
+  or second character.
+- `enter`, `leave`: allowed prop = one simple pixel door. `enter` starts with only
+  the door and ends with only the pet (near-idle pose); `leave` ends with only the
+  door. No walls, floors, scenery, light rays, or shadows around the door.
+- `kicked`: launch/tumble through body rotation and position only. No speed lines,
+  motion arcs, impact bursts, dust, or the kicking actor.
+- `happy`, `sad`, `bored`: show emotion through posture and face only. Tears (`sad`)
+  or tiny dizzy stars (`bored`) are allowed only when attached to the pet inside the
+  same frame slot; otherwise no floating symbols, zzz text, or bubbles.
+- `busy`: do-not-disturb focus — hunched over the allowed tiny pixel desk/laptop
+  (always touching the pet), back half-turned, head down, never looking up. No
+  papers, readable code, screen glow, sweat drops, or floating symbols.
 
 ## Pet Naming
 
@@ -196,7 +218,7 @@ python "$SKILL_DIR/scripts/prepare_pet_run.py" \
 All arguments above are optional except any flags needed to express user constraints.
 For text-only requests, pass the concept through `--pet-notes` and omit `--reference`;
 `prepare_pet_run.py` will infer a name, description, chroma key, and output directory as
-needed. It also writes 15 row-specific layout guide images under
+needed. It also writes one row-specific layout guide image per state under
 `references/layout-guides/`, one per animation state. Treat these guides as invisible
 construction references: the generated row strip must not include visible boxes,
 borders, center marks, labels, guide colors, or the guide background.
@@ -242,6 +264,16 @@ python "$SKILL_DIR/scripts/record_imagegen_result.py" \
 This copies the image to the exact decoded path expected by the deterministic pipeline
 and records source metadata in `imagegen-jobs.json`.
 
+`record_imagegen_result.py` also checks that the source image's border band is one
+flat chroma-key color before recording. A gradient background is rejected immediately
+so the bad image is regenerated at the cheapest point instead of failing chroma-key
+removal later; only pass `--skip-background-check` when a human has confirmed the
+background is safe.
+
+Manifest writes are serialized through an exclusive file lock, but the documented
+contract still applies: only the parent process runs `record_imagegen_result.py`, one
+invocation at a time. Do not run multiple record invocations in parallel.
+
 5. When all jobs are complete, finalize:
 
 ```bash
@@ -274,7 +306,7 @@ will copy into `public/state_images/`).
 ```text
 <package-dir>/
   pet.json
-  <state>.gif × 15
+  <state>.gif × 16
 ```
 
 Review `qa/contact-sheet.png`, `qa/review.json`, and `gifs/validation.json` before
@@ -378,6 +410,24 @@ Then repeat the `$imagegen` generation and `record_imagegen_result.py` ingest lo
 each reopened row job. Regenerate the smallest failing scope: the failed state, not all
 of them.
 
+Human/visual review failures are a first-class repair input, not just `review.json`
+errors. When the contact sheet looks wrong even though machine QA passed (identity
+drift, unreadable slot composition, a door or food pack in the wrong place), queue
+those states directly instead of hand-writing a fake review file:
+
+```bash
+python "$SKILL_DIR/scripts/queue_pet_repairs.py" \
+  --run-dir /absolute/path/to/run \
+  --states feed,enter,leave \
+  --reason "door and food pack crowd the slot edges on the contact sheet" \
+  --note "keep the door one compact centered element; keep the food pack close to the pet"
+```
+
+`--reason` is recorded as the repair reason; `--note` is appended verbatim to the
+repair prompt. States with legitimate separated props (`enter`, `leave`, `feed`,
+`message`) automatically get extra slot-discipline rules in their repair notes from
+`REPAIR_GUIDANCE` in `scripts/puppy_states.py`.
+
 For identity repairs, use the canonical base image, original references, contact sheet,
 and exact row failure note as grounding context. Repair only the failed row while
 preserving the canonical pet identity.
@@ -411,7 +461,7 @@ The secondary fallback requires `OPENAI_API_KEY`.
   as a layout-only guide, and do not accept outputs that copy guide pixels.
 - Use subagents for row-strip visual generation after the parent records the base image,
   unless the user explicitly says not to use subagents for this session.
-- Generate every normal visual job with `$imagegen`: base plus all 15 row strips.
+- Generate every normal visual job with `$imagegen`: base plus all 16 row strips.
 - Treat only the base job as eligible for prompt-only generation; every row job must
   attach its listed grounding images.
 - Every animation is single-character; never generate a second pet, friend, or hand.
@@ -430,13 +480,17 @@ The secondary fallback requires `OPENAI_API_KEY`.
 - Treat forbidden detached effects, chroma-key-adjacent artifacts, shadows, glows,
   smears, dust, landing marks, wave marks, speed lines, or motion trails as failed rows.
 - Treat `qa/review.json` errors as blockers. Warnings require visual review.
+- Treat human/visual contact-sheet failures as first-class repair input: queue them
+  with `queue_pet_repairs.py --states <states> --reason <observation>` instead of
+  hand-editing review files.
 
 ## Acceptance Criteria
 
 - Each state GIF is a transparent GIF, exactly `240x240`, with the frame count and
   durations from `scripts/puppy_states.py`.
 - Looping states loop forever; one-shot states play once and hold the final frame.
-- The full state set in `references/animation-rows.md` is produced (15 states).
+- The full state set in `references/animation-rows.md` is produced (14 required
+  states + the selected idle variants, 16 by default).
 - Contact sheet has been produced unless explicitly skipped.
 - `gifs/validation.json` and `qa/review.json` have no errors.
 - Row-by-row review confirms the animation cycles are complete enough for GoodPuppy.

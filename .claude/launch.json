@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 1420
+    },
+    {
+      "name": "good-puppy-peer",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:peer"],
+      "port": 1421
     }
   ]
 }

@@ -1,6 +1,6 @@
 # GoodPuppy 数据库文档
 
-> 最后更新：2026-06-06
+> 最后更新：2026-06-10
 > Supabase 项目：`mrvdeeiiwnegaqjwpsgk`（ap-southeast-2，Postgres 17）
 > 适用版本：MVP Slice 2 + Slice 3 数据层
 
@@ -538,6 +538,44 @@ supabase
 ```
 
 > **注意：** Realtime 订阅会受 RLS 过滤，用户只会收到自己有权限读取的行的变更事件。即便不加 `filter`，用户也看不到其他房间的消息——但加上 `filter` 可以减少网络传输量。
+
+---
+
+## 桌宠动画实时协议（无表，纯 Realtime）
+
+桌宠的动画交互不落库，全部走 Supabase Realtime 的客户端能力，不新增任何表。详见 [ADR-0008](adr/0008-分层动画状态机与实时事件.md)。
+
+### 持续状态 + 形象（presence payload）
+
+房间 presence channel（`presence:${roomId}`）的 track payload 在原有字段外携带持续状态与所选形象，让远端桌宠渲染正确形象并反映对方的情绪/工作状态：
+
+```jsonc
+{
+  "user_id": "<uuid>",
+  "online_at": "<ISO 时间>",
+  "status": "happy" | "sad" | "busy" | "bored" | null, // 持续状态，单槽互斥，null 表示正常
+  "pet_id": "default"                                    // 所选形象，未知回退默认
+}
+```
+
+本地状态变化时通过 `presenceChannel.track(...)` 重新广播（见 `src/presence.js` 的 `updateLocalPresence`）。`status` 的取值与 `src/animationCatalog.js` 的状态层定义一致。
+
+### 一次性互动（broadcast channel）
+
+跨用户的瞬时互动（贴贴/喂食/踢飞、进出场打招呼等高频低价值信号）走 room 维度单独一条 broadcast channel（`interactions:${roomId}`，见 `src/interactions.js`），纯瞬时、不落库、不进消息历史：
+
+```jsonc
+// event: "interaction"
+{
+  "action": "cuddle" | "feed" | "kick", // 见 animationCatalog.INTERACTIONS
+  "actorId": "<发起者 uuid>",
+  "targetId": "<被作用者 uuid>"
+}
+```
+
+「由谁播」遵循单角色原则：`kick`/`feed` 由**目标** pet 播，`cuddle` 由**发起者** pet 播。broadcast 配置 `self: false`，发起方本地直接播放、不回环。
+
+> **为什么不复用 `messages.kind='emote'` 落库？** 互动信号高频、瞬时、对持久化价值很低；落库会污染文字消息历史并产生无谓写入。`messages` 的 `emote` 取值在 v1 仍保留未启用。
 
 ---
 

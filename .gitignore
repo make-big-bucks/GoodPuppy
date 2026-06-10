@@ -7,3 +7,4 @@ src-tauri/target/
 backups/
 tmp/
 output/
+__pycache__/

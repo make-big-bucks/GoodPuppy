@@ -154,6 +154,11 @@ body {
   touch-action: none;
 }
 
+/* 双向互动（如贴贴）需要面对面时由 PetAnimator 的 mirrored 元数据驱动。 */
+.pet-image.is-mirrored {
+  transform: scaleX(-1);
+}
+
 .pet-image.is-offline {
   filter: grayscale(1) brightness(0.78) contrast(0.95);
 }

@@ -1,7 +1,11 @@
 # Hatch Puppy Pet — 设计 Spec
 
 日期：2026-06-10
-状态：已批准，准备实现
+状态：已批准，已实现；**动画集合其后被 [ADR-0009](../../adr/0009-互动双角色动画与-idle-变体.md) 演进**——
+wander/sit-stand 改为 per-pet idle 变体池，drag-trot→drag-lift（被拎起），enter-run/leave-thrown
+改为门进出（enter/leave），新增 cast（施法），message/busy/cuddle/feed 表达重做并引入按状态
+道具白名单。最新状态单一事实源见 `skills/hatch-puppy-pet/scripts/puppy_states.py` 与
+`skills/hatch-puppy-pet/references/animation-rows.md`；下文动画清单仅保留为历史记录。
 
 ## 背景
 

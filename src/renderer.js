@@ -1,6 +1,13 @@
-import { getSafeState, stateCount } from "./petState.js";
+import { PetAnimator } from "./petState.js";
+import {
+  loadPetManifest,
+  durationFromManifest,
+  INTERACTIONS,
+  STATUS_OPTIONS,
+} from "./animationCatalog.js";
 import { isPointOpaqueInImage } from "./hitTesting.js";
 import * as presence from "./presence.js";
+import { joinInteractions, leaveInteractions, sendInteraction } from "./interactions.js";
 import { getPetWindowLayout, orderRemotePetIds } from "./petLayout.js";
 import { Menu } from "@tauri-apps/api/menu";
 
@@ -13,19 +20,20 @@ const alphaHitSlop = 3;
 const supportsNativeWindowDrag = window.goodPuppy.supportsNativeWindowDrag();
 
 const SELF_ID = "self";
-const DEFAULT_PET_STATE = 6;
 
 const petImage = document.querySelector('.pet-image[data-user="self"]');
 const messageBubble = document.querySelector('.message-bubble[data-user="self"]');
+const selfArea = document.querySelector('.dog-area[data-user="self"]');
 
 messageBubble?.classList.add("is-owned");
 
 let selfPetId = "default";
-let currentState = DEFAULT_PET_STATE;
 let selfAuthId = null;
 let currentRoomId = null;
 let activeSupabase = null;
 let messagesChannel = null;
+
+// userId -> { element, animator, leaving, removeTimer }
 const remotePets = new Map();
 
 const messageHistory = [];
@@ -38,29 +46,41 @@ let bubblePointerStart = false;
 let isIgnoringMouseEvents = false;
 let lastPointerEvent = null;
 let hasStartedPetApp = false;
+let dragLiftTimer = null;
+
+// onState 统一回调：换帧图 + 同步镜像朝向（如双向贴贴需要面对面）。
+function applyStateToImage(img, path, meta) {
+  if (!img) return;
+  img.src = path;
+  img.classList.toggle("is-mirrored", Boolean(meta?.mirrored));
+}
+
+// ── Self pet animator ─────────────────────────────────────────
+
+const selfAnimator = new PetAnimator({
+  petId: selfPetId,
+  onState: (_state, path, meta) => applyStateToImage(petImage, path, meta),
+});
+
+// 形象清单就绪后立刻播 enter——这是自己 pet 出现在屏幕上的第一个动作（从门中走出）。
+// 不依赖登录 / 房间：房间激活有多次网络往返，挂在其后会先看到 idle、过会儿才 enter。
+// 等 manifest 到位再播，是为了拿到正确的 enter 时长（兜底 900ms 会截断 1180ms 的 enter）。
+loadPetManifest(selfPetId).then((manifest) => {
+  selfAnimator.setManifest(manifest);
+  selfAnimator.playTransient("enter");
+});
 
 cloudHitImage.src = "/img/cloud_transparent.png";
-document.querySelector('.dog-area[data-user="self"]')?.style.setProperty("--pet-index", "0");
-setPetStateImage(DEFAULT_PET_STATE);
+selfArea?.style.setProperty("--pet-index", "0");
 updateBubbleNav();
 
-// ── Pet state image ───────────────────────────────────────────
+// 自己的桌宠应在窗口出现的第一时间就开始待机呼吸，不依赖登录 / 房间。
+// 房间激活只负责追加远程 pet，不再作为自己 pet 的可见性前提。
+petStage?.classList.remove("is-initializing");
 
-function getStateImagePath(stateNumber, petId = "default") {
-  // v1: only one pet type; petId is wired through for v2 multi-pet support
-  void petId;
-  return `/state_images/state_${String(stateNumber).padStart(2, "0")}.gif`;
-}
-
-function setPetStateImage(stateNumber) {
-  if (!petImage) return;
-  petImage.src = getStateImagePath(stateNumber, selfPetId);
-}
-
-function showNextState() {
-  currentState = currentState === stateCount ? 1 : currentState + 1;
-  setPetStateImage(currentState);
-  refreshMousePassthrough();
+function animatorForUser(userId) {
+  if (userId === selfAuthId || userId === SELF_ID) return selfAnimator;
+  return remotePets.get(userId)?.animator || null;
 }
 
 // ── Remote pet layout ────────────────────────────────────────
@@ -93,40 +113,124 @@ function createRemotePetElement(userId) {
         </div>
       </div>
     </div>
-    <img class="pet-image" data-user="remote" src="${getStateImagePath(
-      DEFAULT_PET_STATE
-    )}" alt="Remote puppy" draggable="false" />
+    <img class="pet-image" data-user="remote" alt="Remote puppy" draggable="false" />
   `;
-  section.querySelector(".pet-image")?.addEventListener("load", refreshMousePassthrough);
+  const img = section.querySelector(".pet-image");
+  img?.addEventListener("load", refreshMousePassthrough);
   petStage.appendChild(section);
   return section;
 }
 
-function applyPetLayout(remoteUserIds) {
-  const ordered = orderRemotePetIds(remoteUserIds);
-  const online = new Set(ordered);
+function relayoutRemotePets() {
+  const ids = orderRemotePetIds([...remotePets.keys()]);
+  ids.forEach((userId, index) => {
+    remotePets.get(userId)?.element.style.setProperty("--pet-index", String(index + 1));
+  });
+  selfArea?.style.setProperty("--pet-index", "0");
+  window.goodPuppy.setWindowSize(getPetWindowLayout(ids.length));
+  refreshMousePassthrough();
+}
 
-  for (const [userId, element] of remotePets) {
-    if (!online.has(userId)) {
-      element.remove();
+function createRemotePet(userId, info) {
+  const element = createRemotePetElement(userId);
+  const img = element.querySelector(".pet-image");
+  const animator = new PetAnimator({
+    petId: info.petId,
+    onState: (_state, path, meta) => applyStateToImage(img, path, meta),
+  });
+  loadPetManifest(info.petId).then((manifest) => animator.setManifest(manifest));
+  const entry = { element, animator, leaving: false, removeTimer: null };
+  remotePets.set(userId, entry);
+  return entry;
+}
+
+// presence 回调：users = [{ userId, status, petId }]
+function applyPresence(users) {
+  const byId = new Map(users.map((u) => [u.userId, u]));
+  const onlineSet = new Set(byId.keys());
+
+  // 离开：在线列表中消失且尚未在离场动画中的 pet 播 leave（走入门中消失）后移除。
+  for (const [userId, entry] of remotePets) {
+    if (onlineSet.has(userId) || entry.leaving) continue;
+    entry.leaving = true;
+    entry.animator.playTransient("leave");
+    const ms = durationFromManifest(entry.animator.manifest?.states?.["leave"]);
+    entry.removeTimer = setTimeout(() => {
+      entry.animator.destroy();
+      entry.element.remove();
       remotePets.delete(userId);
-    }
+      relayoutRemotePets();
+    }, ms);
   }
 
-  ordered.forEach((userId, index) => {
-    let element = remotePets.get(userId);
-    if (!element) {
-      element = createRemotePetElement(userId);
-      remotePets.set(userId, element);
+  // 进入 / 更新。
+  for (const userId of onlineSet) {
+    const info = byId.get(userId);
+    let entry = remotePets.get(userId);
+    if (!entry) {
+      entry = createRemotePet(userId, info);
+      entry.animator.playTransient("enter"); // 从门中走出
+      selfAnimator.playTransient("greet"); // 我向新来的打招呼
+    } else if (entry.leaving) {
+      // 离场途中又回来：取消移除。
+      entry.leaving = false;
+      if (entry.removeTimer != null) {
+        clearTimeout(entry.removeTimer);
+        entry.removeTimer = null;
+      }
     }
-    element.style.setProperty("--pet-index", String(index + 1));
-  });
+    entry.animator.setPetId(info.petId);
+    entry.animator.setStatus(info.status);
+  }
 
-  const selfArea = document.querySelector('.dog-area[data-user="self"]');
-  selfArea?.style.setProperty("--pet-index", "0");
+  relayoutRemotePets();
+}
 
-  window.goodPuppy.setWindowSize(getPetWindowLayout(ordered.length));
-  refreshMousePassthrough();
+// ── Cross-user interactions ───────────────────────────────────
+
+// pet 在本端布局中的横向序号：self 固定 0，远端按布局顺序 1..n。
+function petLayoutIndex(userId) {
+  if (userId === selfAuthId || userId === SELF_ID) return 0;
+  const index = orderRemotePetIds([...remotePets.keys()]).indexOf(userId);
+  return index === -1 ? null : index + 1;
+}
+
+// 双角色互动：发起者与被作用者各播自己的动画。
+// mirror:"facing" 时基准 GIF 朝右贴，对方在本端布局左侧的一方做镜像——
+// 镜像按「本端布局中的相对方位」而非 actor/target 角色判定，保证每个端
+// （包括旁观者）看到的双方都是面对面。
+function applyInteraction({ action, actorId, targetId }) {
+  const def = INTERACTIONS[action];
+  if (!def) return;
+  playInteractionRole(def, def.actorState, actorId, targetId);
+  playInteractionRole(def, def.targetState, targetId, actorId);
+}
+
+function playInteractionRole(def, state, userId, partnerId) {
+  if (!state) return;
+  const animator = animatorForUser(userId);
+  if (!animator) return;
+  let mirrored = false;
+  if (def.mirror === "facing") {
+    const ownIndex = petLayoutIndex(userId);
+    const partnerIndex = petLayoutIndex(partnerId);
+    mirrored = ownIndex != null && partnerIndex != null && partnerIndex < ownIndex;
+  }
+  animator.playTransient(state, { durationMs: def.holdMs, mirrored });
+}
+
+function triggerInteraction(action, targetId) {
+  if (!INTERACTIONS[action] || !selfAuthId) return;
+  const payload = { action, actorId: selfAuthId, targetId };
+  sendInteraction(payload);
+  applyInteraction(payload); // 本地立即播（broadcast self:false 不回环）
+}
+
+// ── Persistent status (emotion / work) ───────────────────────
+
+function setSelfStatus(status) {
+  selfAnimator.setStatus(status);
+  presence.updateLocalPresence({ status }).catch(console.error);
 }
 
 // ── Message bubble ────────────────────────────────────────────
@@ -181,7 +285,6 @@ function normalizeMessage(message) {
   return {
     id: message.id ?? `${Date.now()}-${Math.random()}`,
     info: message.info,
-    state: getSafeState(Number(message.state), DEFAULT_PET_STATE),
     from: message.from,
     created_at: message.created_at || new Date().toISOString(),
   };
@@ -208,9 +311,7 @@ function renderMessageAt(index, { markUnread = false } = {}) {
 }
 
 function setLocalMessages(messages) {
-  const normalized = sortByTime(
-    messages.map((m) => normalizeMessage(m)).filter(Boolean)
-  );
+  const normalized = sortByTime(messages.map((m) => normalizeMessage(m)).filter(Boolean));
   messageHistory.length = 0;
   messageHistory.push(...normalized);
 
@@ -317,11 +418,11 @@ async function sendComposerMessage() {
     throw error;
   }
   setComposerStatus("");
+  selfAnimator.playTransient("message"); // 发消息手势
   addLocalMessage(
     {
       id: `local-${Date.now()}`,
       info,
-      state: DEFAULT_PET_STATE,
       from: selfAuthId,
       created_at: new Date().toISOString(),
     },
@@ -336,7 +437,6 @@ function msgToLocal(msg) {
   return {
     id: msg.id,
     info: msg.content,
-    state: DEFAULT_PET_STATE,
     from: msg.sender_id,
     created_at: msg.created_at,
   };
@@ -349,6 +449,7 @@ async function fetchSelfMessages() {
     .select("id, content, created_at, sender_id, kind")
     .eq("room_id", currentRoomId)
     .eq("sender_id", selfAuthId)
+    .eq("kind", "text")
     .order("created_at", { ascending: false })
     .limit(5);
   if (error) throw error;
@@ -373,8 +474,8 @@ async function subscribeToSelfMessages() {
         filter: `room_id=eq.${currentRoomId}`,
       },
       (payload) => {
+        if (payload.new?.kind !== "text") return;
         const msg = msgToLocal(payload.new);
-        // Only handle messages from self that weren't added locally already
         if (msg.from === selfAuthId) {
           addLocalMessage(msg, { markUnread: false });
         }
@@ -484,10 +585,27 @@ window.goodPuppy.onCursorMoved((point) => {
   updateMousePassthrough({ clientX: point.x, clientY: point.y, target });
 });
 
+// ── Drag-lift (按住型瞬时动画：被拎起，方向无关) ──────────────
+
+function startDragLift() {
+  selfAnimator.setHeld("drag-lift");
+  // 原生窗口拖动可能吞掉 pointerup，加安全超时兜底清除。
+  if (dragLiftTimer != null) clearTimeout(dragLiftTimer);
+  dragLiftTimer = setTimeout(stopDragLift, 4000);
+}
+
+function stopDragLift() {
+  if (dragLiftTimer != null) {
+    clearTimeout(dragLiftTimer);
+    dragLiftTimer = null;
+  }
+  selfAnimator.setHeld(null);
+}
+
 // ── Pointer events ────────────────────────────────────────────
 
 function showRemoteBubble(userId) {
-  const element = remotePets.get(userId);
+  const element = remotePets.get(userId)?.element;
   const bubble = element?.querySelector(".message-bubble");
   const text = bubble?.querySelector(".bubble-text");
   if (!bubble || !text) return;
@@ -499,21 +617,35 @@ function showRemoteBubble(userId) {
 async function showPetContextMenu(event) {
   const identity = getPetIdentityForEvent(event);
   const hasSelfMessages = messageHistory.length > 0;
+
+  if (identity.kind === "remote") {
+    const targetId = identity.id;
+    const menu = await Menu.new({
+      items: [
+        {
+          id: "show-status",
+          text: "查看状态",
+          action: () => showRemoteBubble(targetId),
+        },
+        ...Object.entries(INTERACTIONS).map(([action, def]) => ({
+          id: `interact-${action}`,
+          text: def.label,
+          action: () => triggerInteraction(action, targetId),
+        })),
+      ],
+    });
+    await menu.popup();
+    return;
+  }
+
   const menu = await Menu.new({
     items: [
       {
         id: "show-message",
-        text: identity.kind === "self" ? "查看对话" : "查看状态",
+        text: "查看对话",
         action: () => {
-          if (identity.kind === "remote") {
-            showRemoteBubble(identity.id);
-            return;
-          }
-          if (hasSelfMessages) {
-            showMessageBubble();
-          } else {
-            openBubbleComposer();
-          }
+          if (hasSelfMessages) showMessageBubble();
+          else openBubbleComposer();
         },
       },
       {
@@ -521,10 +653,15 @@ async function showPetContextMenu(event) {
         text: "写消息",
         action: () => openBubbleComposer(),
       },
+      ...STATUS_OPTIONS.map((opt) => ({
+        id: `status-${opt.value}`,
+        text: `${opt.group === "mood" ? "心情" : "状态"}：${opt.label}`,
+        action: () => setSelfStatus(opt.value),
+      })),
       {
-        id: "next-state",
-        text: "切换我的表情",
-        action: () => showNextState(),
+        id: "status-normal",
+        text: "恢复正常",
+        action: () => setSelfStatus(null),
       },
     ],
   });
@@ -547,6 +684,9 @@ petStage.addEventListener("pointerdown", async (event) => {
   }
 
   if (!isPetOpaqueAt(event)) return;
+
+  // 只有拖动自己的桌宠才触发被拎起动画。
+  if (getPetIdentityForEvent(event).kind === "self") startDragLift();
 
   if (supportsNativeWindowDrag) {
     window.goodPuppy.startWindowDrag();
@@ -618,6 +758,10 @@ petStage.addEventListener("pointercancel", () => {
   bubblePointerStart = false;
 });
 
+// 拖动结束（含原生窗口拖动）统一在 window 层清除被拎起动画。
+window.addEventListener("pointerup", stopDragLift);
+window.addEventListener("blur", stopDragLift);
+
 // ── Bubble event wiring ───────────────────────────────────────
 
 if (messageBubble) {
@@ -680,7 +824,8 @@ async function ensureProfile() {
     if (insertError) throw insertError;
   } else {
     selfPetId = data.pet_id || "default";
-    setPetStateImage(currentState);
+    selfAnimator.setPetId(selfPetId);
+    loadPetManifest(selfPetId).then((manifest) => selfAnimator.setManifest(manifest));
   }
 }
 
@@ -698,8 +843,11 @@ async function activateRoom(roomId) {
   refreshMousePassthrough();
 
   await presence.joinRoom(activeSupabase, roomId, selfAuthId, {
-    onOnlineUsersChange: applyPetLayout,
+    onPresenceChange: applyPresence,
+    status: selfAnimator.status,
+    petId: selfPetId,
   });
+  await joinInteractions(activeSupabase, roomId, { onInteraction: applyInteraction });
 }
 
 async function loadCurrentRoom() {
@@ -720,8 +868,10 @@ async function loadCurrentRoom() {
 export async function switchRoom(roomId) {
   if (!activeSupabase || !selfAuthId || roomId === currentRoomId) return;
   try {
+    await leaveInteractions();
     await presence.leaveRoom();
     await activateRoom(roomId);
+    selfAnimator.playTransient("enter"); // 手动切换房间：重新从门中走出
   } catch (error) {
     console.error(error);
   }

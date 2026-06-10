@@ -11,7 +11,12 @@ from statistics import median
 
 from PIL import Image
 
-from puppy_states import CELL_HEIGHT, CELL_WIDTH, FRAME_COUNTS as ROW_FRAME_COUNTS
+from puppy_states import (
+    CELL_HEIGHT,
+    CELL_WIDTH,
+    EXPECTED_EXTRACTION_METHODS,
+    FRAME_COUNTS as ROW_FRAME_COUNTS,
+)
 
 IMAGE_SUFFIXES = {".png", ".webp", ".jpg", ".jpeg"}
 
@@ -115,14 +120,16 @@ def inspect_state(
     if len(files) != expected_count:
         row_errors.append(f"expected {expected_count} frame files for {state}, found {len(files)}")
 
-    if args.require_components and method and method != "components":
-        row_errors.append(
-            f"{state} used extraction method {method}; regenerate the row or inspect slot slicing"
+    expected_method = EXPECTED_EXTRACTION_METHODS.get(state, "components")
+    if method and method != expected_method:
+        message = (
+            f"{state} used extraction method {method}; expected {expected_method} "
+            "for this state"
         )
-    elif method and method != "components":
-        row_warnings.append(
-            f"{state} used extraction method {method}; component extraction is preferred"
-        )
+        if args.require_components:
+            row_errors.append(message)
+        else:
+            row_warnings.append(message)
 
     for index, frame_path in enumerate(files[:expected_count]):
         with Image.open(frame_path) as opened:
