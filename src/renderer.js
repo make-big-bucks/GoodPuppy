@@ -9,8 +9,16 @@ import {
 import { isPointOpaqueInImage } from "./hitTesting.js";
 import * as presence from "./presence.js";
 import { joinInteractions, leaveInteractions, sendInteraction } from "./interactions.js";
-import { getPetWindowLayout, orderRemotePetIds } from "./petLayout.js";
-import { Menu, Submenu, CheckMenuItem } from "@tauri-apps/api/menu";
+import {
+  getPetWindowLayout,
+  orderRemotePetIds,
+  clampPetScale,
+  stepPetScale,
+  DEFAULT_PET_SCALE,
+  MIN_PET_SCALE,
+  MAX_PET_SCALE,
+} from "./petLayout.js";
+import { Menu, Submenu, MenuItem, CheckMenuItem } from "@tauri-apps/api/menu";
 
 const petStage = document.querySelector(".pet-stage");
 const cloudHitImage = new Image();
@@ -33,6 +41,11 @@ let selfPetId = "default";
 // 进房后通过 presence 广播给房间里其他人，让对方渲染我所选皮肤。
 const SKIN_STORAGE_KEY = "goodpuppy.skin";
 let selfSkin = readStoredSkin();
+
+// 桌宠尺寸：纯本地偏好，存 localStorage。通过右键菜单按步长增减，
+// 用 CSS --pet-scale 缩放视觉、用窗口尺寸跟随（见 relayoutRemotePets）。
+const SCALE_STORAGE_KEY = "goodpuppy.scale";
+let petScale = readStoredScale();
 let selfAuthId = null;
 let currentRoomId = null;
 let activeSupabase = null;
@@ -70,6 +83,33 @@ function readStoredSkin() {
   }
 }
 
+function readStoredScale() {
+  try {
+    const raw = localStorage.getItem(SCALE_STORAGE_KEY);
+    return raw == null ? DEFAULT_PET_SCALE : clampPetScale(parseFloat(raw));
+  } catch {
+    return DEFAULT_PET_SCALE;
+  }
+}
+
+function applyPetScale() {
+  document.documentElement.style.setProperty("--pet-scale", String(petScale));
+}
+
+function setPetScale(next) {
+  const clamped = clampPetScale(next);
+  if (clamped === petScale) return;
+  petScale = clamped;
+  applyPetScale();
+  try {
+    localStorage.setItem(SCALE_STORAGE_KEY, String(petScale));
+  } catch {
+    // localStorage 不可用时仅保留本会话选择。
+  }
+  // 窗口尺寸跟随缩放重排，并刷新命中区域。
+  relayoutRemotePets();
+}
+
 const selfAnimator = new PetAnimator({
   petId: selfPetId,
   skin: selfSkin,
@@ -85,6 +125,7 @@ loadPetManifest(selfPetId).then((manifest) => {
 });
 
 cloudHitImage.src = "/img/cloud_transparent.png";
+applyPetScale();
 selfArea?.style.setProperty("--pet-index", "0");
 updateBubbleNav();
 
@@ -141,7 +182,7 @@ function relayoutRemotePets() {
     remotePets.get(userId)?.element.style.setProperty("--pet-index", String(index + 1));
   });
   selfArea?.style.setProperty("--pet-index", "0");
-  window.goodPuppy.setWindowSize(getPetWindowLayout(ids.length));
+  window.goodPuppy.setWindowSize(getPetWindowLayout(ids.length, petScale));
   refreshMousePassthrough();
 }
 
@@ -664,6 +705,32 @@ async function buildSkinSubmenu() {
   return Submenu.new({ text: "换肤", items });
 }
 
+// 「大小」子菜单：像调字号一样按步长放大/缩小，到边界时对应项禁用；
+// 非默认大小时提供「恢复默认」。所选大小持久化在 localStorage。
+async function buildSizeSubmenu() {
+  const items = await Promise.all([
+    MenuItem.new({
+      id: "size-up",
+      text: "放大",
+      enabled: petScale < MAX_PET_SCALE,
+      action: () => setPetScale(stepPetScale(petScale, 1)),
+    }),
+    MenuItem.new({
+      id: "size-down",
+      text: "缩小",
+      enabled: petScale > MIN_PET_SCALE,
+      action: () => setPetScale(stepPetScale(petScale, -1)),
+    }),
+    MenuItem.new({
+      id: "size-reset",
+      text: "恢复默认大小",
+      enabled: petScale !== DEFAULT_PET_SCALE,
+      action: () => setPetScale(DEFAULT_PET_SCALE),
+    }),
+  ]);
+  return Submenu.new({ text: "大小", items });
+}
+
 async function showPetContextMenu(event) {
   const identity = getPetIdentityForEvent(event);
   const hasSelfMessages = messageHistory.length > 0;
@@ -689,6 +756,7 @@ async function showPetContextMenu(event) {
   }
 
   const skinMenu = await buildSkinSubmenu();
+  const sizeMenu = await buildSizeSubmenu();
   const menu = await Menu.new({
     items: [
       {
@@ -715,6 +783,7 @@ async function showPetContextMenu(event) {
         action: () => setSelfStatus(null),
       },
       ...(skinMenu ? [skinMenu] : []),
+      sizeMenu,
     ],
   });
   await menu.popup();
