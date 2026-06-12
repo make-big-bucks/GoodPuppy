@@ -18,8 +18,8 @@
         "label": "login",
         "title": "GoodPuppy",
         "url": "login.html",
-        "width": 320,
-        "height": 300,
+        "width": 420,
+        "height": 660,
         "resizable": false,
         "maximizable": false,
         "center": true

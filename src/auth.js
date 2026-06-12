@@ -5,11 +5,13 @@ const authForm = document.querySelector(".auth-card");
 const authMessage = document.querySelector(".auth-message");
 const passwordInput = document.querySelector(".auth-password");
 const passwordToggle = document.querySelector(".auth-password-toggle");
+const rememberMeInput = document.querySelector(".remember-me");
 
 const supabase = createAppSupabaseClient();
+const temporarySessionKey = "goodPuppy.temporarySession";
 
-// 防止重复触发（已有 session 时 onAuthStateChange 和 getSession 可能同时命中）
 let authHandled = false;
+let pendingRememberSession = null;
 
 function setAuthMessage(message, { isError = false } = {}) {
   if (!authMessage) return;
@@ -18,8 +20,8 @@ function setAuthMessage(message, { isError = false } = {}) {
 }
 
 function setAuthBusy(isBusy) {
-  authForm?.querySelectorAll("input, button").forEach((el) => {
-    el.disabled = isBusy;
+  authForm?.querySelectorAll("input, button").forEach((element) => {
+    element.disabled = isBusy;
   });
 }
 
@@ -31,6 +33,28 @@ function getAuthCredentials() {
   };
 }
 
+function shouldRememberSession() {
+  return Boolean(rememberMeInput?.checked);
+}
+
+function markSessionPersistence(shouldRemember) {
+  if (shouldRemember) {
+    localStorage.removeItem(temporarySessionKey);
+  } else {
+    localStorage.setItem(temporarySessionKey, "true");
+  }
+}
+
+async function clearTemporarySessionIfNeeded() {
+  if (localStorage.getItem(temporarySessionKey) !== "true") {
+    return false;
+  }
+
+  localStorage.removeItem(temporarySessionKey);
+  await supabase.auth.signOut();
+  return true;
+}
+
 async function notifyAuthReady() {
   if (authHandled) return;
   authHandled = true;
@@ -39,15 +63,20 @@ async function notifyAuthReady() {
 
 async function signIn() {
   const { email, password } = getAuthCredentials();
+  pendingRememberSession = shouldRememberSession();
   setAuthBusy(true);
-  setAuthMessage("正在登录...");
+  setAuthMessage("\u6b63\u5728\u767b\u5f55...");
 
   try {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
+
+    markSessionPersistence(pendingRememberSession);
+    pendingRememberSession = null;
     await notifyAuthReady();
   } catch (error) {
-    setAuthMessage(error.message || "登录失败", { isError: true });
+    pendingRememberSession = null;
+    setAuthMessage(error.message || "\u767b\u5f55\u5931\u8d25", { isError: true });
   } finally {
     setAuthBusy(false);
   }
@@ -55,19 +84,26 @@ async function signIn() {
 
 async function signUp() {
   const { email, password } = getAuthCredentials();
+  pendingRememberSession = shouldRememberSession();
   setAuthBusy(true);
-  setAuthMessage("正在注册...");
+  setAuthMessage("\u6b63\u5728\u6ce8\u518c...");
 
   try {
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) throw error;
+
     if (data.session) {
-      setAuthMessage("注册成功");
+      markSessionPersistence(pendingRememberSession);
+      setAuthMessage("\u6ce8\u518c\u6210\u529f");
+      await notifyAuthReady();
     } else {
-      setAuthMessage("注册成功，请检查邮箱确认账号");
+      setAuthMessage("\u6ce8\u518c\u6210\u529f\uff0c\u8bf7\u68c0\u67e5\u90ae\u7bb1\u786e\u8ba4\u8d26\u53f7");
     }
+
+    pendingRememberSession = null;
   } catch (error) {
-    setAuthMessage(error.message || "注册失败", { isError: true });
+    pendingRememberSession = null;
+    setAuthMessage(error.message || "\u6ce8\u518c\u5931\u8d25", { isError: true });
   } finally {
     setAuthBusy(false);
   }
@@ -77,17 +113,35 @@ function setupPasswordToggle() {
   passwordToggle?.addEventListener("click", () => {
     const shouldShow = passwordInput.type === "password";
     passwordInput.type = shouldShow ? "text" : "password";
-    passwordToggle.textContent = shouldShow ? "隐藏" : "显示";
-    passwordToggle.setAttribute("aria-label", shouldShow ? "隐藏密码" : "显示密码");
+    passwordToggle.textContent = shouldShow ? "\u9690\u85cf" : "\u663e\u793a";
+    passwordToggle.setAttribute("aria-label", shouldShow ? "\u9690\u85cf\u5bc6\u7801" : "\u663e\u793a\u5bc6\u7801");
     passwordInput.focus();
+  });
+}
+
+function subscribeToAuthChanges() {
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (session) {
+      if (event === "SIGNED_IN" && pendingRememberSession !== null) {
+        markSessionPersistence(pendingRememberSession);
+      }
+
+      notifyAuthReady();
+      return;
+    }
+
+    authHandled = false;
+    pendingRememberSession = null;
+    localStorage.removeItem(temporarySessionKey);
+    setAuthMessage("");
   });
 }
 
 export async function initializeAuth() {
   setupPasswordToggle();
 
-  authForm?.addEventListener("submit", (e) => {
-    e.preventDefault();
+  authForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
     signIn();
   });
 
@@ -95,15 +149,12 @@ export async function initializeAuth() {
     signUp();
   });
 
-  supabase.auth.onAuthStateChange((_event, session) => {
-    if (session) {
-      notifyAuthReady();
-    } else {
-      // 退出登录后重置，允许下次重新登录
-      authHandled = false;
-      setAuthMessage("");
-    }
-  });
+  if (await clearTemporarySessionIfNeeded()) {
+    subscribeToAuthChanges();
+    return;
+  }
+
+  subscribeToAuthChanges();
 
   const { data, error } = await supabase.auth.getSession();
 
