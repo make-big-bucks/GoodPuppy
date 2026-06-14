@@ -1,6 +1,6 @@
 # GoodPuppy 数据库文档
 
-> 最后更新：2026-06-10
+> 最后更新：2026-06-14
 > Supabase 项目：`mrvdeeiiwnegaqjwpsgk`（ap-southeast-2，Postgres 17）
 > 适用版本：MVP Slice 2 + Slice 3 数据层
 
@@ -50,6 +50,7 @@ CREATE TABLE public.profiles (
   gp_id         text        UNIQUE NOT NULL,  -- 由触发器自动生成，格式 "gp_" + uuid前8位十六进制
   display_name  text        NOT NULL DEFAULT '',
   pet_id        text        NOT NULL DEFAULT 'default',  -- 选用的内置 pet 标识
+  skin          text        NOT NULL DEFAULT 'default',  -- 当前 pet 皮肤标识
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 ```
@@ -58,6 +59,7 @@ CREATE TABLE public.profiles (
 - `id`：直接等于 `auth.uid()`，不自增，确保一个 auth 账号只有一条 profile。
 - `gp_id`：对外可分享的短码（如 `gp_a1b2c3d4`），用于"按人找人"。由触发器在 INSERT 时自动设置，无需前端传入。
 - `pet_id`：v1 只支持内置 pet，`default` 为默认值，未来切换内置 pet 时更新此字段。
+- `skin`：当前 pet 的皮肤变体，`default` 表示默认皮肤。
 
 ---
 
@@ -70,13 +72,17 @@ CREATE TABLE public.rooms (
   id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   invite_code   text        UNIQUE NOT NULL,  -- 由触发器自动生成，8 位随机字符
   created_by    uuid        NOT NULL REFERENCES public.profiles(id),
+  room_name     text,
+  description   text        NOT NULL DEFAULT '',
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 ```
 
 **字段说明：**
-- `invite_code`：任何人知道这个码就能加入此房间，由触发器在 INSERT 时自动生成。
+- `invite_code`：兼容字段，任何人知道这个码就能通过 RPC 加入此房间，由触发器在 INSERT 时自动生成；当前会客厅主流程不再展示邀请码入口。
 - `created_by`：建立此房间的用户，通常是发起连接请求一方。通过 `accept_connection()` 创建的房间，`created_by` 是接受方（to_id）。
+- `room_name`：用户可见房间名；所有房间成员都可以编辑。
+- `description`：用户可见房间简介；所有房间成员都可以编辑。
 
 ---
 
@@ -94,7 +100,7 @@ CREATE TABLE public.room_members (
 ```
 
 **说明：**
-- 进入房间有两条路径：通过 `accept_connection()` RPC（接受好友请求时自动加入），或通过 `join_room_by_invite()` RPC（输入邀请码）。
+- 产品主路径是通过 `gp_` 开头的 GoodPuppy ID 发起邀请，对方接受后由 `accept_connection()` RPC 自动建房间并加入双方。`join_room_by_invite()` RPC（输入邀请码）保留为兼容路径，不再是会客厅 UI 的主要入口。
 - 前端直接 INSERT 也被 RLS 允许（`user_id = auth.uid()`），但推荐通过 RPC 保证原子性。
 
 ---
@@ -416,7 +422,7 @@ const { data: roomId, error } = await supabase.rpc('join_room_by_invite', {
 |---|---|
 | SELECT | `true`（所有登录用户可读，用于按 gp_id 搜索好友） |
 | INSERT | `id = auth.uid()` |
-| UPDATE | `id = auth.uid()` |
+| UPDATE | `id = auth.uid()`；客户端主要更新 `display_name`、`pet_id`、`skin` |
 
 ```sql
 CREATE POLICY "profiles_select" ON public.profiles
@@ -434,12 +440,17 @@ CREATE POLICY "profiles_update" ON public.profiles
 |---|---|
 | SELECT | 当前用户是该房间成员 |
 | INSERT | `created_by = auth.uid()` |
+| UPDATE | 当前用户是该房间成员；客户端只授予 `room_name`、`description` 列更新权限 |
 
 ```sql
 CREATE POLICY "rooms_select" ON public.rooms
   FOR SELECT TO authenticated USING (id IN (SELECT private.get_my_room_ids()));
 CREATE POLICY "rooms_insert" ON public.rooms
   FOR INSERT TO authenticated WITH CHECK (created_by = auth.uid());
+CREATE POLICY "rooms_update" ON public.rooms
+  FOR UPDATE TO authenticated
+  USING (id IN (SELECT private.get_my_room_ids()))
+  WITH CHECK (id IN (SELECT private.get_my_room_ids()));
 ```
 
 ### `room_members`
