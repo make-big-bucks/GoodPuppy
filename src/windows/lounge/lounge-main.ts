@@ -5,6 +5,51 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { initLoungePanel, openLoungePanel } from "./lounge.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 
+function initDragRegion() {
+  const dragRegion = document.querySelector(".sidebar-drag-region") as HTMLElement | null;
+  if (!dragRegion) return;
+  dragRegion.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    window.goodPuppy.startWindowDrag();
+  });
+}
+
+function initResizeHandle() {
+  const handle = document.querySelector(".resize-handle") as HTMLElement | null;
+  const appWindow = document.querySelector(".app-window") as HTMLElement | null;
+  if (!handle || !appWindow) return;
+
+  const MIN_W = 240;
+  const MAX_W = 480;
+
+  handle.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+
+    const startX = e.clientX;
+    const startW = (document.querySelector(".sidebar") as HTMLElement).offsetWidth;
+    handle.classList.add("is-resizing");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const onMove = (ev: MouseEvent) => {
+      const newW = Math.max(MIN_W, Math.min(MAX_W, startW + ev.clientX - startX));
+      appWindow.style.setProperty("--sidebar-w", `${newW}px`);
+    };
+
+    const onUp = () => {
+      handle.classList.remove("is-resizing");
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  });
+}
+
 const supabase = createAppSupabaseClient();
 let activeRoomId: string | null = null;
 
@@ -35,6 +80,8 @@ async function init() {
 
   openLoungePanel();
   await emit("request-active-room");
+  initDragRegion();
+  initResizeHandle();
 }
 
 init().catch(console.error);

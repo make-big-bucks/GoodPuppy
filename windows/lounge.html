@@ -11,8 +11,8 @@
   <main class="app-window lounge-panel">
     <section class="layout">
       <aside class="sidebar">
-        <div class="sidebar-drag-region" data-tauri-drag-region></div>
-        <section class="profile-section" data-tauri-drag-region>
+        <div class="sidebar-drag-region"></div>
+        <section class="profile-section">
           <div class="lounge-profile-card"></div>
           <button class="icon-btn lounge-settings-btn" type="button" aria-label="设置">⚙</button>
         </section>
@@ -30,6 +30,7 @@
       </aside>
 
       <section class="main">
+        <div class="resize-handle" aria-hidden="true"></div>
         <div class="empty-state lounge-empty-detail">选择一个房间查看成员</div>
 
         <section class="room-detail lounge-room-detail" hidden>

@@ -342,12 +342,13 @@ pub fn run() {
                                     "lounge",
                                     WebviewUrl::App("windows/lounge.html".into()),
                                 )
-                                .title("\u{4f1a}\u{5ba2}\u{5385}")
+                                .title("")
                                 .inner_size(1120.0, 720.0)
                                 .min_inner_size(1040.0, 680.0)
                                 .resizable(true)
                                 .maximizable(false)
                                 .title_bar_style(TitleBarStyle::Overlay)
+                                .accept_first_mouse(true)
                                 .build();
                             }
                         }

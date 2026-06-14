@@ -51,9 +51,9 @@ button {
   min-width: 1040px;
   min-height: 680px;
   overflow: hidden;
-  background: var(--window);
+  background: var(--sidebar);
   display: grid;
-  grid-template-columns: 340px 1fr;
+  grid-template-columns: var(--sidebar-w, 340px) 1fr;
   grid-template-rows: 1fr;
 }
 
@@ -66,10 +66,20 @@ button {
 }
 
 .sidebar-drag-region {
-  height: 28px;
+  height: 40px;
   flex-shrink: 0;
-  -webkit-app-region: drag;
   cursor: default;
+}
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  left: -5px;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
 }
 
 .sidebar {
@@ -77,7 +87,6 @@ button {
   display: flex;
   flex-direction: column;
   padding: 0 26px 28px;
-  border-right: 1px solid var(--line);
   background: var(--sidebar);
 }
 
@@ -87,11 +96,6 @@ button {
   gap: 12px;
   align-items: start;
   margin-bottom: 28px;
-  -webkit-app-region: drag;
-}
-
-.profile-section button {
-  -webkit-app-region: no-drag;
 }
 
 .lounge-profile-card {
@@ -381,11 +385,15 @@ button {
 }
 
 .main {
+  position: relative;
   min-height: 0;
   padding: 34px 38px 30px;
   display: flex;
   flex-direction: column;
   background: #fff;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  box-shadow: 0 4px 28px rgba(0, 0, 0, 0.08);
 }
 
 .room-detail[hidden],
