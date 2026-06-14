@@ -15,7 +15,7 @@ export function normalizeGpId(value: unknown) {
 
 export function getDisplayName(profile: LoungeProfile = {}) {
   const name = String(profile.display_name || "").trim();
-  return name || profile.gp_id || "GoodPuppy";
+  return name || "GoodPuppy";
 }
 
 function joinedAtValue(member: LoungeMemberRow) {

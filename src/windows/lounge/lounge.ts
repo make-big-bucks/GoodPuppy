@@ -77,6 +77,7 @@ let rooms: LoungeRoom[] = [];
 let pendingRequests: ConnectionRequestRow[] = [];
 let selectedRoomId: string | null = null;
 let requestChannel: RealtimeChannel | null = null;
+let presenceChannel: RealtimeChannel | null = null;
 
 const panel = () => document.querySelector<HTMLElement>(".lounge-panel");
 const modalBackdrop = () => document.querySelector<HTMLElement>(".lounge-modal-backdrop");
@@ -353,7 +354,7 @@ async function inviteMember(targetGpId: string) {
 }
 
 async function updateDisplayName(displayName: string) {
-  if (!supabaseClient || !selfAuthId) return;
+  if (!supabaseClient || !selfAuthId) throw new Error("请先登录");
   const value = displayName.trim();
   if (!value) throw new Error("请输入用户名");
 
@@ -500,6 +501,30 @@ function subscribeToRequests() {
     .subscribe();
 }
 
+function subscribeToPresenceChanges() {
+  if (!supabaseClient || !selfAuthId) return;
+
+  if (presenceChannel) {
+    void supabaseClient.removeChannel(presenceChannel);
+    presenceChannel = null;
+  }
+
+  presenceChannel = supabaseClient
+    .channel(`lounge-presence-${selfAuthId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "presence",
+      },
+      () => {
+        void loadPanelData();
+      },
+    )
+    .subscribe();
+}
+
 function bindEvents() {
   const p = panel();
   if (!p || p.dataset.bound === "true") return;
@@ -591,8 +616,9 @@ function bindEvents() {
 
   p.addEventListener("pointerdown", (event) => {
     const target = targetElement(event.target);
-    if (target?.closest("input, button, textarea, .room-list, .invite-list")) return;
-    window.goodPuppy.startWindowDrag();
+    if (target?.closest(".sidebar-drag-region")) {
+      window.goodPuppy.startWindowDrag();
+    }
   });
 }
 
@@ -611,12 +637,14 @@ export function initLoungePanel({
 
   bindEvents();
   subscribeToRequests();
+  subscribeToPresenceChanges();
 }
 
 export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId }: UpdatePanelAuthOptions) {
   supabaseClient = supabase;
   selfAuthId = nextSelfAuthId;
   subscribeToRequests();
+  subscribeToPresenceChanges();
 }
 
 export function openLoungePanel() {

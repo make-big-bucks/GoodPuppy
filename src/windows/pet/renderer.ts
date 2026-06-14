@@ -988,6 +988,13 @@ async function activateRoom(roomId: string) {
     petId: selfPetId,
     skin: selfSkin,
   });
+  void activeSupabase
+    .from("presence")
+    .upsert(
+      { room_id: roomId, user_id: selfAuthId, is_online: true, last_seen: new Date().toISOString() },
+      { onConflict: "room_id,user_id" },
+    )
+    .then(({ error }) => { if (error) console.error("presence upsert:", error); });
   await joinInteractions(activeSupabase, roomId, { onInteraction: applyInteraction });
 }
 
@@ -1009,8 +1016,17 @@ async function loadCurrentRoom() {
 export async function switchRoom(roomId: string) {
   if (!activeSupabase || !selfAuthId || roomId === currentRoomId) return;
   try {
+    const prevRoomId = currentRoomId;
     await leaveInteractions();
     await presence.leaveRoom();
+    if (prevRoomId) {
+      void activeSupabase
+        .from("presence")
+        .update({ is_online: false, last_seen: new Date().toISOString() })
+        .eq("room_id", prevRoomId)
+        .eq("user_id", selfAuthId)
+        .then(({ error }) => { if (error) console.error("presence leave:", error); });
+    }
     await activateRoom(roomId);
     selfAnimator.playTransient("enter"); // 手动切换房间：重新从门中走出
   } catch (error) {
@@ -1026,6 +1042,14 @@ export async function exitCurrentRoom() {
   if (!currentRoomId) return;
   await leaveInteractions();
   await presence.leaveRoom();
+  if (activeSupabase && selfAuthId) {
+    void activeSupabase
+      .from("presence")
+      .update({ is_online: false, last_seen: new Date().toISOString() })
+      .eq("room_id", currentRoomId)
+      .eq("user_id", selfAuthId)
+      .then(({ error }) => { if (error) console.error("presence exit:", error); });
+  }
   if (messagesChannel) {
     await activeSupabase?.removeChannel(messagesChannel);
     messagesChannel = null;
