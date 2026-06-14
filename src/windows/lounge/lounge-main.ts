@@ -5,7 +5,7 @@ import { initLoungePanel, openLoungePanel } from "./lounge.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 
 const supabase = createAppSupabaseClient();
-let activeRoomId = null;
+let activeRoomId: string | null = null;
 
 async function init() {
   const { data } = await supabase.auth.getSession();
@@ -15,26 +15,25 @@ async function init() {
     supabase,
     selfAuthId,
     getActiveRoomId: () => activeRoomId,
-    onEnterRoom: (roomId) => {
-      getCurrentWindow().hide();
-      emit("switch-room", { roomId });
+    onEnterRoom: (roomId: string) => {
+      void getCurrentWindow().hide();
+      void emit("switch-room", { roomId });
     },
     onExitRoom: () => emit("exit-room"),
   });
 
-  // 重新从 tray 打开时刷新数据
   listen("lounge-refresh", () => {
-    emit("request-active-room");
+    void emit("request-active-room");
     openLoungePanel();
   });
 
-  listen("active-room-changed", (event) => {
+  listen<{ roomId?: string | null }>("active-room-changed", (event) => {
     activeRoomId = event.payload?.roomId || null;
     openLoungePanel();
   });
 
   openLoungePanel();
-  emit("request-active-room");
+  await emit("request-active-room");
 }
 
 init().catch(console.error);

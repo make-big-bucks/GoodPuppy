@@ -31,20 +31,60 @@ import {
   canShowNext,
 } from "./messageLog.js";
 import { Menu, Submenu, MenuItem, CheckMenuItem } from "@tauri-apps/api/menu";
+import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
+import type { Session } from "@supabase/supabase-js";
+import type { InteractionPayload, LocalMessage, PetManifest, PetStatus, PresenceUser, WindowPoint } from "../../types";
 
-const petStage = document.querySelector(".pet-stage");
+type PointerPoint = { x: number; y: number };
+type HoverEventLike = { clientX: number; clientY: number; target: EventTarget | null };
+
+type RemotePetEntry = {
+  element: HTMLElement;
+  animator: PetAnimator;
+  leaving: boolean;
+  removeTimer: ReturnType<typeof setTimeout> | null;
+};
+
+type StateMeta = { mirrored?: boolean };
+
+type InteractionDef = (typeof INTERACTIONS)[keyof typeof INTERACTIONS];
+type InteractionDefWithExtras = InteractionDef & { mirror?: string; holdMs?: number };
+
+type MessageInsert = {
+  id: string;
+  content: string;
+  sender_id: string;
+  created_at: string;
+  kind?: string;
+};
+
+type StartPetAppOptions = {
+  supabase?: SupabaseClient;
+  session?: Session | null;
+};
+
+function targetElement(target: EventTarget | null) {
+  return target instanceof Element ? target : null;
+}
+
+function closestFromEvent<T extends Element>(event: { target: EventTarget | null }, selector: string) {
+  return targetElement(event.target)?.closest(selector) as T | null;
+}
+
+const petStage = document.querySelector<HTMLElement>(".pet-stage");
 const cloudHitImage = new Image();
 const hitCanvas = document.createElement("canvas");
 const hitContext = hitCanvas.getContext("2d", { willReadFrequently: true });
 const alphaHitThreshold = 16;
 const alphaHitSlop = 3;
 const supportsNativeWindowDrag = window.goodPuppy.supportsNativeWindowDrag();
+const interactionMap = INTERACTIONS as Record<string, InteractionDefWithExtras>;
 
 const SELF_ID = "self";
 
-const petImage = document.querySelector('.pet-image[data-user="self"]');
-const messageBubble = document.querySelector('.message-bubble[data-user="self"]');
-const selfArea = document.querySelector('.dog-area[data-user="self"]');
+const petImage = document.querySelector<HTMLImageElement>('.pet-image[data-user="self"]');
+const messageBubble = document.querySelector<HTMLElement>('.message-bubble[data-user="self"]');
+const selfArea = document.querySelector<HTMLElement>('.dog-area[data-user="self"]');
 
 messageBubble?.classList.add("is-owned");
 
@@ -54,28 +94,28 @@ let selfPetId = "default";
 // 用窗口尺寸跟随（见 relayoutRemotePets）。
 let selfSkin = readStoredSkin();
 let petScale = readStoredScale();
-let selfAuthId = null;
-let currentRoomId = null;
-let activeSupabase = null;
-let messagesChannel = null;
+let selfAuthId: string | null = null;
+let currentRoomId: string | null = null;
+let activeSupabase: SupabaseClient | null = null;
+let messagesChannel: RealtimeChannel | null = null;
 
 // userId -> { element, animator, leaving, removeTimer }
-const remotePets = new Map();
+const remotePets = new Map<string, RemotePetEntry>();
 
-const messageHistory = [];
+const messageHistory: LocalMessage[] = [];
 let messageIndex = -1;
 let isUnread = false;
-let pointerStart = null;
-let windowStart = null;
+let pointerStart: PointerPoint | null = null;
+let windowStart: WindowPoint | null = null;
 let isDragging = false;
 let bubblePointerStart = false;
 let isIgnoringMouseEvents = false;
-let lastPointerEvent = null;
+let lastPointerEvent: HoverEventLike | null = null;
 let hasStartedPetApp = false;
-let dragLiftTimer = null;
+let dragLiftTimer: ReturnType<typeof setTimeout> | null = null;
 
 // onState 统一回调：换帧图 + 同步镜像朝向（如双向贴贴需要面对面）。
-function applyStateToImage(img, path, meta) {
+function applyStateToImage(img: HTMLImageElement | null, path: string, meta: StateMeta) {
   if (!img) return;
   img.src = path;
   img.classList.toggle("is-mirrored", Boolean(meta?.mirrored));
@@ -87,7 +127,7 @@ function applyPetScale() {
   document.documentElement.style.setProperty("--pet-scale", String(petScale));
 }
 
-function setPetScale(next) {
+function setPetScale(next: number | string | null | undefined) {
   const clamped = clampPetScale(next);
   if (clamped === petScale) return;
   petScale = clamped;
@@ -120,25 +160,25 @@ updateBubbleNav();
 // 房间激活只负责追加远程 pet，不再作为自己 pet 的可见性前提。
 petStage?.classList.remove("is-initializing");
 
-function animatorForUser(userId) {
+function animatorForUser(userId: string) {
   if (userId === selfAuthId || userId === SELF_ID) return selfAnimator;
   return remotePets.get(userId)?.animator || null;
 }
 
 // ── Remote pet layout ────────────────────────────────────────
 
-function getDogAreaForEvent(event) {
-  return event.target?.closest?.(".dog-area") || null;
+function getDogAreaForEvent(event: { target: EventTarget | null }) {
+  return closestFromEvent<HTMLElement>(event, ".dog-area");
 }
 
-function getPetIdentityForEvent(event) {
+function getPetIdentityForEvent(event: { target: EventTarget | null }) {
   const area = getDogAreaForEvent(event);
   if (!area) return { kind: "self", id: SELF_ID };
-  if (area.dataset.user === "remote") return { kind: "remote", id: area.dataset.userId };
+  if (area.dataset.user === "remote" && area.dataset.userId) return { kind: "remote", id: area.dataset.userId };
   return { kind: "self", id: SELF_ID };
 }
 
-function createRemotePetElement(userId) {
+function createRemotePetElement(userId: string) {
   const section = document.createElement("section");
   section.className = "dog-area remote-pet";
   section.dataset.user = "remote";
@@ -157,9 +197,9 @@ function createRemotePetElement(userId) {
     </div>
     <img class="pet-image" data-user="remote" alt="Remote puppy" draggable="false" />
   `;
-  const img = section.querySelector(".pet-image");
+  const img = section.querySelector<HTMLImageElement>(".pet-image");
   img?.addEventListener("load", refreshMousePassthrough);
-  petStage.appendChild(section);
+  petStage?.appendChild(section);
   return section;
 }
 
@@ -183,9 +223,9 @@ function clearRemotePets() {
   relayoutRemotePets();
 }
 
-function createRemotePet(userId, info) {
+function createRemotePet(userId: string, info: PresenceUser) {
   const element = createRemotePetElement(userId);
-  const img = element.querySelector(".pet-image");
+  const img = element.querySelector<HTMLImageElement>(".pet-image");
   const animator = new PetAnimator({
     petId: info.petId,
     skin: info.skin,
@@ -198,7 +238,7 @@ function createRemotePet(userId, info) {
 }
 
 // presence 回调：users = [{ userId, status, petId }]
-function applyPresence(users) {
+function applyPresence(users: PresenceUser[]) {
   const byId = new Map(users.map((u) => [u.userId, u]));
   const onlineSet = new Set(byId.keys());
 
@@ -219,6 +259,7 @@ function applyPresence(users) {
   // 进入 / 更新。
   for (const userId of onlineSet) {
     const info = byId.get(userId);
+    if (!info) continue;
     let entry = remotePets.get(userId);
     if (!entry) {
       entry = createRemotePet(userId, info);
@@ -243,7 +284,7 @@ function applyPresence(users) {
 // ── Cross-user interactions ───────────────────────────────────
 
 // pet 在本端布局中的横向序号：self 固定 0，远端按布局顺序 1..n。
-function petLayoutIndex(userId) {
+function petLayoutIndex(userId: string) {
   if (userId === selfAuthId || userId === SELF_ID) return 0;
   const index = orderRemotePetIds([...remotePets.keys()]).indexOf(userId);
   return index === -1 ? null : index + 1;
@@ -253,14 +294,14 @@ function petLayoutIndex(userId) {
 // mirror:"facing" 时基准 GIF 朝右贴，对方在本端布局左侧的一方做镜像——
 // 镜像按「本端布局中的相对方位」而非 actor/target 角色判定，保证每个端
 // （包括旁观者）看到的双方都是面对面。
-function applyInteraction({ action, actorId, targetId }) {
-  const def = INTERACTIONS[action];
+function applyInteraction({ action, actorId, targetId }: InteractionPayload) {
+  const def = interactionMap[action];
   if (!def) return;
   playInteractionRole(def, def.actorState, actorId, targetId);
   playInteractionRole(def, def.targetState, targetId, actorId);
 }
 
-function playInteractionRole(def, state, userId, partnerId) {
+function playInteractionRole(def: InteractionDefWithExtras, state: string, userId: string, partnerId: string) {
   if (!state) return;
   const animator = animatorForUser(userId);
   if (!animator) return;
@@ -273,8 +314,8 @@ function playInteractionRole(def, state, userId, partnerId) {
   animator.playTransient(state, { durationMs: def.holdMs, mirrored });
 }
 
-function triggerInteraction(action, targetId) {
-  if (!INTERACTIONS[action] || !selfAuthId) return;
+function triggerInteraction(action: keyof typeof INTERACTIONS, targetId: string) {
+  if (!interactionMap[action] || !selfAuthId) return;
   const payload = { action, actorId: selfAuthId, targetId };
   sendInteraction(payload);
   applyInteraction(payload); // 本地立即播（broadcast self:false 不回环）
@@ -282,14 +323,14 @@ function triggerInteraction(action, targetId) {
 
 // ── Persistent status (emotion / work) ───────────────────────
 
-function setSelfStatus(status) {
+function setSelfStatus(status: PetStatus) {
   selfAnimator.setStatus(status);
   presence.updateLocalPresence({ status }).catch(console.error);
 }
 
 // ── Skin (换肤) ───────────────────────────────────────────────
 
-function setSelfSkin(skin) {
+function setSelfSkin(skin: string | null | undefined) {
   const next = skin || DEFAULT_SKIN;
   if (next === selfSkin) return;
   selfSkin = next;
@@ -301,39 +342,39 @@ function setSelfSkin(skin) {
 // ── Message bubble ────────────────────────────────────────────
 
 function getBubbleTextElement() {
-  return messageBubble?.querySelector(".bubble-text");
+  return messageBubble?.querySelector<HTMLElement>(".bubble-text");
 }
 
 function getBubblePrevButton() {
-  return messageBubble?.querySelector(".bubble-prev");
+  return messageBubble?.querySelector<HTMLButtonElement>(".bubble-prev");
 }
 
 function getBubbleNextButton() {
-  return messageBubble?.querySelector(".bubble-next");
+  return messageBubble?.querySelector<HTMLButtonElement>(".bubble-next");
 }
 
 function getBubbleAlert() {
-  return messageBubble?.querySelector(".message-alert");
+  return messageBubble?.querySelector<HTMLElement>(".message-alert");
 }
 
 function getBubbleComposer() {
-  return messageBubble?.querySelector(".bubble-composer");
+  return messageBubble?.querySelector<HTMLFormElement>(".bubble-composer");
 }
 
 function getBubbleInput() {
-  return messageBubble?.querySelector(".bubble-input");
+  return messageBubble?.querySelector<HTMLTextAreaElement>(".bubble-input");
 }
 
 function getBubbleStatus() {
-  return messageBubble?.querySelector(".bubble-status");
+  return messageBubble?.querySelector<HTMLElement>(".bubble-status");
 }
 
-function setComposerStatus(message) {
+function setComposerStatus(message: string) {
   const status = getBubbleStatus();
   if (status) status.textContent = message || "";
 }
 
-function setBubbleText(text) {
+function setBubbleText(text: string) {
   const el = getBubbleTextElement();
   if (el) el.textContent = text;
 }
@@ -345,7 +386,7 @@ function updateBubbleNav() {
   if (next) next.disabled = !canShowNext(messageIndex, messageHistory.length);
 }
 
-function renderMessageAt(index, { markUnread = false } = {}) {
+function renderMessageAt(index: number, { markUnread = false }: { markUnread?: boolean } = {}) {
   const message = messageHistory[index];
   if (!message || !messageBubble) {
     updateBubbleNav();
@@ -359,7 +400,7 @@ function renderMessageAt(index, { markUnread = false } = {}) {
   refreshMousePassthrough();
 }
 
-function setLocalMessages(messages) {
+function setLocalMessages(messages: Array<Partial<LocalMessage> | null | undefined>) {
   const normalized = buildMessageList(messages);
   messageHistory.length = 0;
   messageHistory.push(...normalized);
@@ -374,7 +415,7 @@ function setLocalMessages(messages) {
   renderMessageAt(normalized.length - 1, { markUnread: false });
 }
 
-function addLocalMessage(message, { markUnread = false } = {}) {
+function addLocalMessage(message: Partial<LocalMessage> | null | undefined, { markUnread = false }: { markUnread?: boolean } = {}) {
   const { messages, normalized } = insertMessage(messageHistory, message);
   if (!normalized) return;
   messageHistory.length = 0;
@@ -382,7 +423,7 @@ function addLocalMessage(message, { markUnread = false } = {}) {
   renderMessageAt(messageHistory.length - 1, { markUnread });
 }
 
-function setUnread(hasUnread) {
+function setUnread(hasUnread: boolean) {
   isUnread = hasUnread;
   messageBubble?.classList.toggle("has-unread", hasUnread);
 }
@@ -478,7 +519,7 @@ async function sendComposerMessage() {
 
 // ── Messages (self) ───────────────────────────────────────────
 
-function msgToLocal(msg) {
+function msgToLocal(msg: MessageInsert): LocalMessage {
   return {
     id: msg.id,
     info: msg.content,
@@ -520,7 +561,7 @@ async function subscribeToSelfMessages() {
       },
       (payload) => {
         if (payload.new?.kind !== "text") return;
-        const msg = msgToLocal(payload.new);
+        const msg = msgToLocal(payload.new as MessageInsert);
         if (msg.from === selfAuthId) {
           addLocalMessage(msg, { markUnread: false });
         }
@@ -531,8 +572,8 @@ async function subscribeToSelfMessages() {
 
 // ── Hit testing & mouse passthrough ──────────────────────────
 
-function isPetOpaqueAt(event) {
-  const image = event.target?.closest?.(".pet-image");
+function isPetOpaqueAt(event: HoverEventLike) {
+  const image = closestFromEvent<HTMLImageElement>(event, ".pet-image");
   if (!image) return false;
   return isPointOpaqueInImage(event, image, image, hitContext, hitCanvas, {
     respectObjectFit: true,
@@ -541,7 +582,7 @@ function isPetOpaqueAt(event) {
   });
 }
 
-function isBubbleOpaqueAt(event) {
+function isBubbleOpaqueAt(event: HoverEventLike) {
   const bubble = getBubbleForPoint(event);
   if (!bubble || bubble.hidden) return false;
   return isPointOpaqueInImage(event, bubble, cloudHitImage, hitContext, hitCanvas, {
@@ -558,7 +599,7 @@ function isComposerVisible() {
   return messageBubble?.classList.contains("is-editing");
 }
 
-function isPointInsideElement(event, element) {
+function isPointInsideElement(event: HoverEventLike, element: HTMLElement) {
   const rect = element.getBoundingClientRect();
   return (
     event.clientX >= rect.left &&
@@ -568,28 +609,28 @@ function isPointInsideElement(event, element) {
   );
 }
 
-function getBubbleForPoint(event) {
-  const targetBubble = event.target?.closest?.(".message-bubble");
+function getBubbleForPoint(event: HoverEventLike) {
+  const targetBubble = closestFromEvent<HTMLElement>(event, ".message-bubble");
   if (targetBubble && !targetBubble.hidden && isPointInsideElement(event, targetBubble)) {
     return targetBubble;
   }
 
   return (
-    [...document.querySelectorAll(".message-bubble:not([hidden])")].find((bubble) =>
+    [...document.querySelectorAll<HTMLElement>(".message-bubble:not([hidden])")].find((bubble) =>
       isPointInsideElement(event, bubble)
     ) || null
   );
 }
 
-function isBubbleControlAt(event) {
+function isBubbleControlAt(event: HoverEventLike) {
   const bubble = getBubbleForPoint(event);
   if (!bubble) return false;
-  return [...bubble.querySelectorAll("button, textarea, input")].some((control) =>
+  return [...bubble.querySelectorAll<HTMLElement>("button, textarea, input")].some((control) =>
     isPointInsideElement(event, control)
   );
 }
 
-function isInteractiveAt(event) {
+function isInteractiveAt(event: HoverEventLike) {
   const bubble = getBubbleForPoint(event);
   if (isBubbleControlAt(event)) return true;
   if (isComposerVisible() && bubble) return true;
@@ -598,13 +639,13 @@ function isInteractiveAt(event) {
   return isPetOpaqueAt(event);
 }
 
-function setMousePassthrough(shouldPassThrough) {
+function setMousePassthrough(shouldPassThrough: boolean) {
   if (isIgnoringMouseEvents === shouldPassThrough) return;
   isIgnoringMouseEvents = shouldPassThrough;
   window.goodPuppy.setIgnoreMouseEvents(shouldPassThrough);
 }
 
-function updateMousePassthrough(event) {
+function updateMousePassthrough(event: HoverEventLike) {
   lastPointerEvent = event;
   if (pointerStart || bubblePointerStart) {
     setMousePassthrough(false);
@@ -615,7 +656,8 @@ function updateMousePassthrough(event) {
 
 function refreshMousePassthrough() {
   if (lastPointerEvent) {
-    window.requestAnimationFrame(() => updateMousePassthrough(lastPointerEvent));
+    const event = lastPointerEvent;
+    window.requestAnimationFrame(() => updateMousePassthrough(event));
   }
 }
 
@@ -649,10 +691,10 @@ function stopDragLift() {
 
 // ── Pointer events ────────────────────────────────────────────
 
-function showRemoteBubble(userId) {
+function showRemoteBubble(userId: string) {
   const element = remotePets.get(userId)?.element;
-  const bubble = element?.querySelector(".message-bubble");
-  const text = bubble?.querySelector(".bubble-text");
+  const bubble = element?.querySelector<HTMLElement>(".message-bubble");
+  const text = bubble?.querySelector<HTMLElement>(".bubble-text");
   if (!bubble || !text) return;
   text.textContent = "在线";
   bubble.hidden = false;
@@ -704,7 +746,7 @@ async function buildSizeSubmenu() {
   return Submenu.new({ text: "大小", items });
 }
 
-async function showPetContextMenu(event) {
+async function showPetContextMenu(event: MouseEvent) {
   const identity = getPetIdentityForEvent(event);
   const hasSelfMessages = messageHistory.length > 0;
 
@@ -720,7 +762,7 @@ async function showPetContextMenu(event) {
         ...Object.entries(INTERACTIONS).map(([action, def]) => ({
           id: `interact-${action}`,
           text: def.label,
-          action: () => triggerInteraction(action, targetId),
+          action: () => triggerInteraction(action as keyof typeof INTERACTIONS, targetId),
         })),
       ],
     });
@@ -762,12 +804,12 @@ async function showPetContextMenu(event) {
   await menu.popup();
 }
 
-petStage.addEventListener("pointerdown", async (event) => {
+petStage?.addEventListener("pointerdown", async (event: PointerEvent) => {
   setMousePassthrough(false);
   if (event.button !== 0) return;
-  if (event.target.closest(".bubble-composer")) return;
-  if (event.target.closest(".bubble-nav")) return;
-  if (event.target.closest(".bubble-text")) return;
+  if (targetElement(event.target)?.closest(".bubble-composer")) return;
+  if (targetElement(event.target)?.closest(".bubble-nav")) return;
+  if (targetElement(event.target)?.closest(".bubble-text")) return;
 
   if (isBubbleOpaqueAt(event)) {
     bubblePointerStart = true;
@@ -789,15 +831,15 @@ petStage.addEventListener("pointerdown", async (event) => {
 
   pointerStart = { x: event.screenX, y: event.screenY };
   isDragging = false;
-  petStage.setPointerCapture(event.pointerId);
+  petStage?.setPointerCapture(event.pointerId);
   windowStart = await window.goodPuppy.getWindowPosition();
 });
 
-petStage.addEventListener("contextmenu", (event) => {
+petStage?.addEventListener("contextmenu", (event: MouseEvent) => {
   if (
-    event.target.closest(".bubble-composer") ||
-    event.target.closest(".bubble-nav") ||
-    event.target.closest(".bubble-text")
+    targetElement(event.target)?.closest(".bubble-composer") ||
+    targetElement(event.target)?.closest(".bubble-nav") ||
+    targetElement(event.target)?.closest(".bubble-text")
   )
     return;
   event.preventDefault();
@@ -806,7 +848,7 @@ petStage.addEventListener("contextmenu", (event) => {
   showPetContextMenu(event).catch(console.error);
 });
 
-petStage.addEventListener("pointermove", (event) => {
+petStage?.addEventListener("pointermove", (event: PointerEvent) => {
   updateMousePassthrough(event);
   if (!pointerStart) return;
   const deltaX = event.screenX - pointerStart.x;
@@ -820,9 +862,9 @@ petStage.addEventListener("pointermove", (event) => {
   }
 });
 
-petStage.addEventListener("pointerup", (event) => {
-  if (event.target.closest(".bubble-nav")) return;
-  if (event.target.closest(".bubble-composer")) return;
+petStage?.addEventListener("pointerup", (event: PointerEvent) => {
+  if (targetElement(event.target)?.closest(".bubble-nav")) return;
+  if (targetElement(event.target)?.closest(".bubble-composer")) return;
 
   if (bubblePointerStart) {
     if (event.button === 0 && isBubbleOpaqueAt(event)) {
@@ -838,14 +880,14 @@ petStage.addEventListener("pointerup", (event) => {
   windowStart = null;
   isDragging = false;
 
-  if (petStage.hasPointerCapture(event.pointerId)) {
+  if (petStage?.hasPointerCapture(event.pointerId)) {
     petStage.releasePointerCapture(event.pointerId);
   }
 
   updateMousePassthrough(event);
 });
 
-petStage.addEventListener("pointercancel", () => {
+petStage?.addEventListener("pointercancel", () => {
   pointerStart = null;
   windowStart = null;
   isDragging = false;
@@ -863,7 +905,7 @@ if (messageBubble) {
   const cancelButton = messageBubble.querySelector(".bubble-cancel");
   const alertButton = getBubbleAlert();
 
-  composer?.addEventListener("submit", async (event) => {
+  composer?.addEventListener("submit", async (event: SubmitEvent) => {
     event.preventDefault();
     event.stopPropagation();
     try {
@@ -889,7 +931,7 @@ if (messageBubble) {
     showNextMessage();
   });
 
-  messageBubble.querySelector(".bubble-compose")?.addEventListener("click", (event) => {
+  messageBubble.querySelector<HTMLElement>(".bubble-compose")?.addEventListener("click", (event) => {
     event.stopPropagation();
     openBubbleComposer();
   });
@@ -923,7 +965,7 @@ async function ensureProfile() {
   }
 }
 
-async function activateRoom(roomId) {
+async function activateRoom(roomId: string) {
   currentRoomId = roomId;
 
   try {
@@ -933,9 +975,10 @@ async function activateRoom(roomId) {
     console.error(error);
   }
 
-  petStage.classList.remove("is-initializing");
+  petStage?.classList.remove("is-initializing");
   refreshMousePassthrough();
 
+  if (!activeSupabase || !selfAuthId) return;
   await presence.joinRoom(activeSupabase, roomId, selfAuthId, {
     onPresenceChange: applyPresence,
     status: selfAnimator.status,
@@ -953,14 +996,14 @@ async function loadCurrentRoom() {
     .limit(1);
   if (error) throw error;
   if (!memberships || memberships.length === 0) {
-    petStage.classList.remove("is-initializing");
+    petStage?.classList.remove("is-initializing");
     refreshMousePassthrough();
     return;
   }
   await activateRoom(memberships[0].room_id);
 }
 
-export async function switchRoom(roomId) {
+export async function switchRoom(roomId: string) {
   if (!activeSupabase || !selfAuthId || roomId === currentRoomId) return;
   try {
     await leaveInteractions();
@@ -988,7 +1031,7 @@ export async function exitCurrentRoom() {
   clearRemotePets();
 }
 
-export function startPetApp({ supabase, session } = {}) {
+export function startPetApp({ supabase, session }: StartPetAppOptions = {}) {
   activeSupabase = supabase || activeSupabase;
   selfAuthId = session?.user?.id || selfAuthId;
 
@@ -997,7 +1040,7 @@ export function startPetApp({ supabase, session } = {}) {
       .then(() => loadCurrentRoom())
       .catch((error) => {
         console.error(error);
-        petStage.classList.remove("is-initializing");
+        petStage?.classList.remove("is-initializing");
       });
 
   if (hasStartedPetApp) {

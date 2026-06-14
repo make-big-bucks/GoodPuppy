@@ -1,28 +1,35 @@
 import { emit } from "@tauri-apps/api/event";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 
-const authForm = document.querySelector(".auth-card");
-const authMessage = document.querySelector(".auth-message");
-const passwordInput = document.querySelector(".auth-password");
-const passwordToggle = document.querySelector(".auth-password-toggle");
+const authForm = document.querySelector<HTMLFormElement>(".auth-card");
+const authMessage = document.querySelector<HTMLElement>(".auth-message");
+const passwordInput = document.querySelector<HTMLInputElement>(".auth-password");
+const passwordToggle = document.querySelector<HTMLButtonElement>(".auth-password-toggle");
 
 const supabase = createAppSupabaseClient();
 
 let authHandled = false;
 
-function setAuthMessage(message, { isError = false } = {}) {
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function setAuthMessage(message: string, { isError = false }: { isError?: boolean } = {}) {
   if (!authMessage) return;
   authMessage.textContent = message;
   authMessage.classList.toggle("is-error", isError);
 }
 
-function setAuthBusy(isBusy) {
-  authForm?.querySelectorAll("input, button").forEach((element) => {
+function setAuthBusy(isBusy: boolean) {
+  authForm?.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button").forEach((element) => {
     element.disabled = isBusy;
   });
 }
 
 function getAuthCredentials() {
+  if (!authForm) {
+    return { email: "", password: "" };
+  }
   const formData = new FormData(authForm);
   return {
     email: String(formData.get("email") || "").trim(),
@@ -46,7 +53,7 @@ async function signIn() {
     if (error) throw error;
     await notifyAuthReady();
   } catch (error) {
-    setAuthMessage(error.message || "登录失败", { isError: true });
+    setAuthMessage(getErrorMessage(error, "登录失败"), { isError: true });
   } finally {
     setAuthBusy(false);
   }
@@ -68,14 +75,15 @@ async function signUp() {
       setAuthMessage("注册成功，请检查邮箱确认账号");
     }
   } catch (error) {
-    setAuthMessage(error.message || "注册失败", { isError: true });
+    setAuthMessage(getErrorMessage(error, "注册失败"), { isError: true });
   } finally {
     setAuthBusy(false);
   }
 }
 
 function setupPasswordToggle() {
-  passwordToggle?.addEventListener("click", () => {
+  if (!passwordInput || !passwordToggle) return;
+  passwordToggle.addEventListener("click", () => {
     const shouldShow = passwordInput.type === "password";
     passwordInput.type = shouldShow ? "text" : "password";
     passwordToggle.textContent = shouldShow ? "隐藏" : "显示";
@@ -85,9 +93,9 @@ function setupPasswordToggle() {
 }
 
 function subscribeToAuthChanges() {
-  supabase.auth.onAuthStateChange((event, session) => {
+  supabase.auth.onAuthStateChange((_event, session) => {
     if (session) {
-      notifyAuthReady();
+      void notifyAuthReady();
       return;
     }
 
@@ -101,11 +109,11 @@ export async function initializeAuth() {
 
   authForm?.addEventListener("submit", (event) => {
     event.preventDefault();
-    signIn();
+    void signIn();
   });
 
-  document.querySelector(".auth-register")?.addEventListener("click", () => {
-    signUp();
+  document.querySelector<HTMLButtonElement>(".auth-register")?.addEventListener("click", () => {
+    void signUp();
   });
 
   subscribeToAuthChanges();

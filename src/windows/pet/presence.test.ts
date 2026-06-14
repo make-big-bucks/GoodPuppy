@@ -9,7 +9,7 @@ describe("latestMeta", () => {
       { online_at: "2026-06-10T13:51:04.290Z", status: null, pet_id: "default" },
       { online_at: "2026-06-10T13:51:26.038Z", status: "happy", pet_id: "default" },
     ];
-    expect(latestMeta(metas).status).toBe("happy");
+    expect(latestMeta(metas)?.status).toBe("happy");
   });
 
   it("is order-independent (newest wins even if listed first)", () => {
@@ -17,12 +17,12 @@ describe("latestMeta", () => {
       { online_at: "2026-06-10T13:51:26.038Z", status: "happy" },
       { online_at: "2026-06-10T13:51:04.290Z", status: null },
     ];
-    expect(latestMeta(metas).status).toBe("happy");
+    expect(latestMeta(metas)?.status).toBe("happy");
   });
 
   it("handles a single meta", () => {
     const metas = [{ online_at: "2026-06-10T13:51:04.290Z", status: "busy" }];
-    expect(latestMeta(metas).status).toBe("busy");
+    expect(latestMeta(metas)?.status).toBe("busy");
   });
 
   it("returns the value as-is when not an array", () => {

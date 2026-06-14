@@ -1,17 +1,21 @@
 import { describe, it, expect } from "vitest";
 import { PetAnimator } from "./petState.js";
+import type { PetManifest } from "../../types";
 
-// 受控假定时器：手动触发挂起的回调，避免依赖真实时间。
+type TimerCallback = () => void;
+
 function makeTimers() {
   let id = 0;
-  const map = new Map();
+  const map = new Map<number, TimerCallback>();
   return {
-    set: (fn) => {
-      const i = ++id;
-      map.set(i, fn);
-      return i;
+    set: (fn: TimerCallback, _ms: number) => {
+      const nextId = ++id;
+      map.set(nextId, fn);
+      return nextId;
     },
-    clear: (i) => map.delete(i),
+    clear: (timerId: number | ReturnType<typeof setTimeout>) => {
+      map.delete(timerId as number);
+    },
     flushAll: () => {
       const fns = [...map.values()];
       map.clear();
@@ -21,8 +25,10 @@ function makeTimers() {
   };
 }
 
-function makeAnimator(overrides = {}) {
-  const states = [];
+function makeAnimator(
+  overrides: ConstructorParameters<typeof PetAnimator>[0] = {},
+) {
+  const states: string[] = [];
   const timers = makeTimers();
   const animator = new PetAnimator({
     petId: "shiba",
@@ -81,7 +87,7 @@ describe("PetAnimator three-layer priority", () => {
   });
 
   it("replaying the same one-shot forces a fresh load via reload token", () => {
-    const paths = [];
+    const paths: string[] = [];
     const { animator, timers } = makeAnimator({ onState: (_n, p) => paths.push(p) });
     animator.playTransient("greet");
     timers.flushAll();
@@ -92,17 +98,17 @@ describe("PetAnimator three-layer priority", () => {
   });
 
   it("setSkin routes image paths into the skin subdir and reloads on change", () => {
-    const paths = [];
+    const paths: string[] = [];
     const { animator } = makeAnimator({ onState: (_n, p) => paths.push(p) });
     expect(paths[paths.length - 1]).toBe("/pets/shiba/idle.gif");
     animator.setSkin("pink");
     const last = paths[paths.length - 1];
     expect(last).toContain("/pets/shiba/skins/pink/idle.gif");
-    expect(last).toContain("?r="); // 同状态切肤也强制换图
+    expect(last).toContain("?r=");
   });
 
   it("setSkin is a no-op when the skin is unchanged", () => {
-    const paths = [];
+    const paths: string[] = [];
     const { animator } = makeAnimator({ onState: (_n, p) => paths.push(p) });
     const before = paths.length;
     animator.setSkin("default");
@@ -115,7 +121,7 @@ describe("PetAnimator three-layer priority", () => {
   });
 
   it("passes mirrored meta to onState during a mirrored transient and clears it after", () => {
-    const seen = [];
+    const seen: Array<{ name: string; mirrored: boolean }> = [];
     const { animator, timers } = makeAnimator({
       onState: (name, _path, meta) => seen.push({ name, mirrored: meta.mirrored }),
     });
@@ -127,11 +133,13 @@ describe("PetAnimator three-layer priority", () => {
 });
 
 describe("PetAnimator idle variants", () => {
-  const variantManifest = {
+  const variantManifest: PetManifest = {
+    id: "shiba",
+    skins: [],
     states: {
       idle: { durationsMs: [200, 200], loop: true },
-      "idle-stretch": { durationsMs: [100, 150], loop: false },
-      kicked: { durationsMs: [100], loop: false },
+      "idle-stretch": { durationsMs: [100, 150], loop: false, state: "idle-stretch" },
+      kicked: { durationsMs: [100], loop: false, state: "kicked" },
     },
   };
 
@@ -141,16 +149,16 @@ describe("PetAnimator idle variants", () => {
   });
 
   it("cycles idle -> variant -> idle using manifest-declared idle-* states", () => {
-    const { animator, timers, current } = makeAnimator({
+    const { timers, current } = makeAnimator({
       autoCycle: true,
       manifest: variantManifest,
       random: () => 0,
     });
     expect(current()).toBe("idle");
     expect(timers.pending()).toBe(1);
-    timers.flushAll(); // idle 停留结束 → 播变体
+    timers.flushAll();
     expect(current()).toBe("idle-stretch");
-    timers.flushAll(); // 变体播完（manifest 时长）→ 回 idle
+    timers.flushAll();
     expect(current()).toBe("idle");
     expect(timers.pending()).toBe(1);
   });
@@ -172,17 +180,15 @@ describe("PetAnimator idle variants", () => {
     });
     timers.flushAll();
     expect(current()).toBe("idle-stretch");
-    animator.setManifest({ states: { idle: { durationsMs: [200], loop: true } } });
+    animator.setManifest({ id: "shiba", skins: [], states: { idle: { durationsMs: [200], loop: true, state: "idle" } } });
     expect(current()).toBe("idle");
     expect(timers.pending()).toBe(0);
   });
 
   it("constructs with the real default timers (autoCycle) without throwing", () => {
-    // 守卫：默认 timers 必须能作为 timers.set(...) 调用——直接传 setTimeout 引用
-    // 在浏览器里会抛 "Illegal invocation"。
-    const states = [];
+    const states: string[] = [];
     expect(
-      () => new PetAnimator({ petId: "shiba", autoCycle: true, onState: (n) => states.push(n) })
+      () => new PetAnimator({ petId: "shiba", autoCycle: true, onState: (n) => states.push(n) }),
     ).not.toThrow();
     expect(states[states.length - 1]).toBe("idle");
   });

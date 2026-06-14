@@ -1,7 +1,8 @@
 import { createPetAvatar } from "./pet-avatar.js";
+import type { LoungeProfile } from "../../../types";
 
-export function renderProfileCard(profile) {
-  const root = document.querySelector(".lounge-profile-card");
+export function renderProfileCard(profile: LoungeProfile | null | undefined) {
+  const root = document.querySelector<HTMLElement>(".lounge-profile-card");
   if (!root) return;
 
   root.innerHTML = "";
@@ -26,7 +27,9 @@ export function renderProfileCard(profile) {
       <button class="icon-btn lounge-copy-id-btn" type="button" data-copy="gp-id" aria-label="复制 ID">⧉</button>
     </div>
   `;
-  body.querySelector(".profile-name").textContent = profile?.display_name || "GoodPuppy";
-  body.querySelector(".profile-id").textContent = profile?.gp_id || "";
+  const profileName = body.querySelector<HTMLButtonElement>(".profile-name");
+  const profileId = body.querySelector<HTMLElement>(".profile-id");
+  if (profileName) profileName.textContent = profile?.display_name || "GoodPuppy";
+  if (profileId) profileId.textContent = profile?.gp_id || "";
   root.appendChild(body);
 }

@@ -1,16 +1,17 @@
 import { getRoomAction } from "../loungeViewModels.js";
 import { createPetAvatar } from "./pet-avatar.js";
+import type { LoungeRoom } from "../../../types";
 
-export function switchView(name) {
-  const detail = document.querySelector(".lounge-room-detail");
-  const empty = document.querySelector(".lounge-empty-detail");
+export function switchView(name: "detail" | "empty") {
+  const detail = document.querySelector<HTMLElement>(".lounge-room-detail");
+  const empty = document.querySelector<HTMLElement>(".lounge-empty-detail");
   if (!detail || !empty) return;
   const isDetail = name === "detail";
   detail.hidden = !isDetail;
   empty.hidden = isDetail;
 }
 
-export function renderRoomDetail(room, selfAuthId, activeRoomId = null) {
+export function renderRoomDetail(room: LoungeRoom | null, selfAuthId: string | null, activeRoomId: string | null = null) {
   if (!room) {
     switchView("empty");
     return;
@@ -18,13 +19,13 @@ export function renderRoomDetail(room, selfAuthId, activeRoomId = null) {
 
   switchView("detail");
 
-  const detail = document.querySelector(".lounge-room-detail");
+  const detail = document.querySelector<HTMLElement>(".lounge-room-detail");
   if (!detail) return;
 
-  const title = detail.querySelector(".lounge-room-title");
-  const description = detail.querySelector(".lounge-room-description");
-  const members = detail.querySelector(".lounge-member-list");
-  const actionButton = detail.querySelector(".lounge-enter-room");
+  const title = detail.querySelector<HTMLElement>(".lounge-room-title");
+  const description = detail.querySelector<HTMLElement>(".lounge-room-description");
+  const members = detail.querySelector<HTMLElement>(".lounge-member-list");
+  const actionButton = detail.querySelector<HTMLButtonElement>(".lounge-enter-room");
 
   if (title) title.textContent = room.room_name || "未命名房间";
   if (description) description.textContent = room.description || "还没有房间简介。";
@@ -32,7 +33,7 @@ export function renderRoomDetail(room, selfAuthId, activeRoomId = null) {
   if (actionButton) {
     const roomAction = getRoomAction(room.id, activeRoomId);
     actionButton.dataset.action = roomAction.action;
-    const label = actionButton.querySelector(".lounge-enter-label");
+    const label = actionButton.querySelector<HTMLElement>(".lounge-enter-label");
     if (label) label.textContent = roomAction.label;
   }
 

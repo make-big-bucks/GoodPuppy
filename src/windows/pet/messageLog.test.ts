@@ -22,16 +22,16 @@ describe("normalizeMessage", () => {
 
   it("fills a created_at when missing", () => {
     const msg = normalizeMessage({ id: "1", info: "hi", from: "u" });
-    expect(typeof msg.created_at).toBe("string");
-    expect(Number.isNaN(new Date(msg.created_at).getTime())).toBe(false);
+    expect(typeof msg?.created_at).toBe("string");
+    expect(Number.isNaN(new Date(msg?.created_at ?? "").getTime())).toBe(false);
   });
 });
 
 describe("sortByTime / buildMessageList", () => {
   it("orders messages ascending by created_at", () => {
     const out = sortByTime([
-      { id: "b", created_at: "2026-01-02T00:00:00Z" },
-      { id: "a", created_at: "2026-01-01T00:00:00Z" },
+      { id: "b", info: "two", from: "u", created_at: "2026-01-02T00:00:00Z" },
+      { id: "a", info: "one", from: "u", created_at: "2026-01-01T00:00:00Z" },
     ]);
     expect(out.map((m) => m.id)).toEqual(["a", "b"]);
   });

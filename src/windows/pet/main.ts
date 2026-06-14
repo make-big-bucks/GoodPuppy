@@ -26,7 +26,8 @@ if (inTauri) {
     emit("active-room-changed", { roomId: getCurrentRoomId() });
   });
 
-  listen("switch-room", async (event) => {
+  listen<{ roomId?: string | null }>("switch-room", async (event) => {
+    if (!event.payload.roomId) return;
     await switchRoom(event.payload.roomId);
     emit("active-room-changed", { roomId: getCurrentRoomId() });
   });

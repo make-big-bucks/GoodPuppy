@@ -1,21 +1,33 @@
+import type {
+  LoungeMemberRow,
+  LoungePresenceRow,
+  LoungeProfile,
+  MemberViewModel,
+  RoomAction,
+} from "../../types";
+
 const GP_ID_PATTERN = /^gp_[a-z0-9]{8,}$/i;
 
-export function normalizeGpId(value) {
+export function normalizeGpId(value: unknown) {
   const normalized = String(value || "").trim().toLowerCase();
   return GP_ID_PATTERN.test(normalized) ? normalized : "";
 }
 
-export function getDisplayName(profile = {}) {
+export function getDisplayName(profile: LoungeProfile = {}) {
   const name = String(profile.display_name || "").trim();
   return name || profile.gp_id || "GoodPuppy";
 }
 
-function joinedAtValue(member) {
+function joinedAtValue(member: LoungeMemberRow) {
   const time = Date.parse(member.joined_at || "");
   return Number.isNaN(time) ? 0 : time;
 }
 
-export function buildMemberViewModels(members = [], presenceRows = [], selfAuthId) {
+export function buildMemberViewModels(
+  members: LoungeMemberRow[] = [],
+  presenceRows: LoungePresenceRow[] = [],
+  selfAuthId?: string | null,
+): MemberViewModel[] {
   const presenceByUser = new Map(presenceRows.map((row) => [row.user_id, row]));
 
   return [...members]
@@ -39,7 +51,7 @@ export function buildMemberViewModels(members = [], presenceRows = [], selfAuthI
     });
 }
 
-export function getRoomAction(selectedRoomId, activeRoomId) {
+export function getRoomAction(selectedRoomId: string | null, activeRoomId: string | null): RoomAction {
   if (selectedRoomId && selectedRoomId === activeRoomId) {
     return { action: "exit", label: "退出房间" };
   }

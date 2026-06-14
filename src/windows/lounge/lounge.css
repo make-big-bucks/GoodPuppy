@@ -26,12 +26,9 @@
 
 body {
   margin: 0;
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 28px;
-  background: var(--bg);
+  height: 100vh;
+  overflow: hidden;
+  background: var(--sidebar);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
     "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
@@ -49,15 +46,12 @@ button {
 }
 
 .app-window {
-  width: min(1120px, 100%);
-  height: min(720px, calc(100vh - 56px));
+  width: 100%;
+  height: 100vh;
   min-width: 1040px;
   min-height: 680px;
   overflow: hidden;
   background: var(--window);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow);
   display: grid;
   grid-template-columns: 340px 1fr;
   grid-template-rows: 1fr;
@@ -71,11 +65,18 @@ button {
   display: contents;
 }
 
+.sidebar-drag-region {
+  height: 28px;
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+  cursor: default;
+}
+
 .sidebar {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 28px 26px;
+  padding: 0 26px 28px;
   border-right: 1px solid var(--line);
   background: var(--sidebar);
 }

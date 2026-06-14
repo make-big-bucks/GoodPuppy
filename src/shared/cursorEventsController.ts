@@ -1,4 +1,15 @@
-export function createIgnoreMouseEventsController(appWindow, { onError = console.error } = {}) {
+type IgnoreMouseEventsWindow = {
+  setIgnoreCursorEvents(shouldIgnore: boolean): Promise<void>;
+} | null;
+
+type ControllerOptions = {
+  onError?: (error: unknown) => void;
+};
+
+export function createIgnoreMouseEventsController(
+  appWindow: IgnoreMouseEventsWindow,
+  { onError = console.error }: ControllerOptions = {},
+) {
   let desiredIgnore = false;
   let appliedIgnore = false;
   let isApplying = false;
@@ -28,13 +39,13 @@ export function createIgnoreMouseEventsController(appWindow, { onError = console
   }
 
   return {
-    setIgnoreMouseEvents(shouldIgnore) {
+    setIgnoreMouseEvents(shouldIgnore: boolean) {
       if (typeof shouldIgnore !== "boolean" || desiredIgnore === shouldIgnore) {
         return;
       }
 
       desiredIgnore = shouldIgnore;
       void flush();
-    }
+    },
   };
 }

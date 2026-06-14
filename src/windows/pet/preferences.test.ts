@@ -10,16 +10,19 @@ import {
 import { DEFAULT_SKIN } from "./animationCatalog.js";
 import { clampPetScale, DEFAULT_PET_SCALE, MAX_PET_SCALE } from "./petLayout.js";
 
-// 用 Map 模拟 localStorage，并可注入抛错版本以验证安全降级。
-function fakeStorage(initial = {}) {
+type TestStorage = Pick<Storage, "getItem" | "setItem">;
+
+function fakeStorage(initial: Record<string, string> = {}): TestStorage {
   const map = new Map(Object.entries(initial));
   return {
-    getItem: (k) => (map.has(k) ? map.get(k) : null),
-    setItem: (k, v) => map.set(k, String(v)),
+    getItem: (key) => (map.has(key) ? map.get(key)! : null),
+    setItem: (key, value) => {
+      map.set(key, String(value));
+    },
   };
 }
 
-function throwingStorage() {
+function throwingStorage(): TestStorage {
   return {
     getItem() {
       throw new Error("blocked");

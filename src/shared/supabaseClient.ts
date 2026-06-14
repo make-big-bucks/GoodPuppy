@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import appConfig from "./appConfig.js";
+import type { SupabaseConfig } from "../types";
 
 const CLIENT_AUTH_OPTIONS = {
   autoRefreshToken: true,
@@ -7,7 +8,7 @@ const CLIENT_AUTH_OPTIONS = {
   detectSessionInUrl: false,
 };
 
-export function assertPublishableSupabaseKey(key) {
+export function assertPublishableSupabaseKey(key: unknown): asserts key is string {
   if (!key || typeof key !== "string") {
     throw new Error("Supabase publishable key is required");
   }
@@ -21,7 +22,7 @@ export function assertPublishableSupabaseKey(key) {
   }
 }
 
-export function resolveSupabaseConfig(config = appConfig.supabase) {
+export function resolveSupabaseConfig(config: SupabaseConfig = appConfig.supabase) {
   const url = config?.url;
   const publishableKey = config?.publishableKey;
 
@@ -34,7 +35,7 @@ export function resolveSupabaseConfig(config = appConfig.supabase) {
   return { url, publishableKey };
 }
 
-export function createAppSupabaseClient(config = appConfig.supabase) {
+export function createAppSupabaseClient(config: SupabaseConfig = appConfig.supabase) {
   const { url, publishableKey } = resolveSupabaseConfig(config);
 
   return createClient(url, publishableKey, {

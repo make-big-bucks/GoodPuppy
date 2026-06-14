@@ -1,6 +1,12 @@
 import { getStateImagePath } from "../../pet/animationCatalog.js";
 
-export function createPetAvatar({ petId = "default", skin = "default", alt = "" } = {}) {
+type PetAvatarOptions = {
+  petId?: string;
+  skin?: string;
+  alt?: string;
+};
+
+export function createPetAvatar({ petId = "default", skin = "default", alt = "" }: PetAvatarOptions = {}) {
   const wrapper = document.createElement("div");
   wrapper.className = "pet-avatar";
 

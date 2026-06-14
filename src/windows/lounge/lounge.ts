@@ -1,30 +1,92 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import { renderRoomList, renderPendingRequests } from "./views/room-list.js";
 import { renderRoomDetail } from "./views/room-detail.js";
 import { renderProfileCard } from "./views/profile-card.js";
 import { buildMemberViewModels, normalizeGpId } from "./loungeViewModels.js";
+import type {
+  ConnectionRequestRow,
+  LoungeMemberRow,
+  LoungePresenceRow,
+  LoungeProfile,
+  LoungeRoom,
+} from "../../types";
 
-let _supabase = null;
-let _selfAuthId = null;
-let _getActiveRoomId = null;
-let _onEnterRoom = null;
-let _onExitRoom = null;
+type LoungePanelOptions = {
+  supabase: SupabaseClient;
+  selfAuthId: string | null;
+  getActiveRoomId: () => string | null;
+  onEnterRoom: (roomId: string) => void;
+  onExitRoom: () => void;
+};
 
-let rooms = [];
-let pendingRequests = [];
-let selectedRoomId = null;
-let requestChannel = null;
+type UpdatePanelAuthOptions = {
+  supabase: SupabaseClient;
+  selfAuthId: string | null;
+};
 
-const panel = () => document.querySelector(".lounge-panel");
-const modalBackdrop = () => document.querySelector(".lounge-modal-backdrop");
-const modalForm = () => document.querySelector(".lounge-modal");
+type InputModalOptions = {
+  title: string;
+  placeholder: string;
+  submitText?: string;
+  initialValue?: string;
+  validate?: (value: string) => string;
+  onSubmit: (value: string) => Promise<void>;
+};
+
+type RoomMetadataUpdate = {
+  roomName: string;
+  description: string;
+};
+
+type RoomMembershipRow = {
+  room_id: string;
+  rooms?: {
+    id?: string;
+    room_name?: string;
+    description?: string;
+    invite_code?: string;
+    created_by?: string;
+  } | null;
+};
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function targetElement(target: EventTarget | null) {
+  return target instanceof Element ? target : null;
+}
+
+function requiredQuery<T extends Element>(root: ParentNode, selector: string) {
+  const element = root.querySelector<T>(selector);
+  if (!element) {
+    throw new Error(`Missing required element: ${selector}`);
+  }
+  return element;
+}
+
+let supabaseClient: SupabaseClient | null = null;
+let selfAuthId: string | null = null;
+let getActiveRoomId: (() => string | null) | null = null;
+let onEnterRoom: ((roomId: string) => void) | null = null;
+let onExitRoom: (() => void) | null = null;
+
+let rooms: LoungeRoom[] = [];
+let pendingRequests: ConnectionRequestRow[] = [];
+let selectedRoomId: string | null = null;
+let requestChannel: RealtimeChannel | null = null;
+
+const panel = () => document.querySelector<HTMLElement>(".lounge-panel");
+const modalBackdrop = () => document.querySelector<HTMLElement>(".lounge-modal-backdrop");
+const modalForm = () => document.querySelector<HTMLFormElement>(".lounge-modal");
 
 function getSelectedRoom() {
   return rooms.find((room) => room.id === selectedRoomId) || null;
 }
 
-function setMessage(text, { isError = false } = {}) {
-  const el = document.querySelector(".lounge-message");
+function setMessage(text: string, { isError = false }: { isError?: boolean } = {}) {
+  const el = document.querySelector<HTMLElement>(".lounge-message");
   if (!el) return;
 
   el.textContent = text || "";
@@ -37,18 +99,18 @@ function setMessage(text, { isError = false } = {}) {
   }
 }
 
-function setModalMessage(text) {
-  const el = modalForm()?.querySelector(".lounge-form-message");
+function setModalMessage(text: string) {
+  const el = modalForm()?.querySelector<HTMLElement>(".lounge-form-message");
   if (el) el.textContent = text || "";
 }
 
-function setModalBusy(isBusy) {
-  modalForm()?.querySelectorAll("input, textarea, button").forEach((el) => {
+function setModalBusy(isBusy: boolean) {
+  modalForm()?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLButtonElement>("input, textarea, button").forEach((el) => {
     el.disabled = isBusy;
   });
 }
 
-async function copyToClipboard(text, btn) {
+async function copyToClipboard(text: string | null | undefined, btn: HTMLButtonElement) {
   if (!text) return;
 
   try {
@@ -63,11 +125,11 @@ async function copyToClipboard(text, btn) {
   }
 }
 
-function renderProfile(profile) {
+function renderProfile(profile: LoungeProfile | null) {
   renderProfileCard(profile);
 }
 
-function onRoomSelect(id) {
+function onRoomSelect(id: string) {
   selectedRoomId = id;
   renderAll();
 }
@@ -75,27 +137,27 @@ function onRoomSelect(id) {
 function renderAll() {
   renderRoomList(rooms, selectedRoomId, onRoomSelect);
   renderPendingRequests(pendingRequests);
-  renderRoomDetail(getSelectedRoom(), _selfAuthId, _getActiveRoomId?.() || null);
+  renderRoomDetail(getSelectedRoom(), selfAuthId, getActiveRoomId?.() || null);
 }
 
 async function loadPanelData() {
-  if (!_supabase || !_selfAuthId) return;
+  if (!supabaseClient || !selfAuthId) return;
 
   try {
     const [profileResult, myRoomsResult, requestsResult] = await Promise.all([
-      _supabase
+      supabaseClient
         .from("profiles")
         .select("id, gp_id, display_name, pet_id, skin")
-        .eq("id", _selfAuthId)
+        .eq("id", selfAuthId)
         .single(),
-      _supabase
+      supabaseClient
         .from("room_members")
         .select("room_id, rooms!inner(id, room_name, description, invite_code, created_by)")
-        .eq("user_id", _selfAuthId),
-      _supabase
+        .eq("user_id", selfAuthId),
+      supabaseClient
         .from("connection_requests")
         .select("id, from_id, profiles!connection_requests_from_id_fkey(id, gp_id, display_name, pet_id, skin)")
-        .eq("to_id", _selfAuthId)
+        .eq("to_id", selfAuthId)
         .eq("status", "pending")
         .order("created_at", { ascending: true }),
     ]);
@@ -104,20 +166,20 @@ async function loadPanelData() {
     if (myRoomsResult.error) throw myRoomsResult.error;
     if (requestsResult.error) throw requestsResult.error;
 
-    renderProfile(profileResult.data);
+    renderProfile((profileResult.data as LoungeProfile | null) || null);
 
-    const myRooms = myRoomsResult.data || [];
+    const myRooms = (myRoomsResult.data as RoomMembershipRow[] | null) || [];
     const roomIds = myRooms.map((item) => item.room_id);
-    let allMembers = [];
-    let allPresence = [];
+    let allMembers: LoungeMemberRow[] = [];
+    let allPresence: LoungePresenceRow[] = [];
 
     if (roomIds.length > 0) {
       const [membersResult, presenceResult] = await Promise.all([
-        _supabase
+        supabaseClient
           .from("room_members")
           .select("room_id, user_id, joined_at, profiles!room_members_user_id_fkey(id, gp_id, display_name, pet_id, skin)")
           .in("room_id", roomIds),
-        _supabase
+        supabaseClient
           .from("presence")
           .select("room_id, user_id, is_online, last_seen")
           .in("room_id", roomIds),
@@ -125,8 +187,8 @@ async function loadPanelData() {
 
       if (membersResult.error) throw membersResult.error;
       if (presenceResult.error) throw presenceResult.error;
-      allMembers = membersResult.data || [];
-      allPresence = presenceResult.data || [];
+      allMembers = (membersResult.data as LoungeMemberRow[] | null) || [];
+      allPresence = (presenceResult.data as LoungePresenceRow[] | null) || [];
     }
 
     rooms = myRooms.map((item) => ({
@@ -138,11 +200,11 @@ async function loadPanelData() {
       members: buildMemberViewModels(
         allMembers.filter((member) => member.room_id === item.room_id),
         allPresence.filter((presence) => presence.room_id === item.room_id),
-        _selfAuthId,
+        selfAuthId,
       ),
     }));
 
-    pendingRequests = requestsResult.data || [];
+    pendingRequests = ((requestsResult.data as ConnectionRequestRow[] | null) || []);
 
     if (!selectedRoomId || !rooms.some((room) => room.id === selectedRoomId)) {
       selectedRoomId = rooms[0]?.id || null;
@@ -150,11 +212,18 @@ async function loadPanelData() {
 
     renderAll();
   } catch (error) {
-    setMessage(error.message || "加载失败", { isError: true });
+    setMessage(getErrorMessage(error, "加载失败"), { isError: true });
   }
 }
 
-function openInputModal({ title, placeholder, submitText = "确定", initialValue = "", validate, onSubmit }) {
+function openInputModal({
+  title,
+  placeholder,
+  submitText = "确定",
+  initialValue = "",
+  validate,
+  onSubmit,
+}: InputModalOptions) {
   const backdrop = modalBackdrop();
   const form = modalForm();
   if (!backdrop || !form) return;
@@ -169,9 +238,10 @@ function openInputModal({ title, placeholder, submitText = "确定", initialValu
     </div>
   `;
 
-  const titleEl = form.querySelector(".lounge-modal-title");
-  const input = form.querySelector(".lounge-input");
-  const submit = form.querySelector(".lounge-form-submit");
+  const titleEl = requiredQuery<HTMLElement>(form, ".lounge-modal-title");
+  const input = requiredQuery<HTMLInputElement>(form, ".lounge-input");
+  const submit = requiredQuery<HTMLButtonElement>(form, ".lounge-form-submit");
+  const cancel = requiredQuery<HTMLButtonElement>(form, ".lounge-form-cancel");
 
   titleEl.textContent = title;
   input.value = initialValue;
@@ -186,7 +256,7 @@ function openInputModal({ title, placeholder, submitText = "确定", initialValu
     form.onsubmit = null;
   };
 
-  form.querySelector(".lounge-form-cancel").onclick = close;
+  cancel.onclick = close;
   input.focus();
 
   form.onsubmit = async (event) => {
@@ -203,28 +273,29 @@ function openInputModal({ title, placeholder, submitText = "确定", initialValu
       await onSubmit(value);
       close();
     } catch (error) {
-      setModalMessage(error.message || "操作失败");
+      setModalMessage(getErrorMessage(error, "操作失败"));
     } finally {
       setModalBusy(false);
     }
   };
 }
 
-async function createRoom(roomName) {
-  const { data: room, error: roomError } = await _supabase
+async function createRoom(roomName: string) {
+  if (!supabaseClient || !selfAuthId) return;
+  const { data: room, error: roomError } = await supabaseClient
     .from("rooms")
     .insert({
       room_name: roomName,
-      created_by: _selfAuthId,
+      created_by: selfAuthId,
     })
     .select("id, room_name, description, invite_code, created_by")
     .single();
 
   if (roomError) throw roomError;
 
-  const { error: memberError } = await _supabase.from("room_members").insert({
+  const { error: memberError } = await supabaseClient.from("room_members").insert({
     room_id: room.id,
-    user_id: _selfAuthId,
+    user_id: selfAuthId,
   });
 
   if (memberError) throw memberError;
@@ -234,8 +305,9 @@ async function createRoom(roomName) {
   await loadPanelData();
 }
 
-async function joinRoomByInvite(inviteCode) {
-  const { error } = await _supabase.rpc("join_room_by_invite", {
+async function joinRoomByInvite(inviteCode: string) {
+  if (!supabaseClient) return;
+  const { error } = await supabaseClient.rpc("join_room_by_invite", {
     p_invite_code: inviteCode,
   });
 
@@ -245,11 +317,12 @@ async function joinRoomByInvite(inviteCode) {
   await loadPanelData();
 }
 
-async function inviteMember(targetGpId) {
+async function inviteMember(targetGpId: string) {
+  if (!supabaseClient || !selfAuthId) return;
   const gpId = normalizeGpId(targetGpId);
   if (!gpId) throw new Error("请输入 gp_ 开头的 GoodPuppy ID");
 
-  const { data: target, error: lookupError } = await _supabase
+  const { data: target, error: lookupError } = await supabaseClient
     .from("profiles")
     .select("id")
     .eq("gp_id", gpId)
@@ -259,12 +332,12 @@ async function inviteMember(targetGpId) {
     throw new Error("找不到该 GoodPuppy ID");
   }
 
-  if (target.id === _selfAuthId) {
+  if (target.id === selfAuthId) {
     throw new Error("不能邀请自己");
   }
 
-  const { error } = await _supabase.from("connection_requests").insert({
-    from_id: _selfAuthId,
+  const { error } = await supabaseClient.from("connection_requests").insert({
+    from_id: selfAuthId,
     to_id: target.id,
     status: "pending",
   });
@@ -274,11 +347,12 @@ async function inviteMember(targetGpId) {
   setMessage("邀请已发送");
 }
 
-async function updateDisplayName(displayName) {
+async function updateDisplayName(displayName: string) {
+  if (!supabaseClient || !selfAuthId) return;
   const value = displayName.trim();
   if (!value) throw new Error("请输入用户名");
 
-  const { error } = await _supabase.from("profiles").update({ display_name: value }).eq("id", _selfAuthId);
+  const { error } = await supabaseClient.from("profiles").update({ display_name: value }).eq("id", selfAuthId);
   if (error) throw error;
 
   setMessage("用户名已更新");
@@ -286,7 +360,7 @@ async function updateDisplayName(displayName) {
 }
 
 function openDisplayNameEditor() {
-  const profileName = document.querySelector(".lounge-edit-display-name")?.textContent || "";
+  const profileName = document.querySelector<HTMLElement>(".lounge-edit-display-name")?.textContent || "";
   openInputModal({
     title: "编辑用户名",
     placeholder: "输入用户名",
@@ -297,11 +371,12 @@ function openDisplayNameEditor() {
   });
 }
 
-async function updateSelectedRoomMetadata({ roomName, description }) {
+async function updateSelectedRoomMetadata({ roomName, description }: RoomMetadataUpdate) {
+  if (!supabaseClient) return;
   const room = getSelectedRoom();
   if (!room) return;
 
-  const { error } = await _supabase
+  const { error } = await supabaseClient
     .from("rooms")
     .update({
       room_name: roomName.trim() || "未命名房间",
@@ -316,11 +391,9 @@ async function updateSelectedRoomMetadata({ roomName, description }) {
 
 function openRoomMetadataModal() {
   const room = getSelectedRoom();
-  if (!room) return;
-
   const backdrop = modalBackdrop();
   const form = modalForm();
-  if (!backdrop || !form) return;
+  if (!room || !backdrop || !form) return;
 
   form.innerHTML = `
     <h2 class="modal-title">编辑房间信息</h2>
@@ -333,8 +406,12 @@ function openRoomMetadataModal() {
     </div>
   `;
 
-  form.querySelector(".lounge-room-name-input").value = room.room_name || "";
-  form.querySelector(".lounge-room-description-input").value = room.description || "";
+  const roomNameInput = requiredQuery<HTMLInputElement>(form, ".lounge-room-name-input");
+  const roomDescriptionInput = requiredQuery<HTMLTextAreaElement>(form, ".lounge-room-description-input");
+  const cancel = requiredQuery<HTMLButtonElement>(form, ".lounge-form-cancel");
+
+  roomNameInput.value = room.room_name || "";
+  roomDescriptionInput.value = room.description || "";
   setModalMessage("");
   setModalBusy(false);
   backdrop.hidden = false;
@@ -344,27 +421,28 @@ function openRoomMetadataModal() {
     form.onsubmit = null;
   };
 
-  form.querySelector(".lounge-form-cancel").onclick = close;
-  form.querySelector(".lounge-room-name-input").focus();
+  cancel.onclick = close;
+  roomNameInput.focus();
   form.onsubmit = async (event) => {
     event.preventDefault();
     setModalBusy(true);
     try {
       await updateSelectedRoomMetadata({
-        roomName: form.querySelector(".lounge-room-name-input").value,
-        description: form.querySelector(".lounge-room-description-input").value,
+        roomName: roomNameInput.value,
+        description: roomDescriptionInput.value,
       });
       close();
     } catch (error) {
-      setModalMessage(error.message || "保存失败");
+      setModalMessage(getErrorMessage(error, "保存失败"));
     } finally {
       setModalBusy(false);
     }
   };
 }
 
-async function acceptRequest(requestId) {
-  const { error } = await _supabase.rpc("accept_connection", {
+async function acceptRequest(requestId: string) {
+  if (!supabaseClient) return;
+  const { error } = await supabaseClient.rpc("accept_connection", {
     p_request_id: requestId,
   });
 
@@ -374,8 +452,9 @@ async function acceptRequest(requestId) {
   await loadPanelData();
 }
 
-async function declineRequest(requestId) {
-  const { error } = await _supabase
+async function declineRequest(requestId: string) {
+  if (!supabaseClient) return;
+  const { error } = await supabaseClient
     .from("connection_requests")
     .update({ status: "declined" })
     .eq("id", requestId);
@@ -387,25 +466,25 @@ async function declineRequest(requestId) {
 }
 
 function subscribeToRequests() {
-  if (!_supabase || !_selfAuthId) return;
+  if (!supabaseClient || !selfAuthId) return;
 
   if (requestChannel) {
-    _supabase.removeChannel(requestChannel);
+    void supabaseClient.removeChannel(requestChannel);
     requestChannel = null;
   }
 
-  requestChannel = _supabase
-    .channel(`lounge-requests-${_selfAuthId}`)
+  requestChannel = supabaseClient
+    .channel(`lounge-requests-${selfAuthId}`)
     .on(
       "postgres_changes",
       {
         event: "*",
         schema: "public",
         table: "connection_requests",
-        filter: `to_id=eq.${_selfAuthId}`,
+        filter: `to_id=eq.${selfAuthId}`,
       },
       () => {
-        loadPanelData();
+        void loadPanelData();
       },
     )
     .subscribe();
@@ -417,14 +496,14 @@ function bindEvents() {
 
   p.dataset.bound = "true";
 
-  p.querySelector(".lounge-close")?.addEventListener("click", closeLoungePanel);
+  p.querySelector<HTMLElement>(".lounge-close")?.addEventListener("click", closeLoungePanel);
 
   p.addEventListener("click", (event) => {
-    const btn = event.target.closest("button");
+    const btn = targetElement(event.target)?.closest<HTMLButtonElement>("button");
     if (!btn) return;
 
     if (btn.matches(".lounge-copy-id-btn")) {
-      copyToClipboard(document.querySelector(".lounge-gp-id")?.textContent, btn);
+      void copyToClipboard(document.querySelector<HTMLElement>(".lounge-gp-id")?.textContent, btn);
       return;
     }
 
@@ -465,58 +544,66 @@ function bindEvents() {
       if (!room) return;
 
       if (btn.dataset.action === "exit") {
-        _onExitRoom?.();
+        onExitRoom?.();
         setMessage("已退出房间");
         return;
       }
 
-      _onEnterRoom?.(room.id);
+      onEnterRoom?.(room.id);
     }
   });
 
-  document.querySelector(".lounge-request-list")?.addEventListener("click", async (event) => {
-    const btn = event.target.closest("button[data-action]");
+  document.querySelector<HTMLElement>(".lounge-request-list")?.addEventListener("click", async (event) => {
+    const btn = targetElement(event.target)?.closest<HTMLButtonElement>("button[data-action]");
     if (!btn) return;
 
     const { action, id } = btn.dataset;
+    if (!id) return;
     btn.disabled = true;
 
     try {
       if (action === "accept") await acceptRequest(id);
       if (action === "decline") await declineRequest(id);
     } catch (error) {
-      setMessage(error.message || "操作失败", { isError: true });
+      setMessage(getErrorMessage(error, "操作失败"), { isError: true });
     } finally {
       btn.disabled = false;
     }
   });
 
-  document.querySelector(".lounge-modal-backdrop")?.addEventListener("pointerdown", (event) => {
-    if (event.target === event.currentTarget) {
+  document.querySelector<HTMLElement>(".lounge-modal-backdrop")?.addEventListener("pointerdown", (event) => {
+    if (event.target === event.currentTarget && event.currentTarget instanceof HTMLElement) {
       event.currentTarget.hidden = true;
     }
   });
 
   p.addEventListener("pointerdown", (event) => {
-    if (event.target.closest("input, button, textarea, .room-list, .invite-list")) return;
-    window.goodPuppy?.startWindowDrag?.();
+    const target = targetElement(event.target);
+    if (target?.closest("input, button, textarea, .room-list, .invite-list")) return;
+    window.goodPuppy.startWindowDrag();
   });
 }
 
-export function initLoungePanel({ supabase, selfAuthId, getActiveRoomId, onEnterRoom, onExitRoom }) {
-  _supabase = supabase;
-  _selfAuthId = selfAuthId;
-  _getActiveRoomId = getActiveRoomId;
-  _onEnterRoom = onEnterRoom;
-  _onExitRoom = onExitRoom;
+export function initLoungePanel({
+  supabase,
+  selfAuthId: nextSelfAuthId,
+  getActiveRoomId: nextGetActiveRoomId,
+  onEnterRoom: nextOnEnterRoom,
+  onExitRoom: nextOnExitRoom,
+}: LoungePanelOptions) {
+  supabaseClient = supabase;
+  selfAuthId = nextSelfAuthId;
+  getActiveRoomId = nextGetActiveRoomId;
+  onEnterRoom = nextOnEnterRoom;
+  onExitRoom = nextOnExitRoom;
 
   bindEvents();
   subscribeToRequests();
 }
 
-export function updateLoungePanelAuth({ supabase, selfAuthId }) {
-  _supabase = supabase;
-  _selfAuthId = selfAuthId;
+export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId }: UpdatePanelAuthOptions) {
+  supabaseClient = supabase;
+  selfAuthId = nextSelfAuthId;
   subscribeToRequests();
 }
 
@@ -525,13 +612,13 @@ export function openLoungePanel() {
   if (!p) return;
 
   p.hidden = false;
-  window.goodPuppy?.setIgnoreMouseEvents?.(false);
-  loadPanelData();
+  window.goodPuppy.setIgnoreMouseEvents(false);
+  void loadPanelData();
 }
 
 export function closeLoungePanel() {
   if (window.__TAURI_INTERNALS__) {
-    getCurrentWindow().hide();
+    void getCurrentWindow().hide();
   } else {
     const p = panel();
     if (p) p.hidden = true;

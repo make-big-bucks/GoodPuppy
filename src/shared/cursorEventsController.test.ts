@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { createIgnoreMouseEventsController } from "./cursorEventsController.js";
 
-function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((promiseResolve, promiseReject) => {
+type Deferred = {
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (reason?: unknown) => void;
+};
+
+function deferred(): Deferred {
+  let resolve = () => {};
+  let reject = (_reason?: unknown) => {};
+  const promise = new Promise<void>((promiseResolve, promiseReject) => {
     resolve = promiseResolve;
     reject = promiseReject;
   });
@@ -19,15 +25,15 @@ async function flushMicrotasks() {
 
 describe("createIgnoreMouseEventsController", () => {
   it("serializes native cursor ignore changes and applies the latest requested state", async () => {
-    const pendingCalls = [];
-    const calls = [];
+    const pendingCalls: Deferred[] = [];
+    const calls: boolean[] = [];
     const controller = createIgnoreMouseEventsController({
-      setIgnoreCursorEvents(value) {
+      setIgnoreCursorEvents(value: boolean) {
         const pending = deferred();
         calls.push(value);
         pendingCalls.push(pending);
         return pending.promise;
-      }
+      },
     });
 
     controller.setIgnoreMouseEvents(true);
@@ -35,22 +41,22 @@ describe("createIgnoreMouseEventsController", () => {
 
     expect(calls).toEqual([true]);
 
-    pendingCalls.shift().resolve();
+    pendingCalls.shift()?.resolve();
     await flushMicrotasks();
 
     expect(calls).toEqual([true, false]);
   });
 
   it("coalesces duplicate requests while a native cursor ignore change is in flight", async () => {
-    const pendingCalls = [];
-    const calls = [];
+    const pendingCalls: Deferred[] = [];
+    const calls: boolean[] = [];
     const controller = createIgnoreMouseEventsController({
-      setIgnoreCursorEvents(value) {
+      setIgnoreCursorEvents(value: boolean) {
         const pending = deferred();
         calls.push(value);
         pendingCalls.push(pending);
         return pending.promise;
-      }
+      },
     });
 
     controller.setIgnoreMouseEvents(true);
@@ -58,18 +64,18 @@ describe("createIgnoreMouseEventsController", () => {
 
     expect(calls).toEqual([true]);
 
-    pendingCalls.shift().resolve();
+    pendingCalls.shift()?.resolve();
     await flushMicrotasks();
 
     expect(calls).toEqual([true]);
   });
 
   it("retries the latest requested state after a native cursor ignore change fails", async () => {
-    const calls = [];
-    const errors = [];
+    const calls: boolean[] = [];
+    const errors: unknown[] = [];
     const controller = createIgnoreMouseEventsController(
       {
-        setIgnoreCursorEvents(value) {
+        setIgnoreCursorEvents(value: boolean) {
           calls.push(value);
 
           if (calls.length === 1) {
@@ -77,9 +83,9 @@ describe("createIgnoreMouseEventsController", () => {
           }
 
           return Promise.resolve();
-        }
+        },
       },
-      { onError: (error) => errors.push(error) }
+      { onError: (error) => errors.push(error) },
     );
 
     controller.setIgnoreMouseEvents(true);

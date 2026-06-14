@@ -18,7 +18,7 @@ describe("resolveSupabaseConfig", () => {
       resolveSupabaseConfig({
         url: "https://example.supabase.co",
         publishableKey: "sb_publishable_example",
-      })
+      }),
     ).toEqual({
       url: "https://example.supabase.co",
       publishableKey: "sb_publishable_example",

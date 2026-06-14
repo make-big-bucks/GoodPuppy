@@ -1,5 +1,6 @@
 import { getDisplayName } from "../loungeViewModels.js";
 import { createPetAvatar } from "./pet-avatar.js";
+import type { ConnectionRequestRow, LoungeRoom } from "../../../types";
 
 function roomIconSvg() {
   return `
@@ -9,8 +10,8 @@ function roomIconSvg() {
   `;
 }
 
-export function renderRoomList(rooms, selectedRoomId, onSelectRoom) {
-  const list = document.querySelector(".lounge-room-list");
+export function renderRoomList(rooms: LoungeRoom[], selectedRoomId: string | null, onSelectRoom: (roomId: string) => void) {
+  const list = document.querySelector<HTMLElement>(".lounge-room-list");
   if (!list) return;
 
   list.innerHTML = "";
@@ -39,8 +40,8 @@ export function renderRoomList(rooms, selectedRoomId, onSelectRoom) {
   }
 }
 
-export function renderPendingRequests(pendingRequests) {
-  const list = document.querySelector(".lounge-request-list");
+export function renderPendingRequests(pendingRequests: ConnectionRequestRow[]) {
+  const list = document.querySelector<HTMLElement>(".lounge-request-list");
   if (!list) return;
 
   list.innerHTML = "";

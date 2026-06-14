@@ -5,6 +5,7 @@ import {
   getRoomAction,
   normalizeGpId,
 } from "./loungeViewModels.js";
+import type { LoungeMemberRow, LoungePresenceRow } from "../../types";
 
 describe("normalizeGpId", () => {
   it("keeps gp-prefixed short ids and trims whitespace", () => {
@@ -26,12 +27,12 @@ describe("getDisplayName", () => {
 
 describe("buildMemberViewModels", () => {
   it("sorts the current user first and keeps other members stable", () => {
-    const members = [
+    const members: LoungeMemberRow[] = [
       { user_id: "u2", joined_at: "2026-06-12T00:00:00Z", profiles: { gp_id: "gp_b", display_name: "B" } },
       { user_id: "u1", joined_at: "2026-06-13T00:00:00Z", profiles: { gp_id: "gp_a", display_name: "A" } },
       { user_id: "u3", joined_at: "2026-06-11T00:00:00Z", profiles: { gp_id: "gp_c", display_name: "C" } },
     ];
-    const presence = [{ user_id: "u3", is_online: true }];
+    const presence: LoungePresenceRow[] = [{ user_id: "u3", is_online: true }];
 
     expect(buildMemberViewModels(members, presence, "u1").map((member) => member.userId)).toEqual([
       "u1",

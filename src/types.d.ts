@@ -49,9 +49,13 @@ export interface GoodPuppyBridge {
 
 /** src/shared/appConfig.js 的形状。 */
 export interface AppConfig {
-  supabaseUrl?: string;
-  supabasePublishableKey?: string;
+  supabase?: SupabaseConfig;
   [key: string]: unknown;
+}
+
+export interface SupabaseConfig {
+  url?: string;
+  publishableKey?: string;
 }
 
 // ── 房间在线状态（src/windows/pet/presence.js）──────────────────────────────
@@ -93,6 +97,58 @@ export interface ProfileRow {
   pet_id: string;
 }
 
+export interface LoungeProfile {
+  id?: string;
+  gp_id?: string;
+  display_name?: string;
+  pet_id?: string;
+  skin?: string;
+}
+
+export interface LoungeMemberRow {
+  room_id?: string;
+  user_id: string;
+  joined_at?: string;
+  profiles?: LoungeProfile | null;
+}
+
+export interface LoungePresenceRow {
+  room_id?: string;
+  user_id: string;
+  is_online?: boolean;
+  last_seen?: string;
+}
+
+export interface MemberViewModel {
+  userId: string;
+  gpId: string;
+  displayName: string;
+  petId: string;
+  skin: string;
+  isSelf: boolean;
+  isOnline: boolean;
+}
+
+export interface LoungeRoom {
+  id: string;
+  room_name: string;
+  description: string;
+  invite_code: string;
+  created_by: string;
+  members: MemberViewModel[];
+}
+
+export interface ConnectionRequestRow {
+  id: string;
+  from_id: string;
+  profiles?: LoungeProfile | null;
+}
+
+export interface RoomAction {
+  action: "enter" | "exit";
+  label: string;
+}
+
 export interface RoomMemberRow {
   room_id: string;
 }
@@ -105,8 +161,26 @@ export interface LocalMessage {
   created_at: string;
 }
 
+export interface PetManifestState {
+  state?: string;
+  durationsMs?: number[];
+  [key: string]: unknown;
+}
+
+export interface PetManifestSkin {
+  id: string;
+  label: string;
+}
+
+export interface PetManifest {
+  id: string;
+  states: Record<string, PetManifestState>;
+  skins: PetManifestSkin[];
+}
+
 declare global {
   interface Window {
     goodPuppy: GoodPuppyBridge;
+    __TAURI_INTERNALS__?: unknown;
   }
 }

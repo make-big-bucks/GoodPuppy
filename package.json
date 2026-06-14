@@ -10,6 +10,7 @@
     "dev": "vite",
     "dev:peer": "DEV_PORT=1421 vite",
     "build": "vite build",
+    "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "tauri:dev:peer": "tauri dev --config src-tauri/tauri.peer.conf.json",
     "gen:skins": "node tools/generate-skins.mjs",
@@ -24,8 +25,10 @@
   "license": "MIT",
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.2",
+    "@types/node": "^25.9.3",
     "gifenc": "^1.0.3",
     "gifuct-js": "^2.1.2",
+    "typescript": "^6.0.3",
     "vite": "^6.4.3",
     "vitest": "^4.1.8"
   },
