@@ -1,8 +1,8 @@
-import "./bridge.js";
-import "./styles.css";
+import "../../shared/bridge.js";
+import "../../shared/styles.css";
 import { emit, listen } from "@tauri-apps/api/event";
 import { startPetApp, switchRoom } from "./renderer.js";
-import { createAppSupabaseClient } from "./supabaseClient.js";
+import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 const supabase = createAppSupabaseClient();

@@ -1,5 +1,5 @@
 import { emit } from "@tauri-apps/api/event";
-import { createAppSupabaseClient } from "./supabaseClient.js";
+import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 
 const authForm = document.querySelector(".auth-card");
 const authMessage = document.querySelector(".auth-message");

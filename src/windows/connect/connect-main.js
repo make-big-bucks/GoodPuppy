@@ -1,8 +1,8 @@
-import "./styles.css";
+import "../../shared/styles.css";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { initConnectPanel, openConnectPanel } from "./connect.js";
-import { createAppSupabaseClient } from "./supabaseClient.js";
+import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 
 const supabase = createAppSupabaseClient();
 
