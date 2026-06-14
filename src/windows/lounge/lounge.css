@@ -1,4 +1,4 @@
-/* 连接管理窗口样式（原内联于 connect.html，Phase 2 拆出）。
+/* 会客厅窗口样式（原内联于会客厅 HTML，Phase 2 拆出）。
    本窗口已有自洽的局部 token（下方 :root），与登录共用 --gp-bg。
    除把 --bg 接到共享 token 外，规则保持原样，零视觉变化。 */
 @import "../../shared/tokens.css";
@@ -53,7 +53,7 @@ body {
   grid-template-rows: 132px 1fr;
 }
 
-.connect-panel[hidden] {
+.lounge-panel[hidden] {
   display: none;
 }
 
@@ -66,6 +66,11 @@ body {
   border-bottom: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.82);
   backdrop-filter: blur(16px);
+  -webkit-app-region: drag;
+}
+
+.topbar button {
+  -webkit-app-region: no-drag;
 }
 
 .page-title {
@@ -113,8 +118,8 @@ body {
   font-size: 13px;
 }
 
-.connect-gp-id,
-.connect-invite-code,
+.lounge-gp-id,
+.lounge-invite-code,
 .member-name {
   user-select: text;
 }
@@ -466,7 +471,7 @@ button {
   font-size: 16px;
 }
 
-.connect-message {
+.lounge-message {
   flex: 0 0 auto;
   min-height: 24px;
   margin: 18px 0 0;
@@ -474,7 +479,7 @@ button {
   font-size: 13px;
 }
 
-.connect-message.is-error {
+.lounge-message.is-error {
   color: #b75c67;
 }
 
@@ -491,7 +496,7 @@ button {
   display: none;
 }
 
-.connect-modal {
+.lounge-modal {
   width: min(390px, calc(100vw - 56px));
   padding: 28px;
   border: 1px solid var(--line);
@@ -506,7 +511,7 @@ button {
   font-weight: 760;
 }
 
-.connect-input {
+.lounge-input {
   width: 100%;
   height: 42px;
   padding: 0 14px;
@@ -517,18 +522,18 @@ button {
   font-size: 14px;
 }
 
-.connect-input:focus {
+.lounge-input:focus {
   border-color: #202020;
 }
 
-.connect-form-message {
+.lounge-form-message {
   min-height: 20px;
   margin: 10px 0 18px;
   color: #b75c67;
   font-size: 12px;
 }
 
-.connect-form-actions {
+.lounge-form-actions {
   display: flex;
   justify-content: flex-end;
   gap: 12px;

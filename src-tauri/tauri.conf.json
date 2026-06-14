@@ -23,7 +23,7 @@
         "visible": false,
         "resizable": false,
         "maximizable": false,
-        "decorations": false,
+        "titleBarStyle": "Overlay",
         "center": true
       },
       {

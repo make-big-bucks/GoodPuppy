@@ -10,7 +10,7 @@ use serde::Serialize;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Listener, Manager, Runtime, WebviewUrl, WebviewWindowBuilder, WebviewWindow,
+    AppHandle, Emitter, Listener, Manager, Runtime, TitleBarStyle, WebviewUrl, WebviewWindowBuilder, WebviewWindow,
 };
 
 #[cfg(target_os = "macos")]
@@ -320,7 +320,7 @@ pub fn run() {
                 });
             });
 
-            let manage = MenuItemBuilder::with_id("manage-connections", "\u{8fde}\u{63a5}\u{7ba1}\u{7406}").build(app)?;
+            let manage = MenuItemBuilder::with_id("open-lounge", "\u{4f1a}\u{5ba2}\u{5385}").build(app)?;
             let logout = MenuItemBuilder::with_id("logout", "\u{9000}\u{51fa}\u{767b}\u{5f55}").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "\u{9000}\u{51fa}").build(app)?;
             let menu = MenuBuilder::new(app).items(&[&manage, &logout, &quit]).build()?;
@@ -331,21 +331,22 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| {
                     match event.id().as_ref() {
-                        "manage-connections" => {
-                            if let Some(w) = app.get_webview_window("connect") {
+                        "open-lounge" => {
+                            if let Some(w) = app.get_webview_window("lounge") {
                                 let _ = w.show();
                                 let _ = w.set_focus();
-                                let _ = w.emit("connect-refresh", ());
+                                let _ = w.emit("lounge-refresh", ());
                             } else {
                                 let _ = WebviewWindowBuilder::new(
                                     app,
-                                    "connect",
-                                    WebviewUrl::App("windows/connect.html".into()),
+                                    "lounge",
+                                    WebviewUrl::App("windows/lounge.html".into()),
                                 )
-                                .title("\u{8fde}\u{63a5}\u{7ba1}\u{7406}")
+                                .title("\u{4f1a}\u{5ba2}\u{5385}")
                                 .inner_size(1120.0, 720.0)
                                 .resizable(true)
                                 .maximizable(false)
+                                .title_bar_style(TitleBarStyle::Overlay)
                                 .build();
                             }
                         }

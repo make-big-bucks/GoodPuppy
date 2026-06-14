@@ -1,9 +1,9 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "connect",
-  "description": "permissions for the connect window",
+  "identifier": "lounge",
+  "description": "permissions for the lounge window",
   "windows": [
-    "connect"
+    "lounge"
   ],
   "permissions": [
     "core:event:allow-listen",

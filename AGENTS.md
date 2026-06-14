@@ -6,7 +6,7 @@
 
 GoodPuppy 是一个透明、置顶的桌面宠物应用：
 
-- 前端：Vite + 原生 JavaScript/CSS，入口在 `src/main.js`。
+- 前端：Vite + 原生 JavaScript/CSS，多页面入口在 `windows/*.html`，窗口代码在 `src/windows/`。
 - 桌面壳：Tauri v2，Rust 代码在 `src-tauri/src/`。
 - 后端服务：Supabase，数据模型说明见 `docs/database.md`。
 - 架构决策：重要技术取舍记录在 `docs/adr/`，改动架构前先阅读相关 ADR。
@@ -32,19 +32,21 @@ npm run tauri build
 
 ## 代码结构
 
-- `index.html`：主窗口 DOM 结构。
-- `src/main.js`：前端初始化入口，注意 `bridge.js` 必须先于 `renderer.js` 加载。
-- `src/bridge.js`：Tauri API 与浏览器 fallback 的桥接层。
-- `src/renderer.js`：宠物渲染和主交互逻辑。
-- `src/connect.js`：连接面板、房间、邀请和请求相关 UI/数据逻辑。
-- `src/auth.js`：Supabase 匿名登录与身份初始化。
-- `src/petState.js`：`PetAnimator` 分层动画状态机（瞬时层 > 状态层 > 基础层），每只 pet 一个实例。见 `docs/adr/0008-分层动画状态机与实时事件.md`。
-- `src/animationCatalog.js`：动画「行为事实」与形象注册表（状态分层、互动路由、`pet.json` 加载、皮肤路径解析）；资源放 `public/pets/<id>/`，皮肤变体放 `public/pets/<id>/skins/<skin>/`。
-- `src/interactions.js`：跨用户瞬时互动的 Realtime broadcast 总线。
-- `src/presence.js`：房间在线状态；payload 携带持续状态（情绪/工作）、`pet_id` 与 `skin`（换肤）。
+- `windows/pet.html`：透明桌宠主窗口 DOM 结构，加载 `src/windows/pet/main.js`。
+- `windows/login.html`：登录窗口 DOM 结构，加载 `src/windows/login/login-main.js`。
+- `windows/lounge.html`：会客厅窗口 DOM 结构，加载 `src/windows/lounge/lounge-main.js`。
+- `src/shared/bridge.js`：Tauri API 与浏览器 fallback 的桥接层。
+- `src/shared/`：跨窗口共享配置、桥接、Supabase client、基础样式和设计 token。
+- `src/windows/pet/renderer.js`：宠物渲染和主交互逻辑。
+- `src/windows/login/auth.js`：Supabase 登录与身份初始化。
+- `src/windows/lounge/lounge.js`：会客厅、房间、邀请和请求相关 UI/数据逻辑。
+- `src/windows/pet/petState.js`：`PetAnimator` 分层动画状态机（瞬时层 > 状态层 > 基础层），每只 pet 一个实例。见 `docs/adr/0008-分层动画状态机与实时事件.md`。
+- `src/windows/pet/animationCatalog.js`：动画「行为事实」与形象注册表（状态分层、互动路由、`pet.json` 加载、皮肤路径解析）；资源放 `public/pets/<id>/`，皮肤变体放 `public/pets/<id>/skins/<skin>/`。
+- `src/windows/pet/interactions.js`：跨用户瞬时互动的 Realtime broadcast 总线。
+- `src/windows/pet/presence.js`：房间在线状态；payload 携带持续状态（情绪/工作）、`pet_id` 与 `skin`（换肤）。
 - `tools/generate-skins.mjs`：离线换肤生成器（`npm run gen:skins`），配置 `tools/skins.json`。见 `docs/adr/0010-离线调色板换肤.md`。
-- `src/hitTesting.js`：透明窗口命中测试逻辑。
-- `src/cursorEventsController.js`：鼠标穿透与交互切换控制。
+- `src/windows/pet/hitTesting.js`：透明窗口命中测试逻辑。
+- `src/shared/cursorEventsController.js`：鼠标穿透与交互切换控制。
 - `src-tauri/src/lib.rs`：Tauri 主进程、托盘、窗口层级和原生光标采样。
 - `docs/adr/`：已采纳架构决策。
 
@@ -63,14 +65,14 @@ npm run tauri build
 
 - 前端纯逻辑：运行 `npm run test`。
 - 前端 UI/构建：运行 `npm run build`，必要时启动 `npm run dev` 检查页面。
-- Tauri/Rust 或桌面行为：运行 `npm run tauri dev` 手动验证窗口、托盘、置顶、鼠标穿透和连接面板。
+- Tauri/Rust 或桌面行为：运行 `npm run tauri dev` 手动验证窗口、托盘、置顶、鼠标穿透和会客厅。
 - 发布相关改动：运行 `npm run tauri build`。
 
 新增或修改以下模块时，优先补充相邻测试：
 
-- `src/petState.js`
-- `src/hitTesting.js`
-- `src/cursorEventsController.js`
+- `src/windows/pet/petState.js`
+- `src/windows/pet/hitTesting.js`
+- `src/shared/cursorEventsController.js`
 - 任何可从 DOM/网络调用中抽离的纯逻辑
 
 ## 文档要求

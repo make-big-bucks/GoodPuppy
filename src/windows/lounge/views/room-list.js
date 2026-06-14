@@ -7,7 +7,7 @@ function roomIconSvg() {
 }
 
 export function renderRoomList(rooms, selectedRoomId, onSelectRoom) {
-  const list = document.querySelector(".connect-room-list");
+  const list = document.querySelector(".lounge-room-list");
   if (!list) return;
 
   list.innerHTML = "";
@@ -37,7 +37,7 @@ export function renderRoomList(rooms, selectedRoomId, onSelectRoom) {
 }
 
 export function renderPendingRequests(pendingRequests) {
-  const list = document.querySelector(".connect-request-list");
+  const list = document.querySelector(".lounge-request-list");
   if (!list) return;
 
   list.innerHTML = "";

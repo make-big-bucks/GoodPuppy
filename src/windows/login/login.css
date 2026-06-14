@@ -1,5 +1,5 @@
 /* 登录窗口样式（原内联于 login.html，Phase 2 拆出）。
-   登录是独立视觉语言：系统字体 + 近黑 #222 + 浅灰底；仅与连接管理共用 --gp-bg。
+   登录是独立视觉语言：系统字体 + 近黑 #222 + 浅灰底；仅与会客厅共用 --gp-bg。
    局部 token 声明在 .login-page 作用域，避免污染其他窗口。 */
 @import "../../shared/tokens.css";
 
@@ -53,14 +53,14 @@ body.login-page {
 }
 
 .login-page .brand {
-  margin-bottom: 34px;
+  margin-bottom: 20px;
   text-align: center;
 }
 
 .login-page .logo {
-  width: 72px;
-  height: 72px;
-  margin: 0 auto 16px;
+  width: 60px;
+  height: 60px;
+  margin: 0 auto 12px;
   border: 1px solid #eeeeeb;
   border-radius: 22px;
   background: #fff;
@@ -72,13 +72,13 @@ body.login-page {
 }
 
 .login-page .logo svg {
-  width: 42px;
-  height: 42px;
+  width: 34px;
+  height: 34px;
 }
 
 .login-page h1 {
   margin: 0;
-  font-size: 34px;
+  font-size: 28px;
   font-weight: 700;
   letter-spacing: 0;
   line-height: 1.15;
@@ -99,7 +99,7 @@ body.login-page {
 }
 
 .login-page .form-group {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .login-page label {
@@ -247,7 +247,7 @@ body.login-page {
 }
 
 .login-page .divider {
-  margin: 20px 0;
+  margin: 14px 0;
   color: #aaa;
   display: flex;
   align-items: center;

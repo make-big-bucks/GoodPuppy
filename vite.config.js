@@ -21,7 +21,7 @@ export default defineConfig({
       input: {
         pet: resolve(__dirname, "windows/pet.html"),
         login: resolve(__dirname, "windows/login.html"),
-        connect: resolve(__dirname, "windows/connect.html"),
+        lounge: resolve(__dirname, "windows/lounge.html"),
       },
     },
   },

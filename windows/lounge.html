@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GoodPuppy - 连接管理</title>
-  <link rel="stylesheet" href="/src/windows/connect/connect.css" />
+  <title>GoodPuppy - 会客厅</title>
+  <link rel="stylesheet" href="/src/windows/lounge/lounge.css" />
 </head>
 
 <body>
-  <main class="app-window connect-panel">
-    <header class="topbar">
+  <main class="app-window lounge-panel">
+    <header class="topbar" data-tauri-drag-region>
       <div class="page-title"> </div>
 
       <div class="user-card">
@@ -22,12 +22,12 @@
           </svg>
         </div>
         <div>
-          <div class="user-name connect-display-name">GoodPuppy</div>
-          <div class="user-id">ID: <span class="connect-gp-id"></span></div>
+          <div class="user-name lounge-display-name">GoodPuppy</div>
+          <div class="user-id">ID: <span class="lounge-gp-id"></span></div>
         </div>
       </div>
 
-      <button class="copy-id connect-copy-btn" type="button" data-copy="gp-id">
+      <button class="copy-id lounge-copy-btn" type="button" data-copy="gp-id">
         <svg class="svg-icon" viewBox="0 0 24 24" fill="none">
           <rect x="9" y="9" width="10" height="10" rx="2" stroke="currentColor" stroke-width="2"/>
           <rect x="5" y="5" width="10" height="10" rx="2" stroke="currentColor" stroke-width="2"/>
@@ -42,24 +42,24 @@
           <div class="sidebar-title">我的房间</div>
         </div>
 
-        <div class="room-list connect-room-list"></div>
-        <div class="invite-list connect-request-list"></div>
+        <div class="room-list lounge-room-list"></div>
+        <div class="invite-list lounge-request-list"></div>
 
         <div class="sidebar-actions">
-          <button class="btn btn-primary connect-create-room" type="button">＋ 创建房间</button>
-          <button class="btn btn-secondary connect-join-room" type="button">＋ 加入房间</button>
+          <button class="btn btn-primary lounge-create-room" type="button">＋ 创建房间</button>
+          <button class="btn btn-secondary lounge-join-room" type="button">＋ 加入房间</button>
         </div>
       </aside>
 
       <section class="main">
-        <div class="empty-state connect-empty-detail">选择一个房间查看成员</div>
+        <div class="empty-state lounge-empty-detail">选择一个房间查看成员</div>
 
-        <section class="room-detail connect-room-detail" hidden>
-          <span class="connect-invite-code" hidden></span>
+        <section class="room-detail lounge-room-detail" hidden>
+          <span class="lounge-invite-code" hidden></span>
 
           <section class="section member-section">
             <h2 class="section-title">房间成员</h2>
-            <div class="members connect-member-list"></div>
+            <div class="members lounge-member-list"></div>
           </section>
 
           <section class="section">
@@ -70,10 +70,10 @@
             </p>
           </section>
 
-          <p class="connect-message" role="status"></p>
+          <p class="lounge-message" role="status"></p>
 
           <div class="actions">
-            <button class="btn btn-primary connect-enter-room" type="button">
+            <button class="btn btn-primary lounge-enter-room" type="button">
               <svg class="svg-icon" viewBox="0 0 24 24" fill="none">
                 <path d="M10 17l5-5-5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
                 <path d="M15 12H3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
@@ -82,7 +82,7 @@
               进入房间
             </button>
 
-            <button class="btn btn-secondary connect-copy-btn" type="button" data-copy="invite-code">
+            <button class="btn btn-secondary lounge-copy-btn" type="button" data-copy="invite-code">
               <svg class="svg-icon" viewBox="0 0 24 24" fill="none">
                 <path d="M10.5 13.5 13.5 10.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
                 <path d="M8.8 16.9 7.6 18.1a4 4 0 0 1-5.7-5.7l3.2-3.2a4 4 0 0 1 5.7 0" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
@@ -91,7 +91,7 @@
               复制邀请码
             </button>
 
-            <button class="btn btn-secondary connect-invite-member" type="button">
+            <button class="btn btn-secondary lounge-invite-member" type="button">
               <svg class="svg-icon" viewBox="0 0 24 24" fill="none">
                 <path d="M15 19a6 6 0 0 0-12 0" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
                 <circle cx="9" cy="8" r="4" stroke="currentColor" stroke-width="2.2"/>
@@ -106,18 +106,18 @@
     </section>
   </main>
 
-  <div class="modal-backdrop connect-modal-backdrop" hidden>
-    <form class="connect-modal">
-      <h2 class="modal-title connect-modal-title"></h2>
-      <input class="connect-input" name="modal-value" autocomplete="off" />
-      <p class="connect-form-message" role="status"></p>
-      <div class="connect-form-actions">
-        <button class="small-btn connect-form-cancel" type="button">取消</button>
-        <button class="small-btn primary connect-form-submit" type="submit">确定</button>
+  <div class="modal-backdrop lounge-modal-backdrop" hidden>
+    <form class="lounge-modal">
+      <h2 class="modal-title lounge-modal-title"></h2>
+      <input class="lounge-input" name="modal-value" autocomplete="off" />
+      <p class="lounge-form-message" role="status"></p>
+      <div class="lounge-form-actions">
+        <button class="small-btn lounge-form-cancel" type="button">取消</button>
+        <button class="small-btn primary lounge-form-submit" type="submit">确定</button>
       </div>
     </form>
   </div>
 
-  <script type="module" src="/src/windows/connect/connect-main.js"></script>
+  <script type="module" src="/src/windows/lounge/lounge-main.js"></script>
 </body>
 </html>

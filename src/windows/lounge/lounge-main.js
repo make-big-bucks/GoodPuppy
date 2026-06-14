@@ -1,7 +1,7 @@
 import "../../shared/styles.css";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { initConnectPanel, openConnectPanel } from "./connect.js";
+import { initLoungePanel, openLoungePanel } from "./lounge.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 
 const supabase = createAppSupabaseClient();
@@ -10,7 +10,7 @@ async function init() {
   const { data } = await supabase.auth.getSession();
   const selfAuthId = data.session?.user?.id || null;
 
-  initConnectPanel({
+  initLoungePanel({
     supabase,
     selfAuthId,
     onEnterRoom: (roomId) => {
@@ -19,10 +19,10 @@ async function init() {
     },
   });
 
-  openConnectPanel();
+  openLoungePanel();
 
   // 重新从 tray 打开时刷新数据
-  listen("connect-refresh", () => openConnectPanel());
+  listen("lounge-refresh", () => openLoungePanel());
 }
 
 init().catch(console.error);

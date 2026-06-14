@@ -558,11 +558,11 @@ supabase
 }
 ```
 
-本地状态变化时通过 `presenceChannel.track(...)` 重新广播（见 `src/presence.js` 的 `updateLocalPresence`）。`status` 的取值与 `src/animationCatalog.js` 的状态层定义一致。
+本地状态变化时通过 `presenceChannel.track(...)` 重新广播（见 `src/windows/pet/presence.js` 的 `updateLocalPresence`）。`status` 的取值与 `src/windows/pet/animationCatalog.js` 的状态层定义一致。
 
 ### 一次性互动（broadcast channel）
 
-跨用户的瞬时互动（贴贴/喂食/踢飞、进出场打招呼等高频低价值信号）走 room 维度单独一条 broadcast channel（`interactions:${roomId}`，见 `src/interactions.js`），纯瞬时、不落库、不进消息历史：
+跨用户的瞬时互动（贴贴/喂食/踢飞、进出场打招呼等高频低价值信号）走 room 维度单独一条 broadcast channel（`interactions:${roomId}`，见 `src/windows/pet/interactions.js`），纯瞬时、不落库、不进消息历史：
 
 ```jsonc
 // event: "interaction"

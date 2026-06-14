@@ -4,15 +4,19 @@ A transparent, always-on-top desktop pet built with Tauri v2.
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) (v20+)
+- [Node.js](https://nodejs.org/) (v22; the project includes `.nvmrc` / `.node-version`)
 - [Rust](https://www.rust-lang.org/tools/install)
 
 ## Run
 
 ```bash
+nvm use
 npm install
 npm run tauri dev
 ```
+
+If your shell does not switch Node.js automatically when entering the project, run
+`nvm use` once before `npm install`, `npm run dev`, or `npm run tauri dev`.
 
 ## Mac
 
@@ -26,6 +30,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 Then run:
 
 ```bash
+nvm use
 npm install
 npm run tauri dev
 ```

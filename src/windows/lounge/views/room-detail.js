@@ -1,6 +1,6 @@
 export function switchView(name) {
-  const detail = document.querySelector(".connect-room-detail");
-  const empty = document.querySelector(".connect-empty-detail");
+  const detail = document.querySelector(".lounge-room-detail");
+  const empty = document.querySelector(".lounge-empty-detail");
   if (!detail || !empty) return;
   const isDetail = name === "detail";
   detail.hidden = !isDetail;
@@ -15,11 +15,11 @@ export function renderRoomDetail(room, selfAuthId) {
 
   switchView("detail");
 
-  const detail = document.querySelector(".connect-room-detail");
+  const detail = document.querySelector(".lounge-room-detail");
   if (!detail) return;
 
-  const inviteCode = detail.querySelector(".connect-invite-code");
-  const members = detail.querySelector(".connect-member-list");
+  const inviteCode = detail.querySelector(".lounge-invite-code");
+  const members = detail.querySelector(".lounge-member-list");
 
   if (inviteCode) inviteCode.textContent = room.invite_code || "暂无";
 

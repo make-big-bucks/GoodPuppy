@@ -11,16 +11,16 @@ let pendingRequests = [];
 let selectedRoomId = null;
 let requestChannel = null;
 
-const panel = () => document.querySelector(".connect-panel");
-const modalBackdrop = () => document.querySelector(".connect-modal-backdrop");
-const modalForm = () => document.querySelector(".connect-modal");
+const panel = () => document.querySelector(".lounge-panel");
+const modalBackdrop = () => document.querySelector(".lounge-modal-backdrop");
+const modalForm = () => document.querySelector(".lounge-modal");
 
 function getSelectedRoom() {
   return rooms.find((room) => room.id === selectedRoomId) || null;
 }
 
 function setMessage(text, { isError = false } = {}) {
-  const el = document.querySelector(".connect-message");
+  const el = document.querySelector(".lounge-message");
   if (!el) return;
 
   el.textContent = text || "";
@@ -34,7 +34,7 @@ function setMessage(text, { isError = false } = {}) {
 }
 
 function setModalMessage(text) {
-  const el = modalForm()?.querySelector(".connect-form-message");
+  const el = modalForm()?.querySelector(".lounge-form-message");
   if (el) el.textContent = text || "";
 }
 
@@ -60,8 +60,8 @@ async function copyToClipboard(text, btn) {
 }
 
 function renderProfile(profile) {
-  const nameEl = document.querySelector(".connect-display-name");
-  const idEl = document.querySelector(".connect-gp-id");
+  const nameEl = document.querySelector(".lounge-display-name");
+  const idEl = document.querySelector(".lounge-gp-id");
 
   if (nameEl) nameEl.textContent = profile?.display_name || "GoodPuppy";
   if (idEl) idEl.textContent = profile?.id || _selfAuthId || "";
@@ -141,9 +141,9 @@ function openInputModal({ title, placeholder, submitText = "确定", validate, o
   const form = modalForm();
   if (!backdrop || !form) return;
 
-  const titleEl = form.querySelector(".connect-modal-title");
-  const input = form.querySelector(".connect-input");
-  const submit = form.querySelector(".connect-form-submit");
+  const titleEl = form.querySelector(".lounge-modal-title");
+  const input = form.querySelector(".lounge-input");
+  const submit = form.querySelector(".lounge-form-submit");
 
   titleEl.textContent = title;
   input.value = "";
@@ -158,7 +158,7 @@ function openInputModal({ title, placeholder, submitText = "确定", validate, o
     form.onsubmit = null;
   };
 
-  form.querySelector(".connect-form-cancel").onclick = close;
+  form.querySelector(".lounge-form-cancel").onclick = close;
   input.focus();
 
   form.onsubmit = async (event) => {
@@ -275,7 +275,7 @@ function subscribeToRequests() {
   }
 
   requestChannel = _supabase
-    .channel(`connect-requests-${_selfAuthId}`)
+    .channel(`lounge-requests-${_selfAuthId}`)
     .on(
       "postgres_changes",
       {
@@ -297,17 +297,17 @@ function bindEvents() {
 
   p.dataset.bound = "true";
 
-  p.querySelector(".connect-close")?.addEventListener("click", closeConnectPanel);
+  p.querySelector(".lounge-close")?.addEventListener("click", closeLoungePanel);
 
-  p.querySelector('.connect-copy-btn[data-copy="gp-id"]')?.addEventListener("click", function () {
-    copyToClipboard(document.querySelector(".connect-gp-id")?.textContent, this);
+  p.querySelector('.lounge-copy-btn[data-copy="gp-id"]')?.addEventListener("click", function () {
+    copyToClipboard(document.querySelector(".lounge-gp-id")?.textContent, this);
   });
 
-  p.querySelector('.connect-copy-btn[data-copy="invite-code"]')?.addEventListener("click", function () {
-    copyToClipboard(document.querySelector(".connect-invite-code")?.textContent, this);
+  p.querySelector('.lounge-copy-btn[data-copy="invite-code"]')?.addEventListener("click", function () {
+    copyToClipboard(document.querySelector(".lounge-invite-code")?.textContent, this);
   });
 
-  p.querySelector(".connect-create-room")?.addEventListener("click", () => {
+  p.querySelector(".lounge-create-room")?.addEventListener("click", () => {
     openInputModal({
       title: "创建房间",
       placeholder: "输入房间名称",
@@ -317,7 +317,7 @@ function bindEvents() {
     });
   });
 
-  p.querySelector(".connect-join-room")?.addEventListener("click", () => {
+  p.querySelector(".lounge-join-room")?.addEventListener("click", () => {
     openInputModal({
       title: "加入房间",
       placeholder: "输入房间邀请码",
@@ -327,7 +327,7 @@ function bindEvents() {
     });
   });
 
-  p.querySelector(".connect-invite-member")?.addEventListener("click", () => {
+  p.querySelector(".lounge-invite-member")?.addEventListener("click", () => {
     openInputModal({
       title: "邀请成员",
       placeholder: "输入用户 ID",
@@ -337,15 +337,15 @@ function bindEvents() {
     });
   });
 
-  p.querySelector(".connect-enter-room")?.addEventListener("click", () => {
+  p.querySelector(".lounge-enter-room")?.addEventListener("click", () => {
     const room = getSelectedRoom();
     if (!room) return;
 
-    closeConnectPanel();
+    closeLoungePanel();
     _onEnterRoom?.(room.id);
   });
 
-  document.querySelector(".connect-request-list")?.addEventListener("click", async (event) => {
+  document.querySelector(".lounge-request-list")?.addEventListener("click", async (event) => {
     const btn = event.target.closest("button[data-action]");
     if (!btn) return;
 
@@ -362,7 +362,7 @@ function bindEvents() {
     }
   });
 
-  document.querySelector(".connect-modal-backdrop")?.addEventListener("pointerdown", (event) => {
+  document.querySelector(".lounge-modal-backdrop")?.addEventListener("pointerdown", (event) => {
     if (event.target === event.currentTarget) {
       event.currentTarget.hidden = true;
     }
@@ -374,7 +374,7 @@ function bindEvents() {
   });
 }
 
-export function initConnectPanel({ supabase, selfAuthId, onEnterRoom }) {
+export function initLoungePanel({ supabase, selfAuthId, onEnterRoom }) {
   _supabase = supabase;
   _selfAuthId = selfAuthId;
   _onEnterRoom = onEnterRoom;
@@ -383,13 +383,13 @@ export function initConnectPanel({ supabase, selfAuthId, onEnterRoom }) {
   subscribeToRequests();
 }
 
-export function updateConnectPanelAuth({ supabase, selfAuthId }) {
+export function updateLoungePanelAuth({ supabase, selfAuthId }) {
   _supabase = supabase;
   _selfAuthId = selfAuthId;
   subscribeToRequests();
 }
 
-export function openConnectPanel() {
+export function openLoungePanel() {
   const p = panel();
   if (!p) return;
 
@@ -398,7 +398,7 @@ export function openConnectPanel() {
   loadPanelData();
 }
 
-export function closeConnectPanel() {
+export function closeLoungePanel() {
   if (window.__TAURI_INTERNALS__) {
     getCurrentWindow().hide();
   } else {
