@@ -1,16 +1,35 @@
 import { createPetAvatar } from "./pet-avatar.js";
 import type { LoungeProfile } from "../../../types";
 
+const guestAvatarSvg = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`;
+
+function createGuestAvatar() {
+  const wrapper = document.createElement("div");
+  wrapper.className = "pet-avatar guest-avatar";
+  wrapper.innerHTML = guestAvatarSvg;
+  return wrapper;
+}
+
 export function renderProfileCard(profile: LoungeProfile | null | undefined) {
   const root = document.querySelector<HTMLElement>(".lounge-profile-card");
   if (!root) return;
 
   root.innerHTML = "";
+
+  if (!profile) {
+    root.appendChild(createGuestAvatar());
+    const body = document.createElement("div");
+    body.className = "profile-body";
+    body.innerHTML = `<div class="profile-name-row"><span class="unauth-profile-name">未登录</span></div>`;
+    root.appendChild(body);
+    return;
+  }
+
   root.appendChild(
     createPetAvatar({
-      petId: profile?.pet_id,
-      skin: profile?.skin,
-      alt: profile?.display_name || "GoodPuppy",
+      petId: profile.pet_id,
+      skin: profile.skin,
+      alt: profile.display_name || "GoodPuppy",
     }),
   );
 
@@ -29,7 +48,7 @@ export function renderProfileCard(profile: LoungeProfile | null | undefined) {
   `;
   const profileName = body.querySelector<HTMLButtonElement>(".profile-name");
   const profileId = body.querySelector<HTMLElement>(".profile-id");
-  if (profileName) profileName.textContent = profile?.display_name || "GoodPuppy";
-  if (profileId) profileId.textContent = profile?.gp_id || "";
+  if (profileName) profileName.textContent = profile.display_name || "GoodPuppy";
+  if (profileId) profileId.textContent = profile.gp_id || "";
   root.appendChild(body);
 }

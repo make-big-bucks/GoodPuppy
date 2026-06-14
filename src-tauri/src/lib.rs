@@ -10,7 +10,7 @@ use serde::Serialize;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Listener, Manager, Runtime, TitleBarStyle, WebviewUrl, WebviewWindowBuilder, WebviewWindow,
+    AppHandle, Emitter, Listener, Manager, Runtime, WebviewWindow,
 };
 
 #[cfg(target_os = "macos")]
@@ -170,17 +170,6 @@ fn configure_macos_overlay_level<R: Runtime>(window: &WebviewWindow<R>) {
     ));
 }
 
-#[cfg(target_os = "macos")]
-fn macos_order_front<R: Runtime>(window: &WebviewWindow<R>) {
-    let Ok(ns_window_ptr) = window.ns_window() else {
-        return;
-    };
-    let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
-    ns_window.orderFrontRegardless();
-}
-
-#[cfg(not(target_os = "macos"))]
-fn macos_order_front<R: Runtime>(_window: &WebviewWindow<R>) {}
 
 #[cfg(not(target_os = "macos"))]
 fn configure_macos_overlay_level<R: Runtime>(_window: &WebviewWindow<R>) {}
@@ -262,58 +251,28 @@ pub fn run() {
             }
             spawn_cursor_monitor(app);
 
-            // 登录成功：隐藏登录窗口，显示 Pet 窗口并通知初始化
+            // 登录成功：通知 Pet 窗口初始化（不自动显示，进房间时由前端控制）
             let handle = app.handle().clone();
             app.listen("auth-ready", move |_| {
                 let h = handle.clone();
-                let h2 = h.clone();
+                let inner = h.clone();
                 let _ = h.run_on_main_thread(move || {
-                    if let Some(w) = h2.get_webview_window("login") {
-                        let _ = w.hide();
-                    }
-                    if let Some(w) = h2.get_webview_window("main") {
-                        let _ = w.show();
-                        macos_order_front(&w);
+                    if let Some(w) = inner.get_webview_window("main") {
                         let _ = w.emit("pet-init", ());
-
-                        let delayed_handle = h2.clone();
-                        thread::spawn(move || {
-                            thread::sleep(Duration::from_millis(150));
-                            let run_handle = delayed_handle.clone();
-                            let window_handle = delayed_handle.clone();
-                            let _ = run_handle.run_on_main_thread(move || {
-                                if let Some(w) = window_handle.get_webview_window("main") {
-                                    let _ = w.emit("pet-init", ());
-                                }
-                            });
-                        });
                     }
                 });
             });
 
-            // 无已保存 session：显示登录窗口
+            // 退出登录：隐藏 Pet 窗口，显示会客厅
             let handle2 = app.handle().clone();
-            app.listen("show-login", move |_| {
-                let h = handle2.clone();
-                let h2 = h.clone();
-                let _ = h.run_on_main_thread(move || {
-                    if let Some(w) = h2.get_webview_window("login") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
-                });
-            });
-
-            // 退出登录：隐藏 Pet 窗口，显示登录窗口
-            let handle3 = app.handle().clone();
             app.listen("auth-cleared", move |_| {
-                let h = handle3.clone();
-                let h2 = h.clone();
+                let h = handle2.clone();
+                let inner = h.clone();
                 let _ = h.run_on_main_thread(move || {
-                    if let Some(w) = h2.get_webview_window("main") {
+                    if let Some(w) = inner.get_webview_window("main") {
                         let _ = w.hide();
                     }
-                    if let Some(w) = h2.get_webview_window("login") {
+                    if let Some(w) = inner.get_webview_window("lounge") {
                         let _ = w.show();
                         let _ = w.set_focus();
                     }
@@ -321,9 +280,8 @@ pub fn run() {
             });
 
             let manage = MenuItemBuilder::with_id("open-lounge", "\u{4f1a}\u{5ba2}\u{5385}").build(app)?;
-            let logout = MenuItemBuilder::with_id("logout", "\u{9000}\u{51fa}\u{767b}\u{5f55}").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "\u{9000}\u{51fa}").build(app)?;
-            let menu = MenuBuilder::new(app).items(&[&manage, &logout, &quit]).build()?;
+            let menu = MenuBuilder::new(app).items(&[&manage, &quit]).build()?;
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("GoodPuppy")
@@ -336,25 +294,6 @@ pub fn run() {
                                 let _ = w.show();
                                 let _ = w.set_focus();
                                 let _ = w.emit("lounge-refresh", ());
-                            } else {
-                                let _ = WebviewWindowBuilder::new(
-                                    app,
-                                    "lounge",
-                                    WebviewUrl::App("windows/lounge.html".into()),
-                                )
-                                .title("")
-                                .inner_size(1120.0, 720.0)
-                                .min_inner_size(1040.0, 680.0)
-                                .resizable(true)
-                                .maximizable(false)
-                                .title_bar_style(TitleBarStyle::Overlay)
-                                .accept_first_mouse(true)
-                                .build();
-                            }
-                        }
-                        "logout" => {
-                            if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.emit("auth-logout-requested", ());
                             }
                         }
                         "quit" => app.exit(0),

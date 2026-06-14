@@ -654,3 +654,44 @@ textarea.lounge-input {
   justify-content: flex-end;
   gap: 12px;
 }
+
+.small-btn.danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #fff;
+}
+
+.login-password-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.login-password-wrap .lounge-input {
+  padding-right: 44px;
+}
+
+.login-password-wrap .icon-btn {
+  position: absolute;
+  right: 4px;
+  width: 32px;
+  height: 32px;
+}
+
+.lounge-confirm-text {
+  margin: 0 0 24px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.unauth-profile-name {
+  font-size: 15px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.guest-avatar {
+  background: var(--hover);
+  border-radius: 50%;
+  color: var(--muted);
+}

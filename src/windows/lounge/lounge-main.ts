@@ -2,7 +2,7 @@ import "../../shared/bridge.js";
 import "../../shared/styles.css";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { initLoungePanel, openLoungePanel } from "./lounge.js";
+import { initLoungePanel, openLoungePanel, updateLoungePanelAuth } from "./lounge.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 
 function initDragRegion() {
@@ -64,8 +64,26 @@ async function init() {
     onEnterRoom: (roomId: string) => {
       void getCurrentWindow().hide();
       void emit("switch-room", { roomId });
+      localStorage.setItem("lastRoomId", roomId);
     },
-    onExitRoom: () => emit("exit-room"),
+    onExitRoom: () => {
+      void emit("exit-room");
+      localStorage.removeItem("lastRoomId");
+    },
+    onLoginSuccess: () => {
+      void emit("auth-ready");
+    },
+    onLogout: () => {
+      void emit("auth-cleared");
+      localStorage.removeItem("lastRoomId");
+      activeRoomId = null;
+    },
+  });
+
+  // 认证状态变化时同步更新会客厅（跳过初次 INITIAL_SESSION，已由 getSession 处理）
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === "INITIAL_SESSION") return;
+    updateLoungePanelAuth({ supabase, selfAuthId: session?.user?.id || null });
   });
 
   listen("lounge-refresh", () => {
@@ -75,11 +93,21 @@ async function init() {
 
   listen<{ roomId?: string | null }>("active-room-changed", (event) => {
     activeRoomId = event.payload?.roomId || null;
-    openLoungePanel();
   });
 
   openLoungePanel();
-  await emit("request-active-room");
+
+  // 已登录时自动进入上次所在房间
+  if (selfAuthId) {
+    const lastRoomId = localStorage.getItem("lastRoomId");
+    if (lastRoomId) {
+      setTimeout(() => {
+        void emit("switch-room", { roomId: lastRoomId });
+      }, 500);
+    }
+    void emit("request-active-room");
+  }
+
   initDragRegion();
   initResizeHandle();
 }

@@ -18,6 +18,8 @@ type LoungePanelOptions = {
   getActiveRoomId: () => string | null;
   onEnterRoom: (roomId: string) => void;
   onExitRoom: () => void;
+  onLoginSuccess: () => void;
+  onLogout: () => void;
 };
 
 type UpdatePanelAuthOptions = {
@@ -72,6 +74,13 @@ let selfAuthId: string | null = null;
 let getActiveRoomId: (() => string | null) | null = null;
 let onEnterRoom: ((roomId: string) => void) | null = null;
 let onExitRoom: (() => void) | null = null;
+let onLoginSuccess: (() => void) | null = null;
+let onLogout: (() => void) | null = null;
+
+const loginIconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>`;
+const logoutIconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`;
+const eyeSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>`;
+const eyeOffSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></svg>`;
 
 let rooms: LoungeRoom[] = [];
 let pendingRequests: ConnectionRequestRow[] = [];
@@ -129,6 +138,164 @@ async function copyToClipboard(text: string | null | undefined, btn: HTMLButtonE
 
 function renderProfile(profile: LoungeProfile | null) {
   renderProfileCard(profile);
+}
+
+function renderAuthState(isLoggedIn: boolean) {
+  const sidebarActions = document.querySelector<HTMLElement>(".sidebar-actions");
+  if (sidebarActions) sidebarActions.hidden = !isLoggedIn;
+
+  const emptyDetail = document.querySelector<HTMLElement>(".lounge-empty-detail");
+  if (emptyDetail) {
+    emptyDetail.textContent = isLoggedIn ? "选择一个房间查看成员" : "登录后即可加入或创建房间";
+  }
+
+  const actionBtn = document.querySelector<HTMLButtonElement>(".lounge-settings-btn");
+  if (actionBtn) {
+    if (isLoggedIn) {
+      actionBtn.setAttribute("aria-label", "退出登录");
+      actionBtn.innerHTML = logoutIconSvg;
+    } else {
+      actionBtn.setAttribute("aria-label", "登录");
+      actionBtn.innerHTML = loginIconSvg;
+    }
+  }
+
+  if (!isLoggedIn) {
+    const roomDetail = document.querySelector<HTMLElement>(".lounge-room-detail");
+    if (roomDetail) roomDetail.hidden = true;
+  }
+}
+
+function openLoginDialog() {
+  const backdrop = modalBackdrop();
+  const form = modalForm();
+  if (!backdrop || !form) return;
+
+  form.innerHTML = `
+    <h2 class="modal-title">欢迎使用 GoodPuppy</h2>
+    <div class="lounge-form-field">
+      <label class="lounge-form-label" for="login-email">邮箱</label>
+      <input class="lounge-input" id="login-email" name="email" type="email" autocomplete="email" placeholder="邮箱地址" />
+    </div>
+    <div class="lounge-form-field">
+      <label class="lounge-form-label" for="login-password">密码</label>
+      <div class="login-password-wrap">
+        <input class="lounge-input login-password-input" id="login-password" name="password" type="password" autocomplete="current-password" placeholder="密码（至少6位）" minlength="6" />
+        <button class="icon-btn login-password-toggle" type="button" aria-label="显示密码">${eyeSvg}</button>
+      </div>
+    </div>
+    <p class="lounge-form-message" role="status"></p>
+    <div class="lounge-form-actions">
+      <button class="small-btn lounge-form-cancel" type="button">取消</button>
+      <button class="small-btn lounge-form-register" type="button">创建新账号</button>
+      <button class="small-btn primary lounge-form-submit" type="submit">上线</button>
+    </div>
+  `;
+
+  const emailInput = requiredQuery<HTMLInputElement>(form, "#login-email");
+  const passwordInput = requiredQuery<HTMLInputElement>(form, ".login-password-input");
+  const passwordToggle = requiredQuery<HTMLButtonElement>(form, ".login-password-toggle");
+  const registerBtn = requiredQuery<HTMLButtonElement>(form, ".lounge-form-register");
+  const cancel = requiredQuery<HTMLButtonElement>(form, ".lounge-form-cancel");
+
+  setModalMessage("");
+  setModalBusy(false);
+  backdrop.hidden = false;
+  emailInput.focus();
+
+  passwordToggle.addEventListener("click", () => {
+    const shouldShow = passwordInput.type === "password";
+    passwordInput.type = shouldShow ? "text" : "password";
+    passwordToggle.innerHTML = shouldShow ? eyeOffSvg : eyeSvg;
+    passwordToggle.setAttribute("aria-label", shouldShow ? "隐藏密码" : "显示密码");
+    passwordInput.focus();
+  });
+
+  const close = () => {
+    backdrop.hidden = true;
+    form.onsubmit = null;
+  };
+
+  cancel.onclick = close;
+
+  async function doSignIn() {
+    if (!supabaseClient) return;
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+    if (!email || !password) { setModalMessage("请填写邮箱和密码"); return; }
+    setModalBusy(true);
+    setModalMessage("正在登录...");
+    try {
+      const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      close();
+      onLoginSuccess?.();
+    } catch (error) {
+      setModalMessage(getErrorMessage(error, "登录失败"));
+    } finally {
+      setModalBusy(false);
+    }
+  }
+
+  async function doSignUp() {
+    if (!supabaseClient) return;
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+    if (!email || !password) { setModalMessage("请填写邮箱和密码"); return; }
+    setModalBusy(true);
+    setModalMessage("正在注册...");
+    try {
+      const { data, error } = await supabaseClient.auth.signUp({ email, password });
+      if (error) throw error;
+      if (data.session) {
+        close();
+        onLoginSuccess?.();
+      } else {
+        setModalMessage("注册成功，请检查邮箱确认账号");
+        setModalBusy(false);
+      }
+    } catch (error) {
+      setModalMessage(getErrorMessage(error, "注册失败"));
+      setModalBusy(false);
+    }
+  }
+
+  registerBtn.addEventListener("click", () => { void doSignUp(); });
+  form.onsubmit = (event) => { event.preventDefault(); void doSignIn(); };
+}
+
+function openLogoutConfirmDialog() {
+  const backdrop = modalBackdrop();
+  const form = modalForm();
+  if (!backdrop || !form) return;
+
+  form.innerHTML = `
+    <h2 class="modal-title">退出登录</h2>
+    <p class="lounge-confirm-text">确认要退出登录吗？</p>
+    <div class="lounge-form-actions">
+      <button class="small-btn lounge-form-cancel" type="button">取消</button>
+      <button class="small-btn danger lounge-logout-confirm" type="button">退出登录</button>
+    </div>
+  `;
+
+  const cancel = requiredQuery<HTMLButtonElement>(form, ".lounge-form-cancel");
+  const logoutBtn = requiredQuery<HTMLButtonElement>(form, ".lounge-logout-confirm");
+
+  backdrop.hidden = false;
+
+  const close = () => {
+    backdrop.hidden = true;
+    form.onsubmit = null;
+  };
+
+  cancel.onclick = close;
+  logoutBtn.onclick = async () => {
+    logoutBtn.disabled = true;
+    onExitRoom?.();
+    await supabaseClient?.auth.signOut();
+    close();
+    onLogout?.();
+  };
 }
 
 function onRoomSelect(id: string) {
@@ -576,6 +743,15 @@ function bindEvents() {
       return;
     }
 
+    if (btn.matches(".lounge-settings-btn")) {
+      if (selfAuthId) {
+        openLogoutConfirmDialog();
+      } else {
+        openLoginDialog();
+      }
+      return;
+    }
+
     if (btn.matches(".lounge-enter-room")) {
       const room = getSelectedRoom();
       if (!room) return;
@@ -628,23 +804,52 @@ export function initLoungePanel({
   getActiveRoomId: nextGetActiveRoomId,
   onEnterRoom: nextOnEnterRoom,
   onExitRoom: nextOnExitRoom,
+  onLoginSuccess: nextOnLoginSuccess,
+  onLogout: nextOnLogout,
 }: LoungePanelOptions) {
   supabaseClient = supabase;
   selfAuthId = nextSelfAuthId;
   getActiveRoomId = nextGetActiveRoomId;
   onEnterRoom = nextOnEnterRoom;
   onExitRoom = nextOnExitRoom;
+  onLoginSuccess = nextOnLoginSuccess;
+  onLogout = nextOnLogout;
 
   bindEvents();
-  subscribeToRequests();
-  subscribeToPresenceChanges();
+  if (selfAuthId) {
+    subscribeToRequests();
+    subscribeToPresenceChanges();
+  }
 }
 
 export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId }: UpdatePanelAuthOptions) {
+  const wasLoggedIn = Boolean(selfAuthId);
+  const isLoggedIn = Boolean(nextSelfAuthId);
+
   supabaseClient = supabase;
   selfAuthId = nextSelfAuthId;
-  subscribeToRequests();
-  subscribeToPresenceChanges();
+
+  if (isLoggedIn) {
+    subscribeToRequests();
+    subscribeToPresenceChanges();
+    renderAuthState(true);
+    void loadPanelData();
+  } else if (wasLoggedIn) {
+    if (requestChannel && supabaseClient) {
+      void supabaseClient.removeChannel(requestChannel);
+      requestChannel = null;
+    }
+    if (presenceChannel && supabaseClient) {
+      void supabaseClient.removeChannel(presenceChannel);
+      presenceChannel = null;
+    }
+    rooms = [];
+    pendingRequests = [];
+    selectedRoomId = null;
+    renderAuthState(false);
+    renderProfile(null);
+    renderAll();
+  }
 }
 
 export function openLoungePanel() {
@@ -653,7 +858,14 @@ export function openLoungePanel() {
 
   p.hidden = false;
   window.goodPuppy.setIgnoreMouseEvents(false);
-  void loadPanelData();
+
+  if (selfAuthId) {
+    renderAuthState(true);
+    void loadPanelData();
+  } else {
+    renderAuthState(false);
+    renderProfile(null);
+  }
 }
 
 export function closeLoungePanel() {

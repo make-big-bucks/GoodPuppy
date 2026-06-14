@@ -15,15 +15,18 @@
     "security": { "csp": null },
     "windows": [
       {
-        "label": "login",
-        "title": "GoodPuppy",
-        "url": "windows/login.html",
-        "width": 360,
-        "height": 540,
-        "visible": false,
-        "resizable": false,
+        "label": "lounge",
+        "title": "",
+        "url": "windows/lounge.html",
+        "width": 1120,
+        "height": 720,
+        "minWidth": 1040,
+        "minHeight": 680,
+        "visible": true,
+        "resizable": true,
         "maximizable": false,
         "titleBarStyle": "Overlay",
+        "acceptFirstMouse": true,
         "center": true
       },
       {
