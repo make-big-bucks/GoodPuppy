@@ -27,6 +27,7 @@ type UpdatePanelAuthOptions = {
 
 type InputModalOptions = {
   title: string;
+  label?: string;
   placeholder: string;
   submitText?: string;
   initialValue?: string;
@@ -218,6 +219,7 @@ async function loadPanelData() {
 
 function openInputModal({
   title,
+  label,
   placeholder,
   submitText = "确定",
   initialValue = "",
@@ -230,7 +232,10 @@ function openInputModal({
 
   form.innerHTML = `
     <h2 class="modal-title lounge-modal-title"></h2>
-    <input class="lounge-input" name="modal-value" autocomplete="off" />
+    <div class="lounge-form-field">
+      ${label ? `<label class="lounge-form-label" for="modal-input">${label}</label>` : ""}
+      <input class="lounge-input" id="modal-input" name="modal-value" autocomplete="off" />
+    </div>
     <p class="lounge-form-message" role="status"></p>
     <div class="lounge-form-actions">
       <button class="small-btn lounge-form-cancel" type="button">取消</button>
@@ -355,7 +360,6 @@ async function updateDisplayName(displayName: string) {
   const { error } = await supabaseClient.from("profiles").update({ display_name: value }).eq("id", selfAuthId);
   if (error) throw error;
 
-  setMessage("用户名已更新");
   await loadPanelData();
 }
 
@@ -363,6 +367,7 @@ function openDisplayNameEditor() {
   const profileName = document.querySelector<HTMLElement>(".lounge-edit-display-name")?.textContent || "";
   openInputModal({
     title: "编辑用户名",
+    label: "用户名",
     placeholder: "输入用户名",
     submitText: "保存",
     initialValue: profileName,
@@ -385,7 +390,6 @@ async function updateSelectedRoomMetadata({ roomName, description }: RoomMetadat
     .eq("id", room.id);
   if (error) throw error;
 
-  setMessage("房间信息已更新");
   await loadPanelData();
 }
 
@@ -397,8 +401,14 @@ function openRoomMetadataModal() {
 
   form.innerHTML = `
     <h2 class="modal-title">编辑房间信息</h2>
-    <input class="lounge-input lounge-room-name-input" name="room-name" autocomplete="off" />
-    <textarea class="lounge-input lounge-room-description-input" name="room-description" rows="4"></textarea>
+    <div class="lounge-form-field">
+      <label class="lounge-form-label" for="lounge-room-name">房间名称</label>
+      <input class="lounge-input lounge-room-name-input" id="lounge-room-name" name="room-name" autocomplete="off" />
+    </div>
+    <div class="lounge-form-field">
+      <label class="lounge-form-label" for="lounge-room-description">房间简介</label>
+      <textarea class="lounge-input lounge-room-description-input" id="lounge-room-description" name="room-description" rows="4"></textarea>
+    </div>
     <p class="lounge-form-message" role="status"></p>
     <div class="lounge-form-actions">
       <button class="small-btn lounge-form-cancel" type="button">取消</button>
@@ -520,6 +530,7 @@ function bindEvents() {
     if (btn.matches(".lounge-create-room")) {
       openInputModal({
         title: "创建房间",
+        label: "房间名称",
         placeholder: "输入房间名称",
         submitText: "创建",
         validate: (value) => (!value ? "请输入房间名称" : ""),
@@ -531,6 +542,7 @@ function bindEvents() {
     if (btn.matches(".lounge-invite-member")) {
       openInputModal({
         title: "邀请成员",
+        label: "GoodPuppy ID",
         placeholder: "输入 gp_ 开头的 GoodPuppy ID",
         submitText: "邀请",
         validate: (value) => (!normalizeGpId(value) ? "请输入 gp_ 开头的 GoodPuppy ID" : ""),

@@ -109,12 +109,8 @@ button {
   width: 58px;
   height: 58px;
   flex: 0 0 auto;
-  border-radius: 50%;
-  overflow: hidden;
   display: grid;
   place-items: center;
-  background: #f6efe6;
-  border: 1px solid #ece5db;
   color: var(--blue);
   font-size: 13px;
   font-weight: 760;
@@ -442,6 +438,10 @@ button {
   user-select: text;
 }
 
+.room-description.is-placeholder {
+  color: #ccc;
+}
+
 .section {
   max-width: 760px;
 }
@@ -482,9 +482,14 @@ button {
   border: 1px solid var(--soft-line);
   border-radius: var(--radius-lg);
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) auto auto;
+  grid-template-columns: 44px minmax(0, 1fr) 10px;
   align-items: center;
   gap: 12px;
+}
+
+.member.is-offline {
+  opacity: 0.45;
+  filter: grayscale(1);
 }
 
 .member-copy {
@@ -507,7 +512,6 @@ button {
   font-size: 12px;
 }
 
-.status-badge,
 .badge {
   min-width: 44px;
   padding: 5px 10px;
@@ -515,21 +519,23 @@ button {
   font-size: 12px;
   font-weight: 680;
   text-align: center;
-}
-
-.status-badge.is-online {
-  color: var(--green);
-  background: #e7f7ee;
-}
-
-.status-badge.is-offline {
-  color: #777;
-  background: #eeeeec;
-}
-
-.badge {
   color: #6f542c;
   background: #f6ead8;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.is-online {
+  background: #34a85a;
+}
+
+.status-dot.is-offline {
+  background: #c8c8c4;
 }
 
 .lounge-message {
@@ -577,7 +583,7 @@ button {
 
 .lounge-modal {
   width: min(420px, calc(100vw - 56px));
-  padding: 26px;
+  padding: 32px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: #fff;
@@ -614,9 +620,22 @@ textarea.lounge-input {
   border-color: var(--black);
 }
 
+.lounge-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.lounge-form-label {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .lounge-form-message {
   min-height: 20px;
-  margin: 10px 0 18px;
+  margin: 0 0 18px;
   color: var(--danger);
   font-size: 12px;
 }

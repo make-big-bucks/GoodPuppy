@@ -28,7 +28,15 @@ export function renderRoomDetail(room: LoungeRoom | null, selfAuthId: string | n
   const actionButton = detail.querySelector<HTMLButtonElement>(".lounge-enter-room");
 
   if (title) title.textContent = room.room_name || "未命名房间";
-  if (description) description.textContent = room.description || "还没有房间简介。";
+  if (description) {
+    if (room.description) {
+      description.textContent = room.description;
+      description.classList.remove("is-placeholder");
+    } else {
+      description.textContent = "暂无房间简介";
+      description.classList.add("is-placeholder");
+    }
+  }
 
   if (actionButton) {
     const roomAction = getRoomAction(room.id, activeRoomId);
@@ -41,7 +49,7 @@ export function renderRoomDetail(room: LoungeRoom | null, selfAuthId: string | n
     members.innerHTML = "";
     for (const member of room.members) {
       const item = document.createElement("div");
-      item.className = "member";
+      item.className = `member${member.isOnline ? "" : " is-offline"}`;
       item.appendChild(createPetAvatar({ petId: member.petId, skin: member.skin, alt: member.displayName }));
 
       const copy = document.createElement("div");
@@ -49,27 +57,14 @@ export function renderRoomDetail(room: LoungeRoom | null, selfAuthId: string | n
 
       const name = document.createElement("div");
       name.className = "member-name";
-      name.title = member.gpId;
       name.textContent = member.displayName;
       copy.appendChild(name);
 
-      const id = document.createElement("div");
-      id.className = "member-id";
-      id.textContent = member.gpId;
-      copy.appendChild(id);
       item.appendChild(copy);
 
-      const status = document.createElement("span");
-      status.className = `status-badge ${member.isOnline ? "is-online" : "is-offline"}`;
-      status.textContent = member.isOnline ? "在线" : "离线";
-      item.appendChild(status);
-
-      if (member.isSelf || member.userId === selfAuthId) {
-        const badge = document.createElement("span");
-        badge.className = "badge";
-        badge.textContent = "你";
-        item.appendChild(badge);
-      }
+      const dot = document.createElement("span");
+      dot.className = `status-dot ${member.isOnline ? "is-online" : "is-offline"}`;
+      item.appendChild(dot);
 
       members.appendChild(item);
     }
