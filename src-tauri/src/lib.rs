@@ -174,6 +174,23 @@ fn configure_macos_overlay_level<R: Runtime>(window: &WebviewWindow<R>) {
 #[cfg(not(target_os = "macos"))]
 fn configure_macos_overlay_level<R: Runtime>(_window: &WebviewWindow<R>) {}
 
+/// Switches the macOS Dock icon on or off at runtime.
+///
+/// Policy 0 = NSApplicationActivationPolicyRegular (Dock icon shown).
+/// Policy 1 = NSApplicationActivationPolicyAccessory (Dock icon hidden).
+#[cfg(target_os = "macos")]
+fn set_dock_visible(visible: bool) {
+    let policy: isize = if visible { 0 } else { 1 };
+    unsafe {
+        let app: *mut objc2::runtime::AnyObject =
+            objc2::msg_send![objc2::class!(NSApplication), sharedApplication];
+        let _: () = objc2::msg_send![app, setActivationPolicy: policy];
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_dock_visible(_visible: bool) {}
+
 #[cfg(target_os = "macos")]
 fn configure_macos_app_activation_policy(app: &mut tauri::App) {
     app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -275,9 +292,34 @@ pub fn run() {
                     if let Some(w) = inner.get_webview_window("lounge") {
                         let _ = w.show();
                         let _ = w.set_focus();
+                        set_dock_visible(true);
                     }
                 });
             });
+
+            // 前端进入房间时会隐藏 Lounge 窗口并发出此事件
+            let handle3 = app.handle().clone();
+            app.listen("lounge-hidden", move |_| {
+                let h = handle3.clone();
+                let _ = h.run_on_main_thread(move || {
+                    set_dock_visible(false);
+                });
+            });
+
+            // 用户点击 Lounge 窗口的关闭按钮时，隐藏而不是销毁，并收起 Dock 图标
+            if let Some(lounge) = app.get_webview_window("lounge") {
+                let lounge_clone = lounge.clone();
+                lounge.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = lounge_clone.hide();
+                        set_dock_visible(false);
+                    }
+                });
+            }
+
+            // Lounge 窗口默认可见，启动时展示 Dock 图标
+            set_dock_visible(true);
 
             let manage = MenuItemBuilder::with_id("open-lounge", "\u{4f1a}\u{5ba2}\u{5385}").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "\u{9000}\u{51fa}").build(app)?;
@@ -286,7 +328,7 @@ pub fn run() {
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("GoodPuppy")
                 .menu(&menu)
-                .show_menu_on_left_click(false)
+                .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| {
                     match event.id().as_ref() {
                         "open-lounge" => {
@@ -294,6 +336,7 @@ pub fn run() {
                                 let _ = w.show();
                                 let _ = w.set_focus();
                                 let _ = w.emit("lounge-refresh", ());
+                                set_dock_visible(true);
                             }
                         }
                         "quit" => app.exit(0),

@@ -62,6 +62,7 @@ async function init() {
     selfAuthId,
     getActiveRoomId: () => activeRoomId,
     onEnterRoom: (roomId: string) => {
+      void emit("lounge-hidden");
       void getCurrentWindow().hide();
       void emit("switch-room", { roomId });
       localStorage.setItem("lastRoomId", roomId);
