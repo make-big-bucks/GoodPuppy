@@ -1,7 +1,5 @@
 # Lounge Fixed-Wide Redesign Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Rebuild the lounge as a fixed-wide desktop master-detail panel with profile controls, `gp_` short-ID invitations, editable room metadata, member pet avatars, online labels, and enter/exit room state.
 
 **Architecture:** Keep the existing Vite + vanilla JS + Tauri v2 structure. Split lounge rendering into small view/helper modules, keep Supabase data access in `src/windows/lounge/lounge.js`, and add a minimal event bridge between the pet window and lounge window for active-room state.
