@@ -1,0 +1,83 @@
+import { describe, expect, it } from "vitest";
+import {
+  readStoredSkin,
+  writeStoredSkin,
+  readStoredScale,
+  writeStoredScale,
+  SKIN_STORAGE_KEY,
+  SCALE_STORAGE_KEY,
+} from "./preferences.js";
+import { DEFAULT_SKIN } from "./animationCatalog.js";
+import { clampPetScale, DEFAULT_PET_SCALE, MAX_PET_SCALE } from "./petLayout.js";
+
+// 用 Map 模拟 localStorage，并可注入抛错版本以验证安全降级。
+function fakeStorage(initial = {}) {
+  const map = new Map(Object.entries(initial));
+  return {
+    getItem: (k) => (map.has(k) ? map.get(k) : null),
+    setItem: (k, v) => map.set(k, String(v)),
+  };
+}
+
+function throwingStorage() {
+  return {
+    getItem() {
+      throw new Error("blocked");
+    },
+    setItem() {
+      throw new Error("blocked");
+    },
+  };
+}
+
+describe("readStoredSkin", () => {
+  it("returns the stored skin when present", () => {
+    const storage = fakeStorage({ [SKIN_STORAGE_KEY]: "cocoa" });
+    expect(readStoredSkin(storage)).toBe("cocoa");
+  });
+
+  it("falls back to the default skin when missing or storage throws", () => {
+    expect(readStoredSkin(fakeStorage())).toBe(DEFAULT_SKIN);
+    expect(readStoredSkin(throwingStorage())).toBe(DEFAULT_SKIN);
+  });
+});
+
+describe("writeStoredSkin", () => {
+  it("persists the skin under the skin key", () => {
+    const storage = fakeStorage();
+    writeStoredSkin("cocoa", storage);
+    expect(storage.getItem(SKIN_STORAGE_KEY)).toBe("cocoa");
+  });
+
+  it("swallows storage errors without throwing", () => {
+    expect(() => writeStoredSkin("cocoa", throwingStorage())).not.toThrow();
+  });
+});
+
+describe("readStoredScale", () => {
+  it("returns the default scale when nothing is stored", () => {
+    expect(readStoredScale(fakeStorage())).toBe(DEFAULT_PET_SCALE);
+  });
+
+  it("clamps an out-of-range stored value into the allowed range", () => {
+    const storage = fakeStorage({ [SCALE_STORAGE_KEY]: "999" });
+    expect(readStoredScale(storage)).toBe(clampPetScale(999));
+    expect(readStoredScale(storage)).toBe(MAX_PET_SCALE);
+  });
+
+  it("falls back to the default scale when storage throws", () => {
+    expect(readStoredScale(throwingStorage())).toBe(DEFAULT_PET_SCALE);
+  });
+});
+
+describe("writeStoredScale", () => {
+  it("persists the scale as a string under the scale key", () => {
+    const storage = fakeStorage();
+    writeStoredScale(1.25, storage);
+    expect(storage.getItem(SCALE_STORAGE_KEY)).toBe("1.25");
+  });
+
+  it("swallows storage errors without throwing", () => {
+    expect(() => writeStoredScale(1.25, throwingStorage())).not.toThrow();
+  });
+});

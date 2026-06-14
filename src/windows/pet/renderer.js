@@ -18,6 +18,18 @@ import {
   MIN_PET_SCALE,
   MAX_PET_SCALE,
 } from "./petLayout.js";
+import {
+  readStoredSkin,
+  writeStoredSkin,
+  readStoredScale,
+  writeStoredScale,
+} from "./preferences.js";
+import {
+  buildMessageList,
+  insertMessage,
+  canShowPrevious,
+  canShowNext,
+} from "./messageLog.js";
 import { Menu, Submenu, MenuItem, CheckMenuItem } from "@tauri-apps/api/menu";
 
 const petStage = document.querySelector(".pet-stage");
@@ -37,14 +49,10 @@ const selfArea = document.querySelector('.dog-area[data-user="self"]');
 messageBubble?.classList.add("is-owned");
 
 let selfPetId = "default";
-// 换肤：纯本地偏好，存 localStorage（不进 Supabase，避免 schema 变更）；
-// 进房后通过 presence 广播给房间里其他人，让对方渲染我所选皮肤。
-const SKIN_STORAGE_KEY = "goodpuppy.skin";
+// 换肤 / 尺寸：纯本地偏好，读写见 preferences.js（不进 Supabase，避免 schema 变更）。
+// 换肤进房后通过 presence 广播给房间里其他人；尺寸用 CSS --pet-scale 缩放视觉、
+// 用窗口尺寸跟随（见 relayoutRemotePets）。
 let selfSkin = readStoredSkin();
-
-// 桌宠尺寸：纯本地偏好，存 localStorage。通过右键菜单按步长增减，
-// 用 CSS --pet-scale 缩放视觉、用窗口尺寸跟随（见 relayoutRemotePets）。
-const SCALE_STORAGE_KEY = "goodpuppy.scale";
 let petScale = readStoredScale();
 let selfAuthId = null;
 let currentRoomId = null;
@@ -75,23 +83,6 @@ function applyStateToImage(img, path, meta) {
 
 // ── Self pet animator ─────────────────────────────────────────
 
-function readStoredSkin() {
-  try {
-    return localStorage.getItem(SKIN_STORAGE_KEY) || DEFAULT_SKIN;
-  } catch {
-    return DEFAULT_SKIN;
-  }
-}
-
-function readStoredScale() {
-  try {
-    const raw = localStorage.getItem(SCALE_STORAGE_KEY);
-    return raw == null ? DEFAULT_PET_SCALE : clampPetScale(parseFloat(raw));
-  } catch {
-    return DEFAULT_PET_SCALE;
-  }
-}
-
 function applyPetScale() {
   document.documentElement.style.setProperty("--pet-scale", String(petScale));
 }
@@ -101,11 +92,7 @@ function setPetScale(next) {
   if (clamped === petScale) return;
   petScale = clamped;
   applyPetScale();
-  try {
-    localStorage.setItem(SCALE_STORAGE_KEY, String(petScale));
-  } catch {
-    // localStorage 不可用时仅保留本会话选择。
-  }
+  writeStoredScale(petScale);
   // 窗口尺寸跟随缩放重排，并刷新命中区域。
   relayoutRemotePets();
 }
@@ -297,11 +284,7 @@ function setSelfSkin(skin) {
   if (next === selfSkin) return;
   selfSkin = next;
   selfAnimator.setSkin(next);
-  try {
-    localStorage.setItem(SKIN_STORAGE_KEY, next);
-  } catch {
-    // localStorage 不可用时仅保留本会话选择。
-  }
+  writeStoredSkin(next);
   presence.updateLocalPresence({ skin: next }).catch(console.error);
 }
 
@@ -348,24 +331,8 @@ function setBubbleText(text) {
 function updateBubbleNav() {
   const prev = getBubblePrevButton();
   const next = getBubbleNextButton();
-  if (prev) prev.disabled = messageIndex <= 0;
-  if (next) next.disabled = messageIndex < 0 || messageIndex >= messageHistory.length - 1;
-}
-
-function normalizeMessage(message) {
-  if (!message?.info) return null;
-  return {
-    id: message.id ?? `${Date.now()}-${Math.random()}`,
-    info: message.info,
-    from: message.from,
-    created_at: message.created_at || new Date().toISOString(),
-  };
-}
-
-function sortByTime(messages) {
-  return [...messages].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-  );
+  if (prev) prev.disabled = !canShowPrevious(messageIndex);
+  if (next) next.disabled = !canShowNext(messageIndex, messageHistory.length);
 }
 
 function renderMessageAt(index, { markUnread = false } = {}) {
@@ -383,7 +350,7 @@ function renderMessageAt(index, { markUnread = false } = {}) {
 }
 
 function setLocalMessages(messages) {
-  const normalized = sortByTime(messages.map((m) => normalizeMessage(m)).filter(Boolean));
+  const normalized = buildMessageList(messages);
   messageHistory.length = 0;
   messageHistory.push(...normalized);
 
@@ -398,13 +365,10 @@ function setLocalMessages(messages) {
 }
 
 function addLocalMessage(message, { markUnread = false } = {}) {
-  const normalized = normalizeMessage(message);
+  const { messages, normalized } = insertMessage(messageHistory, message);
   if (!normalized) return;
-  if (messageHistory.some((m) => m.id === normalized.id)) return;
-  messageHistory.push(normalized);
-  messageHistory.sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-  );
+  messageHistory.length = 0;
+  messageHistory.push(...messages);
   renderMessageAt(messageHistory.length - 1, { markUnread });
 }
 
@@ -414,12 +378,11 @@ function setUnread(hasUnread) {
 }
 
 function showPreviousMessage() {
-  if (messageIndex > 0) renderMessageAt(messageIndex - 1);
+  if (canShowPrevious(messageIndex)) renderMessageAt(messageIndex - 1);
 }
 
 function showNextMessage() {
-  if (messageIndex >= 0 && messageIndex < messageHistory.length - 1)
-    renderMessageAt(messageIndex + 1);
+  if (canShowNext(messageIndex, messageHistory.length)) renderMessageAt(messageIndex + 1);
 }
 
 function showMessageBubble() {
