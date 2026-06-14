@@ -17,7 +17,7 @@
       {
         "label": "login",
         "title": "GoodPuppy",
-        "url": "login.html",
+        "url": "windows/login.html",
         "width": 420,
         "height": 660,
         "visible": false,
@@ -28,6 +28,7 @@
       {
         "label": "main",
         "title": "GoodPuppy",
+        "url": "windows/pet.html",
         "width": 150,
         "height": 220,
         "visible": false,

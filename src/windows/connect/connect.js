@@ -1,4 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { renderRoomList, renderPendingRequests } from "./views/room-list.js";
+import { renderRoomDetail } from "./views/room-detail.js";
 
 let _supabase = null;
 let _selfAuthId = null;
@@ -10,10 +12,6 @@ let selectedRoomId = null;
 let requestChannel = null;
 
 const panel = () => document.querySelector(".connect-panel");
-const roomList = () => document.querySelector(".connect-room-list");
-const requestList = () => document.querySelector(".connect-request-list");
-const detailView = () => document.querySelector(".connect-room-detail");
-const emptyDetail = () => document.querySelector(".connect-empty-detail");
 const modalBackdrop = () => document.querySelector(".connect-modal-backdrop");
 const modalForm = () => document.querySelector(".connect-modal");
 
@@ -61,14 +59,6 @@ async function copyToClipboard(text, btn) {
   }
 }
 
-function roomIconSvg() {
-  return `
-    <svg class="room-icon" viewBox="0 0 24 24" fill="none">
-      <path d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1v-8.5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-    </svg>
-  `;
-}
-
 function renderProfile(profile) {
   const nameEl = document.querySelector(".connect-display-name");
   const idEl = document.querySelector(".connect-gp-id");
@@ -77,106 +67,15 @@ function renderProfile(profile) {
   if (idEl) idEl.textContent = profile?.id || _selfAuthId || "";
 }
 
-function renderRoomList() {
-  const list = roomList();
-  if (!list) return;
-
-  list.innerHTML = "";
-
-  if (rooms.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "room-item";
-    empty.innerHTML = `<span class="room-text">还没有房间</span>`;
-    list.appendChild(empty);
-    return;
-  }
-
-  for (const room of rooms) {
-    const btn = document.createElement("button");
-    btn.className = "room-item";
-    btn.type = "button";
-    btn.dataset.roomId = room.id;
-    btn.classList.toggle("active", room.id === selectedRoomId);
-    btn.innerHTML = `
-      ${roomIconSvg()}
-      <span class="room-text">${room.room_name || "未命名房间"}</span>
-      <span class="room-meta">${room.members.length} 人</span>
-    `;
-    btn.addEventListener("click", () => {
-      selectedRoomId = room.id;
-      renderRoomList();
-      renderRoomDetail();
-    });
-    list.appendChild(btn);
-  }
-}
-
-function renderPendingRequests() {
-  const list = requestList();
-  if (!list) return;
-
-  list.innerHTML = "";
-
-  for (const req of pendingRequests) {
-    const sender = req.profiles || {};
-    const item = document.createElement("div");
-    item.className = "invite-item";
-    item.innerHTML = `
-      <div class="invite-title">新的房间邀请</div>
-      <div class="invite-meta">${sender.id || req.from_id}</div>
-      <div class="invite-actions">
-        <button class="small-btn primary" type="button" data-action="accept" data-id="${req.id}">接受</button>
-        <button class="small-btn" type="button" data-action="decline" data-id="${req.id}">拒绝</button>
-      </div>
-    `;
-    list.appendChild(item);
-  }
-}
-
-function renderRoomDetail() {
-  const room = getSelectedRoom();
-  const detail = detailView();
-  const empty = emptyDetail();
-
-  if (!detail || !empty) return;
-
-  if (!room) {
-    detail.hidden = true;
-    empty.hidden = false;
-    return;
-  }
-
-  detail.hidden = false;
-  empty.hidden = true;
-
-  const title = detail.querySelector(".connect-room-title");
-  const members = detail.querySelector(".connect-member-list");
-  const inviteCode = detail.querySelector(".connect-invite-code");
-
-  if (title) title.textContent = room.room_name || "未命名房间";
-  if (inviteCode) inviteCode.textContent = room.invite_code || "暂无";
-
-  if (members) {
-    members.innerHTML = "";
-    for (const member of room.members) {
-      const isSelf = member.user_id === _selfAuthId;
-      const id = member.profiles?.id || member.user_id;
-      const item = document.createElement("div");
-      item.className = "member";
-      item.innerHTML = `
-        <div class="member-avatar">${isSelf ? "我" : "友"}</div>
-        <div class="member-name" title="${id}">${id}</div>
-        <span class="badge">${isSelf ? "你" : "成员"}</span>
-      `;
-      members.appendChild(item);
-    }
-  }
+function onRoomSelect(id) {
+  selectedRoomId = id;
+  renderAll();
 }
 
 function renderAll() {
-  renderRoomList();
-  renderPendingRequests();
-  renderRoomDetail();
+  renderRoomList(rooms, selectedRoomId, onRoomSelect);
+  renderPendingRequests(pendingRequests);
+  renderRoomDetail(getSelectedRoom(), _selfAuthId);
 }
 
 async function loadPanelData() {
@@ -446,7 +345,7 @@ function bindEvents() {
     _onEnterRoom?.(room.id);
   });
 
-  requestList()?.addEventListener("click", async (event) => {
+  document.querySelector(".connect-request-list")?.addEventListener("click", async (event) => {
     const btn = event.target.closest("button[data-action]");
     if (!btn) return;
 

@@ -1,0 +1,59 @@
+function roomIconSvg() {
+  return `
+    <svg class="room-icon" viewBox="0 0 24 24" fill="none">
+      <path d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1v-8.5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+    </svg>
+  `;
+}
+
+export function renderRoomList(rooms, selectedRoomId, onSelectRoom) {
+  const list = document.querySelector(".connect-room-list");
+  if (!list) return;
+
+  list.innerHTML = "";
+
+  if (rooms.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "room-item";
+    empty.innerHTML = `<span class="room-text">还没有房间</span>`;
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const room of rooms) {
+    const btn = document.createElement("button");
+    btn.className = "room-item";
+    btn.type = "button";
+    btn.dataset.roomId = room.id;
+    btn.classList.toggle("active", room.id === selectedRoomId);
+    btn.innerHTML = `
+      ${roomIconSvg()}
+      <span class="room-text">${room.room_name || "未命名房间"}</span>
+      <span class="room-meta">${room.members.length} 人</span>
+    `;
+    btn.addEventListener("click", () => onSelectRoom(room.id));
+    list.appendChild(btn);
+  }
+}
+
+export function renderPendingRequests(pendingRequests) {
+  const list = document.querySelector(".connect-request-list");
+  if (!list) return;
+
+  list.innerHTML = "";
+
+  for (const req of pendingRequests) {
+    const sender = req.profiles || {};
+    const item = document.createElement("div");
+    item.className = "invite-item";
+    item.innerHTML = `
+      <div class="invite-title">新的房间邀请</div>
+      <div class="invite-meta">${sender.id || req.from_id}</div>
+      <div class="invite-actions">
+        <button class="small-btn primary" type="button" data-action="accept" data-id="${req.id}">接受</button>
+        <button class="small-btn" type="button" data-action="decline" data-id="${req.id}">拒绝</button>
+      </div>
+    `;
+    list.appendChild(item);
+  }
+}

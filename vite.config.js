@@ -19,9 +19,9 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        main: resolve(__dirname, "index.html"),
-        login: resolve(__dirname, "login.html"),
-        connect: resolve(__dirname, "connect.html"),
+        pet: resolve(__dirname, "windows/pet.html"),
+        login: resolve(__dirname, "windows/login.html"),
+        connect: resolve(__dirname, "windows/connect.html"),
       },
     },
   },

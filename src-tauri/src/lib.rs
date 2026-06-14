@@ -340,7 +340,7 @@ pub fn run() {
                                 let _ = WebviewWindowBuilder::new(
                                     app,
                                     "connect",
-                                    WebviewUrl::App("connect.html".into()),
+                                    WebviewUrl::App("windows/connect.html".into()),
                                 )
                                 .title("\u{8fde}\u{63a5}\u{7ba1}\u{7406}")
                                 .inner_size(1120.0, 720.0)
