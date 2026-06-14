@@ -10,21 +10,32 @@ export function createPetAvatar({ petId = "default", skin = "default", alt = "" 
   const wrapper = document.createElement("div");
   wrapper.className = "pet-avatar";
 
-  const img = document.createElement("img");
-  img.className = "pet-avatar-image";
-  img.alt = alt;
-  img.draggable = false;
+  const canvas = document.createElement("canvas");
+  canvas.className = "pet-avatar-image";
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", alt);
+
+  const img = new Image();
   img.src = getStateImagePath(petId, "idle", skin);
+  img.addEventListener(
+    "load",
+    () => {
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      canvas.getContext("2d")?.drawImage(img, 0, 0);
+    },
+    { once: true },
+  );
   img.addEventListener(
     "error",
     () => {
       wrapper.classList.add("is-fallback");
-      img.remove();
+      canvas.remove();
       wrapper.textContent = "GP";
     },
     { once: true },
   );
 
-  wrapper.appendChild(img);
+  wrapper.appendChild(canvas);
   return wrapper;
 }

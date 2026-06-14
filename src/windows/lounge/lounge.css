@@ -179,17 +179,12 @@ button {
 .profile-name {
   min-width: 0;
   max-width: 156px;
-  padding: 0;
-  border: 0;
-  background: transparent;
   color: var(--text);
   font-size: 18px;
   font-weight: 740;
-  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
 }
 
 .profile-id-row {

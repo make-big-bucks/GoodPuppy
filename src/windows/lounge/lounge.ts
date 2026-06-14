@@ -133,15 +133,17 @@ function closeModal() {
   }
 }
 
+const checkSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>`;
+
 async function copyToClipboard(text: string | null | undefined, btn: HTMLButtonElement) {
   if (!text) return;
 
   try {
     await navigator.clipboard.writeText(text);
-    const original = btn.textContent;
-    btn.textContent = "已复制";
+    const original = btn.innerHTML;
+    btn.innerHTML = checkSvg;
     setTimeout(() => {
-      btn.textContent = original;
+      btn.innerHTML = original;
     }, 1500);
   } catch {
     setMessage("复制失败", { isError: true });
@@ -724,7 +726,7 @@ function bindEvents() {
       return;
     }
 
-    if (btn.matches(".lounge-edit-name-btn, .lounge-edit-display-name")) {
+    if (btn.matches(".lounge-edit-name-btn")) {
       openDisplayNameEditor();
       return;
     }
