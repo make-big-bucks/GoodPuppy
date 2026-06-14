@@ -616,7 +616,7 @@ function bindEvents() {
 
   p.addEventListener("pointerdown", (event) => {
     const target = targetElement(event.target);
-    if (target?.closest(".sidebar-drag-region")) {
+    if (target?.closest(".sidebar-drag-region, .main-drag-region")) {
       window.goodPuppy.startWindowDrag();
     }
   });

@@ -82,6 +82,15 @@ button {
   background: transparent;
 }
 
+.main-drag-region {
+  position: absolute;
+  top: 0;
+  left: 10px;
+  right: 0;
+  height: 40px;
+  cursor: default;
+}
+
 .sidebar {
   min-height: 0;
   display: flex;
