@@ -14,7 +14,7 @@ function createElement(rect: RectStub, classes: string[] = []) {
     classList: {
       contains: (name: string) => classes.includes(name),
     },
-  } as unknown as HTMLElement;
+  } as HTMLElement;
 }
 
 function createImage(width: number, height: number) {

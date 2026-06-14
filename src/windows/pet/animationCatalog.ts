@@ -60,12 +60,16 @@ type PetId = keyof typeof PET_REGISTRY | (string & {});
 type KnownStateName = keyof typeof STATE_BEHAVIOR;
 type Behavior = (typeof STATE_BEHAVIOR)[KnownStateName] | typeof IDLE_VARIANT_BEHAVIOR;
 
+function hasOwnKey<T extends object>(obj: T, key: PropertyKey): key is keyof T {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
 export function isIdleVariant(stateName: string | null | undefined) {
   return typeof stateName === "string" && IDLE_VARIANT_PATTERN.test(stateName);
 }
 
 export function resolvePetDir(petId: PetId) {
-  return (PET_REGISTRY as Record<string, string>)[petId] || DEFAULT_PET;
+  return hasOwnKey(PET_REGISTRY, petId) ? PET_REGISTRY[petId] : DEFAULT_PET;
 }
 
 export function getStateImagePath(petId: PetId, stateName: string, skin = DEFAULT_SKIN) {
@@ -77,13 +81,13 @@ export function getStateImagePath(petId: PetId, stateName: string, skin = DEFAUL
 }
 
 export function isStatusState(stateName: string) {
-  return (STATE_BEHAVIOR as Record<string, { kind: string }>)[stateName]?.kind === "status";
+  return hasOwnKey(STATE_BEHAVIOR, stateName) && STATE_BEHAVIOR[stateName].kind === "status";
 }
 
 export function getBehavior(stateName: string | null | undefined): Behavior | null {
   if (!stateName) return null;
-  if ((STATE_BEHAVIOR as Record<string, Behavior>)[stateName]) {
-    return (STATE_BEHAVIOR as Record<string, Behavior>)[stateName];
+  if (hasOwnKey(STATE_BEHAVIOR, stateName)) {
+    return STATE_BEHAVIOR[stateName];
   }
   if (isIdleVariant(stateName)) return IDLE_VARIANT_BEHAVIOR;
   return null;

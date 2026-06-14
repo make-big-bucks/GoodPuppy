@@ -1,14 +1,11 @@
-// 全仓库的数据契约类型定义（JSDoc + 渐进式 TS 的起点）。
+// 全仓库的数据契约类型定义（TypeScript 迁移后的共享契约入口）。
 //
 // 用途：给跨窗口 / 跨网络 / 前端 ↔ Rust 的「契约型」数据上类型，
 // 让编辑器对 window.goodPuppy.*、presence / interaction payload、Supabase 行结构
-// 提供自动补全与悬浮文档。当前不强制类型检查（jsconfig 里 checkJs:false）——
-// 想对某个文件开启检查，在文件首行加 `// @ts-check` 即可。
-//
-// 在 .js 里引用：JSDoc 中用 `import("../../types").PresenceUser` 形式。
+// 提供集中、可复用的类型来源。
 // window.goodPuppy 因下方 `declare global` 自动全局可见，无需 import。
 
-// ── 前端 ↔ Rust 桥接（src/shared/bridge.js 暴露在 window.goodPuppy）─────────
+// ── 前端 ↔ Rust 桥接（src/shared/bridge.ts 暴露在 window.goodPuppy）─────────
 
 export interface WindowPoint {
   x: number;
@@ -31,7 +28,7 @@ export interface CursorPoint {
   y: number;
 }
 
-/** bridge.js 暴露的桥接 API，挂在 window.goodPuppy。 */
+/** bridge.ts 暴露的桥接 API，挂在 window.goodPuppy。 */
 export interface GoodPuppyBridge {
   getWindowPosition(): Promise<WindowPoint>;
   getWindowLayout(): Promise<WindowLayout>;
@@ -47,7 +44,7 @@ export interface GoodPuppyBridge {
   getAppConfig(): AppConfig;
 }
 
-/** src/shared/appConfig.js 的形状。 */
+/** src/shared/appConfig.ts 的形状。 */
 export interface AppConfig {
   supabase?: SupabaseConfig;
   [key: string]: unknown;
@@ -58,7 +55,7 @@ export interface SupabaseConfig {
   publishableKey?: string;
 }
 
-// ── 房间在线状态（src/windows/pet/presence.js）──────────────────────────────
+// ── 房间在线状态（src/windows/pet/presence.ts）──────────────────────────────
 
 /** 持续状态值：情绪 / 工作标签，无状态时为 null。取值见 animationCatalog.STATUS_OPTIONS。 */
 export type PetStatus = string | null;
@@ -71,7 +68,7 @@ export interface PresenceUser {
   skin: string;
 }
 
-// ── 跨用户瞬时互动（src/windows/pet/interactions.js）────────────────────────
+// ── 跨用户瞬时互动（src/windows/pet/interactions.ts）────────────────────────
 
 /** 一次性互动事件；action 见 animationCatalog.INTERACTIONS。 */
 export interface InteractionPayload {
@@ -153,7 +150,7 @@ export interface RoomMemberRow {
   room_id: string;
 }
 
-/** 消息气泡使用的本地视图模型（src/windows/pet/messageLog.js）。 */
+/** 消息气泡使用的本地视图模型（src/windows/pet/messageLog.ts）。 */
 export interface LocalMessage {
   id: string;
   info: string;

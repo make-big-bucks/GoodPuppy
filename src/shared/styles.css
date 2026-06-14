@@ -137,7 +137,7 @@ body {
 
 .dog-area {
   position: absolute;
-  /* --pet-scale 由用户通过右键菜单调整（见 renderer.js / petLayout.js）。
+  /* --pet-scale 由用户通过右键菜单调整（见 renderer.ts / petLayout.ts）。
      偏移量与缩放一起放大，保证多只 pet 的槽位不重叠；transform 统一缩放
      pet 与气泡，命中测试用包围盒自适应。 */
   left: calc((15px + var(--pet-index, 0) * 120px) * var(--pet-scale, 1));
@@ -433,4 +433,3 @@ body {
 }
 
 /* ── Connect panel ─────────────────────────────────────────── */
-

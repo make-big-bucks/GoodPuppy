@@ -4,6 +4,16 @@ import type { InteractionPayload } from "../../types";
 let channel: RealtimeChannel | null = null;
 let onInteractionHandler: (payload: InteractionPayload) => void = () => {};
 
+function isInteractionPayload(payload: unknown): payload is InteractionPayload {
+  if (!payload || typeof payload !== "object") return false;
+  const value = payload as Record<string, unknown>;
+  return (
+    typeof value.action === "string" &&
+    typeof value.actorId === "string" &&
+    typeof value.targetId === "string"
+  );
+}
+
 export async function joinInteractions(
   supabase: SupabaseClient,
   roomId: string,
@@ -21,7 +31,7 @@ export async function joinInteractions(
   });
 
   channel.on("broadcast", { event: "interaction" }, ({ payload }) => {
-    if (payload) onInteractionHandler(payload as InteractionPayload);
+    if (isInteractionPayload(payload)) onInteractionHandler(payload);
   });
 
   await channel.subscribe();

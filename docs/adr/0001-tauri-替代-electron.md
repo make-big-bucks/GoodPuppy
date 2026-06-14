@@ -29,13 +29,13 @@ Rust 主进程不直接接触 Supabase，不持有业务状态。
 **正面：**
 - 包体预计从 ~112MB 降至 ~10–20MB，降幅 80%+，显著降低分发摩擦。
 - 使用系统 webview（macOS 上为 WKWebView），内存占用大幅减少。
-- 现有 renderer 层（HTML/CSS/JS）可基本直接复用，前端迁移成本低。
+- 现有 renderer 层（HTML/CSS/TypeScript）可基本直接复用，前端迁移成本低。
 - Rust 原生 API 对窗口管理、点击穿透等桌面能力支持更直接。
 
 **负面：**
 - 引入 Rust 构建环境，团队需要具备基本 Rust 知识（仅限主进程薄层）。
-- 不同平台的系统 webview 版本存在差异，CSS/JS 兼容性需要更谨慎。
+- 不同平台的系统 webview 版本存在差异，CSS/浏览器 API 兼容性需要更谨慎。
 - Tauri 生态相比 Electron 更年轻，部分 Electron 周边工具链无法直接使用。
 
 **约束：**
-- 现有 `main.js` 中的 presence/订阅逻辑需从主进程迁移至前端 JS，是迁移中最主要的改动点。
+- 现有 `main.js` 中的 presence/订阅逻辑需从主进程迁移至前端 webview/TypeScript 层，是迁移中最主要的改动点。

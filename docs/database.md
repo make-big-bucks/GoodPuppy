@@ -569,11 +569,11 @@ supabase
 }
 ```
 
-本地状态变化时通过 `presenceChannel.track(...)` 重新广播（见 `src/windows/pet/presence.js` 的 `updateLocalPresence`）。`status` 的取值与 `src/windows/pet/animationCatalog.js` 的状态层定义一致。
+本地状态变化时通过 `presenceChannel.track(...)` 重新广播（见 `src/windows/pet/presence.ts` 的 `updateLocalPresence`）。`status` 的取值与 `src/windows/pet/animationCatalog.ts` 的状态层定义一致。
 
 ### 一次性互动（broadcast channel）
 
-跨用户的瞬时互动（贴贴/喂食/踢飞、进出场打招呼等高频低价值信号）走 room 维度单独一条 broadcast channel（`interactions:${roomId}`，见 `src/windows/pet/interactions.js`），纯瞬时、不落库、不进消息历史：
+跨用户的瞬时互动（贴贴/喂食/踢飞、进出场打招呼等高频低价值信号）走 room 维度单独一条 broadcast channel（`interactions:${roomId}`，见 `src/windows/pet/interactions.ts`），纯瞬时、不落库、不进消息历史：
 
 ```jsonc
 // event: "interaction"
@@ -605,7 +605,7 @@ A→B 和 B→A 是两条独立记录，`UNIQUE (from_id, to_id)` 只防止同�
 接受方（`to_id`，即 `auth.uid()`）。这是实现细节，业务上无区别——两者都加入了房间，房间创建者在产品层面没有特殊权限。
 
 **5. 多房间支持**
-当前前端（`renderer.js`）只加载用户的第一个房间（`.limit(1)`）。数据库层已支持多房间，切换多房间的 UI 是未来迭代项。
+当前前端（`renderer.ts`）只加载用户的第一个房间（`.limit(1)`）。数据库层已支持多房间，切换多房间的 UI 是未来迭代项。
 
 **6. `invite_code` 的安全性**
 邀请码是"知道即可加入"的设计，适合亲密小圈子分享。不适合公开发布。v1 没有邀请码撤销机制，这是已知限制。

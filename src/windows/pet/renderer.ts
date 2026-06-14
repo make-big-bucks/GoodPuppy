@@ -71,6 +71,10 @@ function closestFromEvent<T extends Element>(event: { target: EventTarget | null
   return targetElement(event.target)?.closest(selector) as T | null;
 }
 
+function getInteractionDef(action: string): InteractionDef | null {
+  return action in INTERACTIONS ? INTERACTIONS[action as keyof typeof INTERACTIONS] : null;
+}
+
 const petStage = document.querySelector<HTMLElement>(".pet-stage");
 const cloudHitImage = new Image();
 const hitCanvas = document.createElement("canvas");
@@ -78,7 +82,6 @@ const hitContext = hitCanvas.getContext("2d", { willReadFrequently: true });
 const alphaHitThreshold = 16;
 const alphaHitSlop = 3;
 const supportsNativeWindowDrag = window.goodPuppy.supportsNativeWindowDrag();
-const interactionMap = INTERACTIONS as Record<string, InteractionDefWithExtras>;
 
 const SELF_ID = "self";
 
@@ -295,7 +298,7 @@ function petLayoutIndex(userId: string) {
 // 镜像按「本端布局中的相对方位」而非 actor/target 角色判定，保证每个端
 // （包括旁观者）看到的双方都是面对面。
 function applyInteraction({ action, actorId, targetId }: InteractionPayload) {
-  const def = interactionMap[action];
+  const def = getInteractionDef(action);
   if (!def) return;
   playInteractionRole(def, def.actorState, actorId, targetId);
   playInteractionRole(def, def.targetState, targetId, actorId);
@@ -315,7 +318,7 @@ function playInteractionRole(def: InteractionDefWithExtras, state: string, userI
 }
 
 function triggerInteraction(action: keyof typeof INTERACTIONS, targetId: string) {
-  if (!interactionMap[action] || !selfAuthId) return;
+  if (!getInteractionDef(action) || !selfAuthId) return;
   const payload = { action, actorId: selfAuthId, targetId };
   sendInteraction(payload);
   applyInteraction(payload); // 本地立即播（broadcast self:false 不回环）
