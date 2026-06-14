@@ -20,6 +20,7 @@
         "url": "login.html",
         "width": 420,
         "height": 660,
+        "visible": false,
         "resizable": false,
         "maximizable": false,
         "center": true

@@ -168,8 +168,19 @@ fn configure_macos_overlay_level<R: Runtime>(window: &WebviewWindow<R>) {
     ns_window.setCollectionBehavior(macos_overlay_collection_behavior(
         ns_window.collectionBehavior(),
     ));
+}
+
+#[cfg(target_os = "macos")]
+fn macos_order_front<R: Runtime>(window: &WebviewWindow<R>) {
+    let Ok(ns_window_ptr) = window.ns_window() else {
+        return;
+    };
+    let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
     ns_window.orderFrontRegardless();
 }
+
+#[cfg(not(target_os = "macos"))]
+fn macos_order_front<R: Runtime>(_window: &WebviewWindow<R>) {}
 
 #[cfg(not(target_os = "macos"))]
 fn configure_macos_overlay_level<R: Runtime>(_window: &WebviewWindow<R>) {}
@@ -262,6 +273,7 @@ pub fn run() {
                     }
                     if let Some(w) = h2.get_webview_window("main") {
                         let _ = w.show();
+                        macos_order_front(&w);
                         let _ = w.emit("pet-init", ());
 
                         let delayed_handle = h2.clone();
@@ -279,10 +291,23 @@ pub fn run() {
                 });
             });
 
-            // 退出登录：隐藏 Pet 窗口，显示登录窗口
+            // 无已保存 session：显示登录窗口
             let handle2 = app.handle().clone();
-            app.listen("auth-cleared", move |_| {
+            app.listen("show-login", move |_| {
                 let h = handle2.clone();
+                let h2 = h.clone();
+                let _ = h.run_on_main_thread(move || {
+                    if let Some(w) = h2.get_webview_window("login") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                });
+            });
+
+            // 退出登录：隐藏 Pet 窗口，显示登录窗口
+            let handle3 = app.handle().clone();
+            app.listen("auth-cleared", move |_| {
+                let h = handle3.clone();
                 let h2 = h.clone();
                 let _ = h.run_on_main_thread(move || {
                     if let Some(w) = h2.get_webview_window("main") {
