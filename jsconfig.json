@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "checkJs": false,
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "lib": ["esnext", "dom", "dom.iterable"]
+  },
+  "include": ["src/**/*.js", "src/**/*.d.ts"],
+  "exclude": ["node_modules", "dist", "src-tauri"]
+}

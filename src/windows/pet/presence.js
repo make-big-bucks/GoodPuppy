@@ -69,6 +69,14 @@ export function latestMeta(metas) {
   return best;
 }
 
+/**
+ * 加入房间并开始广播 / 接收在线状态。
+ * @param {import("@supabase/supabase-js").SupabaseClient} supabase
+ * @param {string} roomId
+ * @param {string} selfId
+ * @param {{ onPresenceChange?: (users: import("../../types").PresenceUser[]) => void,
+ *           status?: import("../../types").PetStatus, petId?: string, skin?: string }} [options]
+ */
 export async function joinRoom(supabase, roomId, selfId, { onPresenceChange, status, petId, skin } = {}) {
   _selfId = selfId;
   _onPresenceChange = typeof onPresenceChange === "function" ? onPresenceChange : () => {};
@@ -97,7 +105,10 @@ export async function joinRoom(supabase, roomId, selfId, { onPresenceChange, sta
   });
 }
 
-// 更新本地持续状态 / 形象并重新广播。无房间时仅记录，下次 joinRoom 生效。
+/**
+ * 更新本地持续状态 / 形象并重新广播。无房间时仅记录，下次 joinRoom 生效。
+ * @param {{ status?: import("../../types").PetStatus, petId?: string, skin?: string }} [patch]
+ */
 export async function updateLocalPresence({ status, petId, skin } = {}) {
   if (status !== undefined) _localPayload.status = status;
   if (petId !== undefined) _localPayload.pet_id = petId || "default";

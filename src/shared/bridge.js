@@ -8,6 +8,7 @@ const inTauri = "__TAURI_INTERNALS__" in window;
 const appWindow = inTauri ? getCurrentWindow() : null;
 const ignoreMouseEventsController = createIgnoreMouseEventsController(appWindow);
 
+/** @type {import("../types").GoodPuppyBridge} */
 const goodPuppy = {
   async getWindowPosition() {
     if (!appWindow) return { x: 0, y: 0 };

@@ -5,6 +5,12 @@
 let channel = null;
 let _onInteraction = () => {};
 
+/**
+ * 订阅房间的瞬时互动广播。
+ * @param {import("@supabase/supabase-js").SupabaseClient} supabase
+ * @param {string} roomId
+ * @param {{ onInteraction?: (payload: import("../../types").InteractionPayload) => void }} [options]
+ */
 export async function joinInteractions(supabase, roomId, { onInteraction } = {}) {
   _onInteraction = typeof onInteraction === "function" ? onInteraction : () => {};
 
@@ -32,6 +38,7 @@ export async function leaveInteractions() {
   _onInteraction = () => {};
 }
 
+/** @param {import("../../types").InteractionPayload} payload */
 export function sendInteraction(payload) {
   if (!channel) return;
   channel.send({ type: "broadcast", event: "interaction", payload });
