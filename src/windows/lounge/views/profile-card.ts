@@ -17,13 +17,25 @@ export function renderProfileCard(profile: LoungeProfile | null | undefined) {
   root.innerHTML = "";
 
   if (!profile) {
+    root.classList.add("is-unauth", "lounge-login-btn");
+    root.setAttribute("role", "button");
+    root.setAttribute("tabindex", "0");
+    root.setAttribute("aria-label", "点击登录");
     root.appendChild(createGuestAvatar());
     const body = document.createElement("div");
     body.className = "profile-body";
-    body.innerHTML = `<div class="profile-name-row"><span class="unauth-profile-name">未登录</span></div>`;
+    body.innerHTML = `
+      <div class="profile-name-row"><span class="unauth-profile-name">未登录</span></div>
+      <div class="unauth-login-text">点击登录</div>
+    `;
     root.appendChild(body);
     return;
   }
+
+  root.classList.remove("is-unauth", "lounge-login-btn");
+  root.removeAttribute("role");
+  root.removeAttribute("tabindex");
+  root.removeAttribute("aria-label");
 
   root.appendChild(
     createPetAvatar({

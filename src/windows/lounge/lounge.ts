@@ -77,10 +77,12 @@ let onExitRoom: (() => void) | null = null;
 let onLoginSuccess: (() => void) | null = null;
 let onLogout: (() => void) | null = null;
 
-const loginIconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>`;
 const logoutIconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`;
 const eyeSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>`;
 const eyeOffSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></svg>`;
+const dogLogoSvg = `<svg viewBox="0 0 64 64" fill="none" aria-hidden="true"><path d="M18 47V31C18 20 26 13 37 13C48 13 55 21 55 32C55 41 49 47 39 47H31" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 31C12 33 9 38 9 47" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><path d="M38 47V54" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><circle cx="43" cy="28" r="3" fill="currentColor"/></svg>`;
+const userInputSvg = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="2"/></svg>`;
+const passwordInputSvg = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
 
 let rooms: LoungeRoom[] = [];
 let pendingRequests: ConnectionRequestRow[] = [];
@@ -121,6 +123,16 @@ function setModalBusy(isBusy: boolean) {
   });
 }
 
+function closeModal() {
+  const backdrop = modalBackdrop();
+  const form = modalForm();
+  if (backdrop) backdrop.hidden = true;
+  if (form) {
+    form.classList.remove("lounge-login-modal");
+    form.onsubmit = null;
+  }
+}
+
 async function copyToClipboard(text: string | null | undefined, btn: HTMLButtonElement) {
   if (!text) return;
 
@@ -141,22 +153,27 @@ function renderProfile(profile: LoungeProfile | null) {
 }
 
 function renderAuthState(isLoggedIn: boolean) {
+  document.querySelector<HTMLElement>(".profile-section")?.classList.toggle("is-unauth", !isLoggedIn);
+
   const sidebarActions = document.querySelector<HTMLElement>(".sidebar-actions");
-  if (sidebarActions) sidebarActions.hidden = !isLoggedIn;
+  if (sidebarActions) sidebarActions.hidden = true;
+
+  const requestList = document.querySelector<HTMLElement>(".lounge-request-list");
+  if (requestList && !isLoggedIn) requestList.hidden = true;
 
   const emptyDetail = document.querySelector<HTMLElement>(".lounge-empty-detail");
   if (emptyDetail) {
-    emptyDetail.textContent = isLoggedIn ? "选择一个房间查看成员" : "登录后即可加入或创建房间";
+    emptyDetail.textContent = isLoggedIn ? "选择一个房间查看成员" : "登录后即可查看你的房间和邀请";
   }
 
   const actionBtn = document.querySelector<HTMLButtonElement>(".lounge-settings-btn");
   if (actionBtn) {
     if (isLoggedIn) {
+      actionBtn.hidden = false;
       actionBtn.setAttribute("aria-label", "退出登录");
       actionBtn.innerHTML = logoutIconSvg;
     } else {
-      actionBtn.setAttribute("aria-label", "登录");
-      actionBtn.innerHTML = loginIconSvg;
+      actionBtn.hidden = true;
     }
   }
 
@@ -171,32 +188,38 @@ function openLoginDialog() {
   const form = modalForm();
   if (!backdrop || !form) return;
 
+  form.classList.add("lounge-login-modal");
   form.innerHTML = `
-    <h2 class="modal-title">欢迎使用 GoodPuppy</h2>
-    <div class="lounge-form-field">
-      <label class="lounge-form-label" for="login-email">邮箱</label>
-      <input class="lounge-input" id="login-email" name="email" type="email" autocomplete="email" placeholder="邮箱地址" />
+    <section class="lounge-login-brand">
+      <div class="lounge-login-logo">${dogLogoSvg}</div>
+      <h2 class="lounge-login-title">GoodPuppy</h2>
+      <p class="lounge-login-subtitle">和朋友一起出现在彼此的桌面上</p>
+    </section>
+    <div class="lounge-login-field">
+      <label for="login-email">账号</label>
+      <div class="lounge-login-input-box">
+        ${userInputSvg}
+        <input class="lounge-login-input" id="login-email" name="email" type="email" autocomplete="email" placeholder="邮箱 / 账号" required />
+      </div>
     </div>
-    <div class="lounge-form-field">
-      <label class="lounge-form-label" for="login-password">密码</label>
-      <div class="login-password-wrap">
-        <input class="lounge-input login-password-input" id="login-password" name="password" type="password" autocomplete="current-password" placeholder="密码（至少6位）" minlength="6" />
-        <button class="icon-btn login-password-toggle" type="button" aria-label="显示密码">${eyeSvg}</button>
+    <div class="lounge-login-field">
+      <label for="login-password">密码</label>
+      <div class="lounge-login-input-box login-password-wrap">
+        ${passwordInputSvg}
+        <input class="lounge-login-input login-password-input" id="login-password" name="password" type="password" autocomplete="current-password" placeholder="输入密码" minlength="6" required />
+        <button class="login-password-toggle" type="button" aria-label="显示密码">${eyeSvg}</button>
       </div>
     </div>
     <p class="lounge-form-message" role="status"></p>
-    <div class="lounge-form-actions">
-      <button class="small-btn lounge-form-cancel" type="button">取消</button>
-      <button class="small-btn lounge-form-register" type="button">创建新账号</button>
-      <button class="small-btn primary lounge-form-submit" type="submit">上线</button>
-    </div>
+    <button class="lounge-auth-button lounge-auth-primary lounge-form-submit" type="submit">上线</button>
+    <div class="lounge-login-divider">或</div>
+    <button class="lounge-auth-button lounge-auth-secondary lounge-form-register" type="button">创建新账号</button>
   `;
 
   const emailInput = requiredQuery<HTMLInputElement>(form, "#login-email");
   const passwordInput = requiredQuery<HTMLInputElement>(form, ".login-password-input");
   const passwordToggle = requiredQuery<HTMLButtonElement>(form, ".login-password-toggle");
   const registerBtn = requiredQuery<HTMLButtonElement>(form, ".lounge-form-register");
-  const cancel = requiredQuery<HTMLButtonElement>(form, ".lounge-form-cancel");
 
   setModalMessage("");
   setModalBusy(false);
@@ -211,13 +234,6 @@ function openLoginDialog() {
     passwordInput.focus();
   });
 
-  const close = () => {
-    backdrop.hidden = true;
-    form.onsubmit = null;
-  };
-
-  cancel.onclick = close;
-
   async function doSignIn() {
     if (!supabaseClient) return;
     const email = emailInput.value.trim();
@@ -228,7 +244,7 @@ function openLoginDialog() {
     try {
       const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      close();
+      closeModal();
       onLoginSuccess?.();
     } catch (error) {
       setModalMessage(getErrorMessage(error, "登录失败"));
@@ -248,7 +264,7 @@ function openLoginDialog() {
       const { data, error } = await supabaseClient.auth.signUp({ email, password });
       if (error) throw error;
       if (data.session) {
-        close();
+        closeModal();
         onLoginSuccess?.();
       } else {
         setModalMessage("注册成功，请检查邮箱确认账号");
@@ -269,6 +285,7 @@ function openLogoutConfirmDialog() {
   const form = modalForm();
   if (!backdrop || !form) return;
 
+  form.classList.remove("lounge-login-modal");
   form.innerHTML = `
     <h2 class="modal-title">退出登录</h2>
     <p class="lounge-confirm-text">确认要退出登录吗？</p>
@@ -283,17 +300,12 @@ function openLogoutConfirmDialog() {
 
   backdrop.hidden = false;
 
-  const close = () => {
-    backdrop.hidden = true;
-    form.onsubmit = null;
-  };
-
-  cancel.onclick = close;
+  cancel.onclick = closeModal;
   logoutBtn.onclick = async () => {
     logoutBtn.disabled = true;
     onExitRoom?.();
     await supabaseClient?.auth.signOut();
-    close();
+    closeModal();
     onLogout?.();
   };
 }
@@ -398,6 +410,7 @@ function openInputModal({
   const form = modalForm();
   if (!backdrop || !form) return;
 
+  form.classList.remove("lounge-login-modal");
   form.innerHTML = `
     <h2 class="modal-title lounge-modal-title"></h2>
     <div class="lounge-form-field">
@@ -424,12 +437,7 @@ function openInputModal({
   setModalBusy(false);
   backdrop.hidden = false;
 
-  const close = () => {
-    backdrop.hidden = true;
-    form.onsubmit = null;
-  };
-
-  cancel.onclick = close;
+  cancel.onclick = closeModal;
   input.focus();
 
   form.onsubmit = async (event) => {
@@ -444,7 +452,7 @@ function openInputModal({
     setModalBusy(true);
     try {
       await onSubmit(value);
-      close();
+      closeModal();
     } catch (error) {
       setModalMessage(getErrorMessage(error, "操作失败"));
     } finally {
@@ -567,6 +575,7 @@ function openRoomMetadataModal() {
   const form = modalForm();
   if (!room || !backdrop || !form) return;
 
+  form.classList.remove("lounge-login-modal");
   form.innerHTML = `
     <h2 class="modal-title">编辑房间信息</h2>
     <div class="lounge-form-field">
@@ -594,12 +603,7 @@ function openRoomMetadataModal() {
   setModalBusy(false);
   backdrop.hidden = false;
 
-  const close = () => {
-    backdrop.hidden = true;
-    form.onsubmit = null;
-  };
-
-  cancel.onclick = close;
+  cancel.onclick = closeModal;
   roomNameInput.focus();
   form.onsubmit = async (event) => {
     event.preventDefault();
@@ -609,7 +613,7 @@ function openRoomMetadataModal() {
         roomName: roomNameInput.value,
         description: roomDescriptionInput.value,
       });
-      close();
+      closeModal();
     } catch (error) {
       setModalMessage(getErrorMessage(error, "保存失败"));
     } finally {
@@ -701,11 +705,22 @@ function bindEvents() {
   p.querySelector<HTMLElement>(".lounge-close")?.addEventListener("click", closeLoungePanel);
 
   p.addEventListener("click", (event) => {
-    const btn = targetElement(event.target)?.closest<HTMLButtonElement>("button");
+    const target = targetElement(event.target);
+    if (target?.closest(".lounge-login-btn")) {
+      openLoginDialog();
+      return;
+    }
+
+    const btn = target?.closest<HTMLButtonElement>("button");
     if (!btn) return;
 
     if (btn.matches(".lounge-copy-id-btn")) {
       void copyToClipboard(document.querySelector<HTMLElement>(".lounge-gp-id")?.textContent, btn);
+      return;
+    }
+
+    if (btn.matches(".lounge-login-btn")) {
+      openLoginDialog();
       return;
     }
 
@@ -746,8 +761,6 @@ function bindEvents() {
     if (btn.matches(".lounge-settings-btn")) {
       if (selfAuthId) {
         openLogoutConfirmDialog();
-      } else {
-        openLoginDialog();
       }
       return;
     }
@@ -786,7 +799,7 @@ function bindEvents() {
 
   document.querySelector<HTMLElement>(".lounge-modal-backdrop")?.addEventListener("pointerdown", (event) => {
     if (event.target === event.currentTarget && event.currentTarget instanceof HTMLElement) {
-      event.currentTarget.hidden = true;
+      closeModal();
     }
   });
 
@@ -795,6 +808,15 @@ function bindEvents() {
     if (target?.closest(".sidebar-drag-region, .main-drag-region")) {
       window.goodPuppy.startWindowDrag();
     }
+  });
+
+  p.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const target = targetElement(event.target);
+    if (!target?.closest(".lounge-login-btn")) return;
+
+    event.preventDefault();
+    openLoginDialog();
   });
 }
 

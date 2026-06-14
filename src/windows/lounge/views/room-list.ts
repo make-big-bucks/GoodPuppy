@@ -17,10 +17,6 @@ export function renderRoomList(rooms: LoungeRoom[], selectedRoomId: string | nul
   list.innerHTML = "";
 
   if (rooms.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "room-item";
-    empty.innerHTML = `<span class="room-text">还没有房间</span>`;
-    list.appendChild(empty);
     return;
   }
 
@@ -45,6 +41,7 @@ export function renderPendingRequests(pendingRequests: ConnectionRequestRow[]) {
   if (!list) return;
 
   list.innerHTML = "";
+  list.hidden = pendingRequests.length === 0;
 
   for (const req of pendingRequests) {
     const sender = req.profiles || {};
