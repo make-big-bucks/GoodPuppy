@@ -1,3 +1,5 @@
+@import "./tokens.css";
+
 html,
 body {
   width: 100%;
@@ -32,8 +34,8 @@ body {
   border-radius: 8px;
   background: rgba(255, 250, 253, 0.94);
   box-shadow: 0 10px 26px rgba(47, 47, 53, 0.16);
-  color: #2f2f35;
-  font-family: "Microsoft YaHei", "Microsoft YaHei UI", sans-serif;
+  color: var(--gp-pet-ink);
+  font-family: var(--gp-font-pet);
 }
 
 .auth-card h1 {
@@ -53,8 +55,8 @@ body {
   border-radius: 6px;
   outline: none;
   background: rgba(255, 255, 255, 0.86);
-  color: #2f2f35;
-  font-family: "Microsoft YaHei", "Microsoft YaHei UI", sans-serif;
+  color: var(--gp-pet-ink);
+  font-family: var(--gp-font-pet);
   font-size: 13px;
 }
 
@@ -78,12 +80,12 @@ body {
   background: transparent;
   color: rgba(47, 47, 53, 0.68);
   cursor: pointer;
-  font-family: "Microsoft YaHei", "Microsoft YaHei UI", sans-serif;
+  font-family: var(--gp-font-pet);
   font-size: 12px;
 }
 
 .auth-input:focus {
-  border-color: #e89abe;
+  border-color: var(--gp-pet-brand);
 }
 
 .auth-message {
@@ -96,7 +98,7 @@ body {
 }
 
 .auth-message.is-error {
-  color: #a84646;
+  color: var(--gp-pet-danger);
 }
 
 .auth-actions {
@@ -109,10 +111,10 @@ body {
   height: 30px;
   border: 0;
   border-radius: 6px;
-  background: #e89abe;
-  color: #2f2f35;
+  background: var(--gp-pet-brand);
+  color: var(--gp-pet-ink);
   cursor: pointer;
-  font-family: "Microsoft YaHei", "Microsoft YaHei UI", sans-serif;
+  font-family: var(--gp-font-pet);
   font-size: 13px;
   font-weight: 700;
 }
@@ -188,8 +190,8 @@ body {
   background-repeat: no-repeat;
   background-size: 100% 100%;
   box-shadow: none;
-  color: #2f2f35;
-  font-family: "Microsoft YaHei", "Microsoft YaHei UI", sans-serif;
+  color: var(--gp-pet-ink);
+  font-family: var(--gp-font-pet);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.45;
@@ -230,11 +232,11 @@ body {
   border: 2px solid rgba(47, 47, 53, 0.72);
   border-radius: 50%;
   background: #FFB7B7;
-  color: #2f2f35;
+  color: var(--gp-pet-ink);
   display: none;
   align-items: center;
   justify-content: center;
-  font-family: "Microsoft YaHei", "Microsoft YaHei UI", sans-serif;
+  font-family: var(--gp-font-pet);
   font-size: 15px;
   font-weight: 700;
   line-height: 1;
@@ -321,9 +323,9 @@ body {
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: #2f2f35;
+  color: var(--gp-pet-ink);
   cursor: pointer;
-  font-family: "Microsoft YaHei", "Microsoft YaHei UI", sans-serif;
+  font-family: var(--gp-font-pet);
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
@@ -375,9 +377,9 @@ body {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(47, 47, 53, 0.36) transparent;
-  color: #2f2f35;
+  color: var(--gp-pet-ink);
   background: rgba(255, 255, 255, 0.78);
-  font-family: "Microsoft YaHei", "Microsoft YaHei UI", sans-serif;
+  font-family: var(--gp-font-pet);
   font-size: 13px;
   line-height: 1.35;
   text-align: center;
@@ -388,8 +390,8 @@ body {
   max-height: 28px;
   min-height: 14px;
   padding: 0 20px 0 2px;
-  color: #a84646;
-  font-family: "Microsoft YaHei", "Microsoft YaHei UI", sans-serif;
+  color: var(--gp-pet-danger);
+  font-family: var(--gp-font-pet);
   font-size: 10px;
   font-weight: 600;
   line-height: 1.2;
@@ -414,7 +416,7 @@ body {
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: #2f2f35;
+  color: var(--gp-pet-ink);
   cursor: pointer;
   font-family: "Segoe UI Symbol", "Microsoft YaHei", sans-serif;
   font-size: 14px;
@@ -423,7 +425,7 @@ body {
 }
 
 .bubble-cancel:hover {
-  color: #a84646;
+  color: var(--gp-pet-danger);
 }
 
 .bubble-send:hover {
