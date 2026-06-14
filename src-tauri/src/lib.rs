@@ -344,6 +344,7 @@ pub fn run() {
                                 )
                                 .title("\u{4f1a}\u{5ba2}\u{5385}")
                                 .inner_size(1120.0, 720.0)
+                                .min_inner_size(1040.0, 680.0)
                                 .resizable(true)
                                 .maximizable(false)
                                 .title_bar_style(TitleBarStyle::Overlay)

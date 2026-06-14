@@ -173,6 +173,16 @@ function relayoutRemotePets() {
   refreshMousePassthrough();
 }
 
+function clearRemotePets() {
+  for (const entry of remotePets.values()) {
+    if (entry.removeTimer != null) clearTimeout(entry.removeTimer);
+    entry.animator.destroy();
+    entry.element.remove();
+  }
+  remotePets.clear();
+  relayoutRemotePets();
+}
+
 function createRemotePet(userId, info) {
   const element = createRemotePetElement(userId);
   const img = element.querySelector(".pet-image");
@@ -960,6 +970,22 @@ export async function switchRoom(roomId) {
   } catch (error) {
     console.error(error);
   }
+}
+
+export function getCurrentRoomId() {
+  return currentRoomId;
+}
+
+export async function exitCurrentRoom() {
+  if (!currentRoomId) return;
+  await leaveInteractions();
+  await presence.leaveRoom();
+  if (messagesChannel) {
+    await activeSupabase?.removeChannel(messagesChannel);
+    messagesChannel = null;
+  }
+  currentRoomId = null;
+  clearRemotePets();
 }
 
 export function startPetApp({ supabase, session } = {}) {

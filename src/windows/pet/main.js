@@ -1,7 +1,7 @@
 import "../../shared/bridge.js";
 import "../../shared/styles.css";
 import { emit, listen } from "@tauri-apps/api/event";
-import { startPetApp, switchRoom } from "./renderer.js";
+import { exitCurrentRoom, getCurrentRoomId, startPetApp, switchRoom } from "./renderer.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
@@ -22,8 +22,18 @@ if (inTauri) {
     console.error(error);
   });
 
-  listen("switch-room", (event) => {
-    switchRoom(event.payload.roomId);
+  listen("request-active-room", () => {
+    emit("active-room-changed", { roomId: getCurrentRoomId() });
+  });
+
+  listen("switch-room", async (event) => {
+    await switchRoom(event.payload.roomId);
+    emit("active-room-changed", { roomId: getCurrentRoomId() });
+  });
+
+  listen("exit-room", async () => {
+    await exitCurrentRoom();
+    emit("active-room-changed", { roomId: getCurrentRoomId() });
   });
 
   listen("auth-logout-requested", async () => {

@@ -1,3 +1,6 @@
+import { getDisplayName } from "../loungeViewModels.js";
+import { createPetAvatar } from "./pet-avatar.js";
+
 function roomIconSvg() {
   return `
     <svg class="room-icon" viewBox="0 0 24 24" fill="none">
@@ -46,14 +49,35 @@ export function renderPendingRequests(pendingRequests) {
     const sender = req.profiles || {};
     const item = document.createElement("div");
     item.className = "invite-item";
-    item.innerHTML = `
-      <div class="invite-title">新的房间邀请</div>
-      <div class="invite-meta">${sender.id || req.from_id}</div>
-      <div class="invite-actions">
-        <button class="small-btn primary" type="button" data-action="accept" data-id="${req.id}">接受</button>
-        <button class="small-btn" type="button" data-action="decline" data-id="${req.id}">拒绝</button>
-      </div>
+    item.appendChild(
+      createPetAvatar({
+        petId: sender.pet_id,
+        skin: sender.skin,
+        alt: getDisplayName(sender),
+      }),
+    );
+
+    const copy = document.createElement("div");
+    copy.className = "invite-copy";
+
+    const title = document.createElement("div");
+    title.className = "invite-title";
+    title.textContent = getDisplayName(sender);
+    copy.appendChild(title);
+
+    const meta = document.createElement("div");
+    meta.className = "invite-meta";
+    meta.textContent = sender.gp_id || req.from_id;
+    copy.appendChild(meta);
+    item.appendChild(copy);
+
+    const actions = document.createElement("div");
+    actions.className = "invite-actions";
+    actions.innerHTML = `
+      <button class="small-btn primary" type="button" data-action="accept" data-id="${req.id}">接受</button>
+      <button class="small-btn" type="button" data-action="decline" data-id="${req.id}">拒绝</button>
     `;
+    item.appendChild(actions);
     list.appendChild(item);
   }
 }
