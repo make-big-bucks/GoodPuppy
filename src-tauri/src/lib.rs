@@ -263,6 +263,18 @@ pub fn run() {
                     if let Some(w) = h2.get_webview_window("main") {
                         let _ = w.show();
                         let _ = w.emit("pet-init", ());
+
+                        let delayed_handle = h2.clone();
+                        thread::spawn(move || {
+                            thread::sleep(Duration::from_millis(150));
+                            let run_handle = delayed_handle.clone();
+                            let window_handle = delayed_handle.clone();
+                            let _ = run_handle.run_on_main_thread(move || {
+                                if let Some(w) = window_handle.get_webview_window("main") {
+                                    let _ = w.emit("pet-init", ());
+                                }
+                            });
+                        });
                     }
                 });
             });
@@ -306,8 +318,8 @@ pub fn run() {
                                     WebviewUrl::App("connect.html".into()),
                                 )
                                 .title("\u{8fde}\u{63a5}\u{7ba1}\u{7406}")
-                                .inner_size(280.0, 560.0)
-                                .resizable(false)
+                                .inner_size(1120.0, 720.0)
+                                .resizable(true)
                                 .maximizable(false)
                                 .build();
                             }
