@@ -13,17 +13,26 @@
   box-sizing: border-box;
 }
 
+.login-drag-region {
+  height: 28px;
+  -webkit-app-region: drag;
+  cursor: default;
+  flex-shrink: 0;
+}
+
 body.login-page {
   margin: 0;
   min-height: 100vh;
   background: var(--gp-bg);
   color: var(--lg-ink);
   font-family: var(--lg-font);
+  display: flex;
+  flex-direction: column;
 }
 
 .login-page .auth-panel {
   width: 100vw;
-  min-height: 100vh;
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -32,9 +41,9 @@ body.login-page {
 }
 
 .login-page .login-window {
-  width: 380px;
-  min-height: 600px;
-  padding: 42px 36px 32px;
+  width: 100%;
+  min-height: 460px;
+  padding: 28px 32px 24px;
   background: #fff;
   border: 1px solid #e6e6e3;
   border-radius: 24px;
