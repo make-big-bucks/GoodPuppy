@@ -5,3 +5,6 @@ release/
 src-tauri/target/
 *.log
 backups/
+tmp/
+output/
+__pycache__/

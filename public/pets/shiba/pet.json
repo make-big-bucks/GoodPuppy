@@ -1,0 +1,244 @@
+{
+  "id": "shiba",
+  "displayName": "Shiba",
+  "description": "A friendly pixel-style Shiba Inu desktop pet based on the provided orange dog reference.",
+  "cell": {
+    "width": 240,
+    "height": 240
+  },
+  "skins": [
+    { "id": "pink", "label": "樱花粉" },
+    { "id": "blue", "label": "天蓝" },
+    { "id": "purple", "label": "薰衣草紫" },
+    { "id": "mint", "label": "薄荷绿" },
+    { "id": "cream", "label": "奶白" }
+  ],
+  "states": [
+    {
+      "state": "idle",
+      "file": "idle.gif",
+      "frames": 6,
+      "durationsMs": [
+        280,
+        110,
+        110,
+        140,
+        140,
+        320
+      ],
+      "loop": true
+    },
+    {
+      "state": "drag-lift",
+      "file": "drag-lift.gif",
+      "frames": 6,
+      "durationsMs": [
+        110,
+        110,
+        110,
+        110,
+        110,
+        180
+      ],
+      "loop": true
+    },
+    {
+      "state": "message",
+      "file": "message.gif",
+      "frames": 6,
+      "durationsMs": [
+        140,
+        140,
+        150,
+        150,
+        160,
+        260
+      ],
+      "loop": false
+    },
+    {
+      "state": "cuddle",
+      "file": "cuddle.gif",
+      "frames": 6,
+      "durationsMs": [
+        180,
+        150,
+        150,
+        180,
+        180,
+        240
+      ],
+      "loop": true
+    },
+    {
+      "state": "cast",
+      "file": "cast.gif",
+      "frames": 6,
+      "durationsMs": [
+        140,
+        130,
+        130,
+        150,
+        160,
+        260
+      ],
+      "loop": false
+    },
+    {
+      "state": "feed",
+      "file": "feed.gif",
+      "frames": 8,
+      "durationsMs": [
+        160,
+        140,
+        140,
+        140,
+        140,
+        150,
+        160,
+        260
+      ],
+      "loop": false
+    },
+    {
+      "state": "kicked",
+      "file": "kicked.gif",
+      "frames": 6,
+      "durationsMs": [
+        120,
+        90,
+        90,
+        110,
+        140,
+        260
+      ],
+      "loop": false
+    },
+    {
+      "state": "enter",
+      "file": "enter.gif",
+      "frames": 8,
+      "durationsMs": [
+        150,
+        130,
+        120,
+        120,
+        120,
+        130,
+        150,
+        260
+      ],
+      "loop": false
+    },
+    {
+      "state": "greet",
+      "file": "greet.gif",
+      "frames": 4,
+      "durationsMs": [
+        150,
+        140,
+        140,
+        260
+      ],
+      "loop": false
+    },
+    {
+      "state": "leave",
+      "file": "leave.gif",
+      "frames": 8,
+      "durationsMs": [
+        150,
+        130,
+        120,
+        120,
+        120,
+        130,
+        150,
+        280
+      ],
+      "loop": false
+    },
+    {
+      "state": "happy",
+      "file": "happy.gif",
+      "frames": 6,
+      "durationsMs": [
+        150,
+        130,
+        130,
+        150,
+        150,
+        220
+      ],
+      "loop": true
+    },
+    {
+      "state": "sad",
+      "file": "sad.gif",
+      "frames": 5,
+      "durationsMs": [
+        260,
+        180,
+        180,
+        200,
+        320
+      ],
+      "loop": true
+    },
+    {
+      "state": "busy",
+      "file": "busy.gif",
+      "frames": 6,
+      "durationsMs": [
+        140,
+        130,
+        130,
+        140,
+        150,
+        220
+      ],
+      "loop": true
+    },
+    {
+      "state": "bored",
+      "file": "bored.gif",
+      "frames": 5,
+      "durationsMs": [
+        280,
+        180,
+        180,
+        200,
+        340
+      ],
+      "loop": true
+    },
+    {
+      "state": "idle-stretch",
+      "file": "idle-stretch.gif",
+      "frames": 6,
+      "durationsMs": [
+        160,
+        140,
+        140,
+        160,
+        180,
+        260
+      ],
+      "loop": false
+    },
+    {
+      "state": "idle-shake",
+      "file": "idle-shake.gif",
+      "frames": 6,
+      "durationsMs": [
+        120,
+        110,
+        110,
+        120,
+        140,
+        220
+      ],
+      "loop": false
+    }
+  ]
+}

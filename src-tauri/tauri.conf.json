@@ -27,8 +27,8 @@
       {
         "label": "main",
         "title": "GoodPuppy",
-        "width": 260,
-        "height": 360,
+        "width": 150,
+        "height": 220,
         "visible": false,
         "resizable": false,
         "maximizable": false,

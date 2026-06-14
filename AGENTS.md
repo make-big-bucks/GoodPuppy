@@ -38,7 +38,11 @@ npm run tauri build
 - `src/renderer.js`：宠物渲染和主交互逻辑。
 - `src/connect.js`：连接面板、房间、邀请和请求相关 UI/数据逻辑。
 - `src/auth.js`：Supabase 匿名登录与身份初始化。
-- `src/petState.js`：宠物状态机逻辑。
+- `src/petState.js`：`PetAnimator` 分层动画状态机（瞬时层 > 状态层 > 基础层），每只 pet 一个实例。见 `docs/adr/0008-分层动画状态机与实时事件.md`。
+- `src/animationCatalog.js`：动画「行为事实」与形象注册表（状态分层、互动路由、`pet.json` 加载、皮肤路径解析）；资源放 `public/pets/<id>/`，皮肤变体放 `public/pets/<id>/skins/<skin>/`。
+- `src/interactions.js`：跨用户瞬时互动的 Realtime broadcast 总线。
+- `src/presence.js`：房间在线状态；payload 携带持续状态（情绪/工作）、`pet_id` 与 `skin`（换肤）。
+- `tools/generate-skins.mjs`：离线换肤生成器（`npm run gen:skins`），配置 `tools/skins.json`。见 `docs/adr/0010-离线调色板换肤.md`。
 - `src/hitTesting.js`：透明窗口命中测试逻辑。
 - `src/cursorEventsController.js`：鼠标穿透与交互切换控制。
 - `src-tauri/src/lib.rs`：Tauri 主进程、托盘、窗口层级和原生光标采样。

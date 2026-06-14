@@ -18,7 +18,7 @@ const goodPuppy = {
   },
   async getWindowLayout() {
     const pos = await this.getWindowPosition();
-    const bounds = { x: pos.x, y: pos.y, width: 260, height: 360 };
+    const bounds = { x: pos.x, y: pos.y, width: 150, height: 220 };
     return { windowBounds: bounds, workArea: bounds };
   },
   setWindowPosition(position) {
