@@ -98,7 +98,7 @@ async function ensureProfile(): Promise<void> {
   if (!data) {
     const { error: insertError } = await activeSupabase
       .from("profiles")
-      .insert({ id: selfAuthId, display_name: "", pet_id: "default" });
+      .upsert({ id: selfAuthId, display_name: "", pet_id: "default" }, { onConflict: "id", ignoreDuplicates: true });
     if (insertError) throw insertError;
   } else {
     callbacks.onPetIdResolved(data.pet_id || "default");

@@ -388,7 +388,7 @@ async function loadPanelData() {
         .from("profiles")
         .select("id, gp_id, display_name, pet_id, skin")
         .eq("id", selfAuthId)
-        .single(),
+        .maybeSingle(),
       supabaseClient
         .from("room_members")
         .select("room_id, rooms!inner(id, room_name, description, invite_code, created_by)")
@@ -405,7 +405,24 @@ async function loadPanelData() {
     if (myRoomsResult.error) throw myRoomsResult.error;
     if (requestsResult.error) throw requestsResult.error;
 
-    renderProfile((profileResult.data as LoungeProfile | null) || null);
+    // 新用户注册后 profiles 行尚不存在，自动创建默认行（gp_id 由数据库触发器生成）
+    // 用 ignoreDuplicates 避免与 pet 窗口 ensureProfile() 的竞态冲突
+    let profileData = profileResult.data as LoungeProfile | null;
+    if (!profileData) {
+      const { error: upsertError } = await supabaseClient
+        .from("profiles")
+        .upsert({ id: selfAuthId, display_name: "", pet_id: "default" }, { onConflict: "id", ignoreDuplicates: true });
+      if (upsertError) throw upsertError;
+      const { data: fetched, error: fetchError } = await supabaseClient
+        .from("profiles")
+        .select("id, gp_id, display_name, pet_id, skin")
+        .eq("id", selfAuthId)
+        .single();
+      if (fetchError) throw fetchError;
+      profileData = fetched as LoungeProfile | null;
+    }
+
+    renderProfile(profileData);
 
     const myRooms = (myRoomsResult.data as RoomMembershipRow[] | null) || [];
     const roomIds = myRooms.map((item) => item.room_id);

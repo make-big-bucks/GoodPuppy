@@ -23,6 +23,8 @@ if (inTauri) {
     } else {
       void getCurrentWindow().hide();
     }
+    // 通知 Lounge 同步房间状态（解决自动恢复时 Lounge 未收到通知的时序问题）
+    void emit("active-room-changed", { roomId: getCurrentRoomId() });
   });
 
   listen("pet-init", startFromStoredSession);
