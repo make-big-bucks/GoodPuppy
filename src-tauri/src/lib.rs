@@ -38,6 +38,7 @@ struct CursorPayload {
     y: f64,
 }
 
+#[cfg(target_os = "macos")]
 fn appkit_window_mouse_location_to_client_point(
     mouse_x: f64,
     mouse_y: f64,
@@ -377,6 +378,7 @@ pub fn run() {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn converts_appkit_window_mouse_location_to_dom_client_coordinates() {
         let point = appkit_window_mouse_location_to_client_point(25.5, 40.0, 340.0);

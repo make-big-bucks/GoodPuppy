@@ -1,0 +1,31 @@
+# Default: normalize line endings to LF in the repo, check out as-is on all platforms
+* text=auto eol=lf
+
+# Explicitly LF for source files
+*.ts    text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.json  text eol=lf
+*.toml  text eol=lf
+*.rs    text eol=lf
+*.md    text eol=lf
+*.mjs   text eol=lf
+*.cjs   text eol=lf
+*.js    text eol=lf
+
+# Shell scripts always LF
+*.sh    text eol=lf
+
+# Windows-specific scripts use CRLF
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# Binary files — no conversion
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.icns  binary
+*.wasm  binary
