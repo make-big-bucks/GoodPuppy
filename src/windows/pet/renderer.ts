@@ -101,6 +101,7 @@ let selfAuthId: string | null = null;
 let currentRoomId: string | null = null;
 let activeSupabase: SupabaseClient | null = null;
 let messagesChannel: RealtimeChannel | null = null;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
 // userId -> { element, animator, leaving, removeTimer }
 const remotePets = new Map<string, RemotePetEntry>();
@@ -857,7 +858,7 @@ petStage?.addEventListener("pointermove", (event: PointerEvent) => {
   const deltaX = event.screenX - pointerStart.x;
   const deltaY = event.screenY - pointerStart.y;
   isDragging = true;
-  if (isDragging && windowStart) {
+  if (windowStart) {
     window.goodPuppy.setWindowPosition({
       x: windowStart.x + deltaX,
       y: windowStart.y + deltaY,
@@ -968,6 +969,25 @@ async function ensureProfile() {
   }
 }
 
+function stopPresenceHeartbeat() {
+  if (heartbeatTimer != null) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
+function startPresenceHeartbeat() {
+  stopPresenceHeartbeat();
+  heartbeatTimer = setInterval(() => {
+    if (!activeSupabase || !selfAuthId || !currentRoomId) return;
+    void activeSupabase
+      .from("presence")
+      .update({ last_seen: new Date().toISOString() })
+      .eq("user_id", selfAuthId)
+      .then(({ error }) => { if (error) console.error("presence heartbeat:", error); });
+  }, 60_000);
+}
+
 async function activateRoom(roomId: string) {
   currentRoomId = roomId;
 
@@ -995,11 +1015,38 @@ async function activateRoom(roomId: string) {
       { onConflict: "user_id" },
     )
     .then(({ error }) => { if (error) console.error("presence upsert:", error); });
+  startPresenceHeartbeat();
   await joinInteractions(activeSupabase, roomId, { onInteraction: applyInteraction });
 }
 
 async function loadCurrentRoom() {
   if (!activeSupabase || !selfAuthId) return;
+
+  // 优先恢复上次所在房间
+  try {
+    const { data: presenceRow } = await activeSupabase
+      .from("presence")
+      .select("current_room_id")
+      .eq("user_id", selfAuthId)
+      .maybeSingle();
+    const lastRoomId = presenceRow?.current_room_id;
+    if (lastRoomId) {
+      const { data: membership } = await activeSupabase
+        .from("room_members")
+        .select("room_id")
+        .eq("room_id", lastRoomId)
+        .eq("user_id", selfAuthId)
+        .maybeSingle();
+      if (membership) {
+        await activateRoom(lastRoomId);
+        return;
+      }
+    }
+  } catch (error) {
+    console.error("restore last room failed:", error);
+  }
+
+  // 回退：取第一个房间
   const { data: memberships, error } = await activeSupabase
     .from("room_members")
     .select("room_id")
@@ -1031,14 +1078,15 @@ export function getCurrentRoomId() {
 
 export async function exitCurrentRoom() {
   if (!currentRoomId) return;
+  stopPresenceHeartbeat();
   await leaveInteractions();
   await presence.leaveRoom();
   if (activeSupabase && selfAuthId) {
-    void activeSupabase
+    const { error } = await activeSupabase
       .from("presence")
-      .update({ is_online: false, current_room_id: null, last_seen: new Date().toISOString() })
-      .eq("user_id", selfAuthId)
-      .then(({ error }) => { if (error) console.error("presence exit:", error); });
+      .update({ is_online: false, last_seen: new Date().toISOString() })
+      .eq("user_id", selfAuthId);
+    if (error) console.error("presence exit:", error);
   }
   if (messagesChannel) {
     await activeSupabase?.removeChannel(messagesChannel);

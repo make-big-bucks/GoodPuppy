@@ -80,10 +80,6 @@ export function getStateImagePath(petId: PetId, stateName: string, skin = DEFAUL
   return `/pets/${dir}/${stateName}.gif`;
 }
 
-export function isStatusState(stateName: string) {
-  return hasOwnKey(STATE_BEHAVIOR, stateName) && STATE_BEHAVIOR[stateName].kind === "status";
-}
-
 export function getBehavior(stateName: string | null | undefined): Behavior | null {
   if (!stateName) return null;
   if (hasOwnKey(STATE_BEHAVIOR, stateName)) {

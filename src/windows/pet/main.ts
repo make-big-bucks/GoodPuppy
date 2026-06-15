@@ -39,4 +39,10 @@ if (inTauri) {
     void getCurrentWindow().hide();
     emit("active-room-changed", { roomId: getCurrentRoomId() });
   });
+
+  // 退出前清理 presence。Rust 的 quit 处理会先 emit 此事件，留 2s 等待后再 exit。
+  // 崩溃/强杀场景由 lounge 的 last_seen 时间阈值兜底。
+  listen("app-before-quit", async () => {
+    await exitCurrentRoom().catch(console.error);
+  });
 }

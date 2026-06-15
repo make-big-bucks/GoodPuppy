@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   resolvePetDir,
   getStateImagePath,
-  isStatusState,
   isIdleVariant,
   getBehavior,
   LAYER,
@@ -41,12 +40,12 @@ describe("getStateImagePath", () => {
   });
 });
 
-describe("isStatusState", () => {
+describe("status states", () => {
   it("recognizes persistent status states only", () => {
-    expect(isStatusState("happy")).toBe(true);
-    expect(isStatusState("busy")).toBe(true);
-    expect(isStatusState("idle")).toBe(false);
-    expect(isStatusState("kicked")).toBe(false);
+    expect(getBehavior("happy")?.kind).toBe("status");
+    expect(getBehavior("busy")?.kind).toBe("status");
+    expect(getBehavior("idle")?.kind).not.toBe("status");
+    expect(getBehavior("kicked")?.kind).not.toBe("status");
   });
 });
 

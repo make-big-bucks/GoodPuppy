@@ -49,7 +49,7 @@ function getHitOffsets(hitSlop: number) {
 }
 
 function isFlipped(element: Element) {
-  return element.classList.contains("is-flipped") || element.classList.contains("right-bubble");
+  return element.classList.contains("is-mirrored");
 }
 
 export function isPointOpaqueInImage(

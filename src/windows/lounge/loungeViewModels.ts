@@ -8,6 +8,15 @@ import type {
 
 const GP_ID_PATTERN = /^gp_[a-z0-9]{8,}$/i;
 
+// 心跳间隔 60s，超过 3 次未收到心跳则视为离线
+const PRESENCE_TIMEOUT_MS = 3 * 60 * 1000;
+
+function isPresenceOnline(presence: LoungePresenceRow | undefined, roomId: string | null | undefined): boolean {
+  if (!presence?.is_online || presence.current_room_id !== roomId) return false;
+  if (!presence.last_seen) return true;
+  return Date.now() - Date.parse(presence.last_seen) < PRESENCE_TIMEOUT_MS;
+}
+
 export function normalizeGpId(value: unknown) {
   const normalized = String(value || "").trim().toLowerCase();
   return GP_ID_PATTERN.test(normalized) ? normalized : "";
@@ -47,7 +56,7 @@ export function buildMemberViewModels(
         petId: profile.pet_id || "default",
         skin: profile.skin || "default",
         isSelf: member.user_id === selfAuthId,
-        isOnline: Boolean(presence?.is_online && presence?.current_room_id === roomId),
+        isOnline: isPresenceOnline(presence, roomId),
       };
     });
 }

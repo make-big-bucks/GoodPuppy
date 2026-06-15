@@ -339,7 +339,18 @@ pub fn run() {
                                 set_dock_visible(true);
                             }
                         }
-                        "quit" => app.exit(0),
+                        "quit" => {
+                            // 通知 pet 窗口先做 presence 清理，再退出。
+                            // spawn 线程避免阻塞 tray 事件循环；2s 超时兜底崩溃/无响应场景。
+                            let app_handle = app.clone();
+                            std::thread::spawn(move || {
+                                if let Some(pet) = app_handle.get_webview_window("pet") {
+                                    let _ = pet.emit("app-before-quit", ());
+                                }
+                                std::thread::sleep(std::time::Duration::from_millis(2000));
+                                app_handle.exit(0);
+                            });
+                        }
                         _ => {}
                     }
                 })
