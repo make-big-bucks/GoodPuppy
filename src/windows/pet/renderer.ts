@@ -73,6 +73,7 @@ let bubblePointerStart = false;
 let isIgnoringMouseEvents = false;
 let lastPointerEvent: HoverEventLike | null = null;
 let dragLiftTimer: ReturnType<typeof setTimeout> | null = null;
+let isNativeDragging = false;
 
 function applyStateToImage(img: HTMLImageElement | null, path: string, meta: StateMeta) {
   if (!img) return;
@@ -360,6 +361,7 @@ petStage?.addEventListener("pointerdown", async (event: PointerEvent) => {
   if (getPetIdentityForEvent(event).kind === "self") startDragLift();
 
   if (supportsNativeWindowDrag) {
+    isNativeDragging = true;
     window.goodPuppy.startWindowDrag();
     return;
   }
@@ -428,7 +430,17 @@ petStage?.addEventListener("pointercancel", () => {
 });
 
 window.addEventListener("pointerup", stopDragLift);
-window.addEventListener("blur", stopDragLift);
+window.addEventListener("blur", () => {
+  // On Windows, startDragging() immediately triggers blur. Skip stopping
+  // the drag-lift animation so it stays visible during the native drag.
+  if (!isNativeDragging) stopDragLift();
+});
+window.addEventListener("focus", () => {
+  if (isNativeDragging) {
+    isNativeDragging = false;
+    stopDragLift();
+  }
+});
 
 petImage?.addEventListener("load", refreshMousePassthrough);
 window.addEventListener("load", refreshMousePassthrough);
