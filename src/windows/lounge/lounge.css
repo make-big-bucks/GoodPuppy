@@ -101,7 +101,7 @@ body.platform-windows .win-titlebar {
 
 body.platform-windows .app-window {
   height: calc(100vh - 28px);
-  min-height: calc(680px - 28px);
+  min-height: 680px;
 }
 
 body.platform-windows .sidebar-drag-region {
