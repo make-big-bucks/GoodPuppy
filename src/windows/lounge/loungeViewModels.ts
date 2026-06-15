@@ -24,7 +24,7 @@ export function normalizeGpId(value: unknown) {
 
 export function getDisplayName(profile: LoungeProfile = {}) {
   const name = String(profile.display_name || "").trim();
-  return name || "GoodPuppy";
+  return name || profile.gp_id || "GoodPuppy";
 }
 
 function joinedAtValue(member: LoungeMemberRow) {
@@ -37,6 +37,7 @@ export function buildMemberViewModels(
   presenceRows: LoungePresenceRow[] = [],
   selfAuthId?: string | null,
   roomId?: string | null,
+  activeRoomId?: string | null,
 ): MemberViewModel[] {
   const presenceByUser = new Map(presenceRows.map((row) => [row.user_id, row]));
 
@@ -49,14 +50,15 @@ export function buildMemberViewModels(
     .map((member) => {
       const profile = member.profiles || {};
       const presence = presenceByUser.get(member.user_id);
+      const isSelf = member.user_id === selfAuthId;
       return {
         userId: member.user_id,
         gpId: profile.gp_id || "",
         displayName: getDisplayName(profile),
         petId: profile.pet_id || "default",
         skin: profile.skin || "default",
-        isSelf: member.user_id === selfAuthId,
-        isOnline: isPresenceOnline(presence, roomId),
+        isSelf,
+        isOnline: isSelf ? Boolean(roomId && roomId === activeRoomId) : isPresenceOnline(presence, roomId),
       };
     });
 }

@@ -2,7 +2,7 @@ import "../../shared/bridge.js";
 import "../../shared/styles.css";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { initLoungePanel, openLoungePanel, updateLoungePanelAuth } from "./lounge.js";
+import { initLoungePanel, openLoungePanel, refreshLoungePanelActiveRoom, updateLoungePanelAuth } from "./lounge.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 
 function initDragRegion() {
@@ -65,18 +65,15 @@ async function init() {
       void emit("lounge-hidden");
       void getCurrentWindow().hide();
       void emit("switch-room", { roomId });
-      localStorage.setItem("lastRoomId", roomId);
     },
     onExitRoom: () => {
       void emit("exit-room");
-      localStorage.removeItem("lastRoomId");
     },
     onLoginSuccess: () => {
       void emit("auth-ready");
     },
     onLogout: () => {
       void emit("auth-cleared");
-      localStorage.removeItem("lastRoomId");
       activeRoomId = null;
     },
   });
@@ -94,18 +91,12 @@ async function init() {
 
   listen<{ roomId?: string | null }>("active-room-changed", (event) => {
     activeRoomId = event.payload?.roomId || null;
+    refreshLoungePanelActiveRoom();
   });
 
   openLoungePanel();
 
-  // 已登录时自动进入上次所在房间
   if (selfAuthId) {
-    const lastRoomId = localStorage.getItem("lastRoomId");
-    if (lastRoomId) {
-      setTimeout(() => {
-        void emit("switch-room", { roomId: lastRoomId });
-      }, 500);
-    }
     void emit("request-active-room");
   }
 

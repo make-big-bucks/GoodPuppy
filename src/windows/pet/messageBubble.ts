@@ -214,5 +214,5 @@ export function hasMessages(): boolean {
 }
 
 export function isBubbleHidden(): boolean {
-  return bubbleEl?.hidden ?? true;
+  return bubbleEl == null || bubbleEl.hidden === true;
 }

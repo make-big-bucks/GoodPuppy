@@ -385,6 +385,7 @@ async function loadPanelData() {
         allPresence,
         selfAuthId,
         item.room_id,
+        getActiveRoomId?.() || null,
       ),
     }));
 
@@ -887,6 +888,11 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId }: 
     renderProfile(null);
     renderAll();
   }
+}
+
+export function refreshLoungePanelActiveRoom() {
+  renderAll();
+  if (selfAuthId) void loadPanelData();
 }
 
 export function openLoungePanel() {

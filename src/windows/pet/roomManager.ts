@@ -74,6 +74,19 @@ function startHeartbeat() {
   }, 60_000);
 }
 
+async function markPresenceNotInRoom(logLabel = "presence exit"): Promise<void> {
+  if (!activeSupabase || !selfAuthId) return;
+  const { error } = await activeSupabase
+    .from("presence")
+    .update({
+      current_room_id: null,
+      is_online: false,
+      last_seen: new Date().toISOString(),
+    })
+    .eq("user_id", selfAuthId);
+  if (error) console.error(`${logLabel}:`, error);
+}
+
 async function ensureProfile(): Promise<void> {
   if (!activeSupabase || !selfAuthId || !callbacks) return;
   const { data, error } = await activeSupabase
@@ -144,7 +157,7 @@ async function loadCurrentRoom(): Promise<void> {
   try {
     const { data: presenceRow } = await activeSupabase
       .from("presence")
-      .select("current_room_id")
+      .select("current_room_id, is_online")
       .eq("user_id", selfAuthId)
       .maybeSingle();
     const lastRoomId = presenceRow?.current_room_id;
@@ -159,21 +172,15 @@ async function loadCurrentRoom(): Promise<void> {
         await activateRoom(lastRoomId);
         return;
       }
+      await markPresenceNotInRoom("clear stale room presence");
+    } else if (presenceRow?.is_online) {
+      await markPresenceNotInRoom("clear stale online presence");
     }
   } catch (error) {
     console.error("restore last room failed:", error);
   }
 
-  const { data: memberships, error } = await activeSupabase
-    .from("room_members")
-    .select("room_id")
-    .limit(1);
-  if (error) throw error;
-  if (!memberships || memberships.length === 0) {
-    callbacks.onRoomReady();
-    return;
-  }
-  await activateRoom(memberships[0].room_id);
+  callbacks.onRoomReady();
 }
 
 export async function switchRoom(roomId: string): Promise<void> {
@@ -193,13 +200,7 @@ export async function exitCurrentRoom(): Promise<void> {
   stopHeartbeat();
   await leaveInteractions();
   await presence.leaveRoom();
-  if (activeSupabase && selfAuthId) {
-    const { error } = await activeSupabase
-      .from("presence")
-      .update({ is_online: false, last_seen: new Date().toISOString() })
-      .eq("user_id", selfAuthId);
-    if (error) console.error("presence exit:", error);
-  }
+  await markPresenceNotInRoom();
   if (activeSupabase) await unsubscribeSelfMessages(activeSupabase);
   currentRoomId = null;
   callbacks?.onClearRemotePets();

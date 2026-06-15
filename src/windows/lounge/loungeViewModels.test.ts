@@ -40,6 +40,18 @@ describe("buildMemberViewModels", () => {
       "u2",
     ]);
   });
+
+  it("uses the active room as the self online source of truth", () => {
+    const members: LoungeMemberRow[] = [
+      { room_id: "room-1", user_id: "u1", joined_at: "2026-06-13T00:00:00Z", profiles: { gp_id: "gp_a" } },
+    ];
+    const stalePresence: LoungePresenceRow[] = [
+      { user_id: "u1", current_room_id: "room-1", is_online: true },
+    ];
+
+    expect(buildMemberViewModels(members, stalePresence, "u1", "room-1", null)[0].isOnline).toBe(false);
+    expect(buildMemberViewModels(members, [], "u1", "room-1", "room-1")[0].isOnline).toBe(true);
+  });
 });
 
 describe("getRoomAction", () => {

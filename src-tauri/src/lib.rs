@@ -349,7 +349,7 @@ pub fn run() {
                                 app_handle.once("app-quit-ready", move |_| {
                                     let _ = tx2.send(());
                                 });
-                                if let Some(pet) = app_handle.get_webview_window("pet") {
+                                if let Some(pet) = app_handle.get_webview_window("main") {
                                     let _ = pet.emit("app-before-quit", ());
                                 }
                                 let _ = rx.recv_timeout(Duration::from_millis(3000));
