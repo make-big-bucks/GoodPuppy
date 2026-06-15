@@ -1,6 +1,7 @@
 import { PetAnimator } from "./petState.js";
 import { loadPetManifest, durationFromManifest } from "./animationCatalog.js";
 import { getPetWindowLayout, orderRemotePetIds } from "./petLayout.js";
+import { applyStateToImage } from "./renderImage.js";
 import type { PresenceUser } from "../../types";
 
 type RemotePetEntry = {
@@ -10,8 +11,6 @@ type RemotePetEntry = {
   removeTimer: ReturnType<typeof setTimeout> | null;
 };
 
-type StateMeta = { mirrored?: boolean };
-
 let petStageEl: HTMLElement | null = null;
 let selfAreaEl: HTMLElement | null = null;
 let getPetScale: () => number = () => 1;
@@ -19,12 +18,6 @@ let onRefreshPassthrough: () => void = () => {};
 let onSelfGreet: () => void = () => {};
 
 const remotePetsMap = new Map<string, RemotePetEntry>();
-
-function applyStateToImage(img: HTMLImageElement | null, path: string, meta: StateMeta) {
-  if (!img) return;
-  img.src = path;
-  img.classList.toggle("is-mirrored", Boolean(meta?.mirrored));
-}
 
 function closestFromEvent<T extends Element>(
   event: { target: EventTarget | null },
@@ -99,7 +92,7 @@ function createRemotePet(userId: string, info: PresenceUser): RemotePetEntry {
   const animator = new PetAnimator({
     petId: info.petId,
     skin: info.skin,
-    onState: (_state, path, meta) => applyStateToImage(img, path, meta),
+    onState: (_state, path, meta) => applyStateToImage(img, path, meta, onRefreshPassthrough),
   });
   loadPetManifest(info.petId).then((manifest) => animator.setManifest(manifest));
   const entry: RemotePetEntry = { element, animator, leaving: false, removeTimer: null };

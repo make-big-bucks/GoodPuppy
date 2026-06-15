@@ -1,6 +1,8 @@
 import { PetAnimator } from "./petState.js";
 import { loadPetManifest, DEFAULT_SKIN } from "./animationCatalog.js";
 import { isPointOpaqueInImage } from "./hitTesting.js";
+import { applyStateToImage } from "./renderImage.js";
+import { startNativeWindowDragWithLift } from "./petDrag.js";
 import * as presence from "./presence.js";
 import { clampPetScale, stepPetScale, DEFAULT_PET_SCALE, MIN_PET_SCALE, MAX_PET_SCALE } from "./petLayout.js";
 import { readStoredSkin, writeStoredSkin, readStoredScale, writeStoredScale } from "./preferences.js";
@@ -46,7 +48,6 @@ export function setOnRoomReadyCallback(fn: () => void) {
 
 type PointerPoint = { x: number; y: number };
 type HoverEventLike = { clientX: number; clientY: number; target: EventTarget | null };
-type StateMeta = { mirrored?: boolean };
 
 const petStage = document.querySelector<HTMLElement>(".pet-stage");
 const cloudHitImage = new Image();
@@ -75,12 +76,6 @@ let lastPointerEvent: HoverEventLike | null = null;
 let dragLiftTimer: ReturnType<typeof setTimeout> | null = null;
 let isNativeDragging = false;
 
-function applyStateToImage(img: HTMLImageElement | null, path: string, meta: StateMeta) {
-  if (!img) return;
-  img.src = path;
-  img.classList.toggle("is-mirrored", Boolean(meta?.mirrored));
-}
-
 // ── Self pet animator ─────────────────────────────────────────
 
 function applyPetScale() {
@@ -99,7 +94,7 @@ function setPetScale(next: number | string | null | undefined) {
 const selfAnimator = new PetAnimator({
   petId: selfPetId,
   skin: selfSkin,
-  onState: (_state, path, meta) => applyStateToImage(petImage, path, meta),
+  onState: (_state, path, meta) => applyStateToImage(petImage, path, meta, refreshMousePassthrough),
 });
 
 loadPetManifest(selfPetId).then((manifest) => {
@@ -369,13 +364,21 @@ petStage?.addEventListener("pointerdown", async (event: PointerEvent) => {
 
   if (!isPetOpaqueAt(event)) return;
 
-  if (getPetIdentityForEvent(event).kind === "self") startDragLift();
+  const isSelfPet = getPetIdentityForEvent(event).kind === "self";
 
   if (supportsNativeWindowDrag) {
-    isNativeDragging = true;
-    window.goodPuppy.startWindowDrag();
+    startNativeWindowDragWithLift({
+      isSelfPet,
+      setNativeDragging: (next) => {
+        isNativeDragging = next;
+      },
+      startWindowDrag: () => window.goodPuppy.startWindowDrag(),
+      startDragLift,
+    });
     return;
   }
+
+  if (isSelfPet) startDragLift();
 
   pointerStart = { x: event.screenX, y: event.screenY };
   isDragging = false;
