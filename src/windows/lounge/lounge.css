@@ -48,11 +48,10 @@ button {
 /* Windows-only custom title bar */
 .win-titlebar {
   display: none;
-  height: 32px;
+  height: 28px;
   flex-shrink: 0;
   background: var(--sidebar);
   align-items: center;
-  border-bottom: 1px solid var(--line);
 }
 
 body.platform-windows .win-titlebar {
@@ -65,9 +64,9 @@ body.platform-windows .win-titlebar {
   cursor: default;
 }
 
-.win-close-btn {
+.win-ctrl-btn {
   width: 46px;
-  height: 32px;
+  height: 28px;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -77,6 +76,10 @@ body.platform-windows .win-titlebar {
   color: var(--muted);
   padding: 0;
   transition: background 80ms, color 80ms;
+}
+
+.win-ctrl-btn:hover {
+  background: var(--hover);
 }
 
 .win-close-btn:hover {
@@ -97,8 +100,16 @@ body.platform-windows .win-titlebar {
 }
 
 body.platform-windows .app-window {
-  height: calc(100vh - 32px);
-  min-height: calc(680px - 32px);
+  height: calc(100vh - 28px);
+  min-height: calc(680px - 28px);
+}
+
+body.platform-windows .sidebar-drag-region {
+  display: none;
+}
+
+body.platform-windows .sidebar {
+  padding-top: 16px;
 }
 
 .lounge-panel[hidden] {

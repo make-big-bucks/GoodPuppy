@@ -10,7 +10,17 @@
 <body>
   <div class="win-titlebar">
     <div class="win-titlebar-drag"></div>
-    <button class="win-close-btn" type="button" aria-label="关闭">
+    <button class="win-ctrl-btn win-minimize-btn" type="button" aria-label="最小化">
+      <svg width="11" height="1" viewBox="0 0 11 1" fill="none" aria-hidden="true">
+        <line x1="0" y1="0.5" x2="11" y2="0.5" stroke="currentColor" stroke-width="1.2"/>
+      </svg>
+    </button>
+    <button class="win-ctrl-btn win-maximize-btn" type="button" aria-label="最大化">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+        <rect x="0.6" y="0.6" width="8.8" height="8.8" stroke="currentColor" stroke-width="1.2"/>
+      </svg>
+    </button>
+    <button class="win-ctrl-btn win-close-btn" type="button" aria-label="关闭">
       <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
         <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
       </svg>

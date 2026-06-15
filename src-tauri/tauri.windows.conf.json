@@ -11,7 +11,7 @@
         "minHeight": 680,
         "visible": false,
         "resizable": false,
-        "maximizable": false,
+        "maximizable": true,
         "decorations": false,
         "acceptFirstMouse": true,
         "center": true

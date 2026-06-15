@@ -11,11 +11,21 @@ function initWinTitlebar() {
   document.body.classList.add('platform-windows');
 
   const dragArea = document.querySelector('.win-titlebar-drag') as HTMLElement | null;
+  const minBtn = document.querySelector('.win-minimize-btn') as HTMLButtonElement | null;
+  const maxBtn = document.querySelector('.win-maximize-btn') as HTMLButtonElement | null;
   const closeBtn = document.querySelector('.win-close-btn') as HTMLButtonElement | null;
 
   dragArea?.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
     window.goodPuppy.startWindowDrag();
+  });
+
+  minBtn?.addEventListener('click', () => {
+    void getCurrentWindow().minimize();
+  });
+
+  maxBtn?.addEventListener('click', () => {
+    void getCurrentWindow().toggleMaximize();
   });
 
   closeBtn?.addEventListener('click', () => {
