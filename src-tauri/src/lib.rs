@@ -308,17 +308,13 @@ pub fn run() {
             }
             spawn_cursor_monitor(app);
 
-            // Show lounge window; on Windows, strip native decorations first to avoid flash,
-            // then expand the window height by the custom title bar height (28 px) so the
-            // app content area matches the macOS layout exactly.
+            // On Windows: strip decorations while the window is still hidden, then let JS
+            // resize to compensate for the custom title bar and call show() itself.
+            // On other platforms: show immediately (macOS titleBarStyle handles the chrome).
             if let Some(lounge) = app.get_webview_window("lounge") {
                 #[cfg(target_os = "windows")]
-                {
-                    use tauri::dpi::LogicalSize;
-                    let _ = lounge.set_decorations(false);
-                    let _ = lounge.set_size(LogicalSize::new(1120_f64, 748_f64));
-                    let _ = lounge.set_min_size(Some(LogicalSize::new(1040_f64, 708_f64)));
-                }
+                let _ = lounge.set_decorations(false);
+                #[cfg(not(target_os = "windows"))]
                 let _ = lounge.show();
             }
 

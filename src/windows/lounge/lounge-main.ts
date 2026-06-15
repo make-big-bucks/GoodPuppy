@@ -2,13 +2,22 @@ import "../../shared/bridge.js";
 import "../../shared/styles.css";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { initLoungePanel, openLoungePanel, refreshLoungePanelActiveRoom, updateLoungePanelAuth } from "./lounge.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 
-function initWinTitlebar() {
+async function initWinTitlebar() {
   if (!navigator.platform.startsWith('Win')) return;
 
   document.body.classList.add('platform-windows');
+
+  // Rust stripped decorations while the window was hidden. Now resize to compensate
+  // for the 28px custom title bar so the app content area matches macOS (720px),
+  // then show the window — no flash since it was never visible before this point.
+  const appWindow = getCurrentWindow();
+  await appWindow.setSize(new LogicalSize(1120, 748));
+  await appWindow.setMinSize(new LogicalSize(1040, 708));
+  await appWindow.show();
 
   const dragArea = document.querySelector('.win-titlebar-drag') as HTMLElement | null;
   const minBtn = document.querySelector('.win-minimize-btn') as HTMLButtonElement | null;
@@ -154,7 +163,7 @@ async function init() {
     void emit("request-active-room");
   }
 
-  initWinTitlebar();
+  await initWinTitlebar();
   initDragRegion();
   initResizeHandle();
 }
