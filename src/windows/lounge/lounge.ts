@@ -6,13 +6,14 @@ import { renderRoomDetail } from "./views/room-detail.js";
 import { renderProfileCard } from "./views/profile-card.js";
 import { showToast } from "./views/toast.js";
 import { initShowcase, openShowcase } from "./views/pet-showcase.js";
-import { buildMemberViewModels, normalizeGpId } from "./loungeViewModels.js";
+import { buildMemberViewModels, mapPendingRoomInvitationRows, normalizeGpId } from "./loungeViewModels.js";
 import type {
   ConnectionRequestRow,
   LoungeMemberRow,
   LoungePresenceRow,
   LoungeProfile,
   LoungeRoom,
+  PendingRoomInvitationRow,
 } from "../../types";
 
 type LoungePanelOptions = {
@@ -395,12 +396,7 @@ async function loadPanelData() {
         .from("room_members")
         .select("room_id, rooms!inner(id, room_name, description, invite_code, created_by)")
         .eq("user_id", selfAuthId),
-      supabaseClient
-        .from("connection_requests")
-        .select("id, from_id, room_id, profiles!connection_requests_from_id_fkey(id, gp_id, display_name, pet_id, skin), rooms(id, room_name)")
-        .eq("to_id", selfAuthId)
-        .eq("status", "pending")
-        .order("created_at", { ascending: true }),
+      supabaseClient.rpc("get_pending_room_invitations"),
     ]);
 
     if (profileResult.error) throw profileResult.error;
@@ -464,7 +460,7 @@ async function loadPanelData() {
       ),
     }));
 
-    pendingRequests = ((requestsResult.data as ConnectionRequestRow[] | null) || []);
+    pendingRequests = mapPendingRoomInvitationRows((requestsResult.data as PendingRoomInvitationRow[] | null) || []);
 
     if (!selectedRoomId || !rooms.some((room) => room.id === selectedRoomId)) {
       selectedRoomId = rooms[0]?.id || null;

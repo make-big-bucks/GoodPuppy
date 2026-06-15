@@ -148,6 +148,18 @@ export interface ConnectionRequestRow {
   rooms?: { id?: string; room_name?: string | null } | null;
 }
 
+export interface PendingRoomInvitationRow {
+  id: string;
+  from_id: string;
+  room_id?: string | null;
+  room_name?: string | null;
+  profile_id?: string | null;
+  gp_id?: string | null;
+  display_name?: string | null;
+  pet_id?: string | null;
+  skin?: string | null;
+}
+
 export interface RoomAction {
   action: "enter" | "exit";
   label: string;

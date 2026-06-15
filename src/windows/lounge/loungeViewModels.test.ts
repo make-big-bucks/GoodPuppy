@@ -3,6 +3,7 @@ import {
   buildMemberViewModels,
   getDisplayName,
   getRoomAction,
+  mapPendingRoomInvitationRows,
   normalizeGpId,
 } from "./loungeViewModels.js";
 import type { LoungeMemberRow, LoungePresenceRow } from "../../types";
@@ -58,5 +59,39 @@ describe("getRoomAction", () => {
   it("returns exit for active room and enter otherwise", () => {
     expect(getRoomAction("room-1", "room-1")).toEqual({ action: "exit", label: "退出房间" });
     expect(getRoomAction("room-2", "room-1")).toEqual({ action: "enter", label: "进入房间" });
+  });
+});
+
+describe("mapPendingRoomInvitationRows", () => {
+  it("maps pending invite RPC rows to the existing request view model shape", () => {
+    expect(
+      mapPendingRoomInvitationRows([
+        {
+          id: "request-1",
+          from_id: "sender-1",
+          room_id: "room-1",
+          room_name: "午睡房",
+          profile_id: "sender-1",
+          gp_id: "gp_sender01",
+          display_name: "Nana",
+          pet_id: "shiba",
+          skin: "mint",
+        },
+      ]),
+    ).toEqual([
+      {
+        id: "request-1",
+        from_id: "sender-1",
+        room_id: "room-1",
+        rooms: { id: "room-1", room_name: "午睡房" },
+        profiles: {
+          id: "sender-1",
+          gp_id: "gp_sender01",
+          display_name: "Nana",
+          pet_id: "shiba",
+          skin: "mint",
+        },
+      },
+    ]);
   });
 });

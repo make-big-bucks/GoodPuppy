@@ -1,8 +1,10 @@
 import type {
+  ConnectionRequestRow,
   LoungeMemberRow,
   LoungePresenceRow,
   LoungeProfile,
   MemberViewModel,
+  PendingRoomInvitationRow,
   RoomAction,
 } from "../../types";
 
@@ -68,4 +70,25 @@ export function getRoomAction(selectedRoomId: string | null, activeRoomId: strin
     return { action: "exit", label: "退出房间" };
   }
   return { action: "enter", label: "进入房间" };
+}
+
+export function mapPendingRoomInvitationRows(rows: PendingRoomInvitationRow[] = []): ConnectionRequestRow[] {
+  return rows.map((row) => ({
+    id: row.id,
+    from_id: row.from_id,
+    room_id: row.room_id || null,
+    rooms: row.room_id
+      ? {
+          id: row.room_id,
+          room_name: row.room_name || null,
+        }
+      : null,
+    profiles: {
+      id: row.profile_id || row.from_id,
+      gp_id: row.gp_id || "",
+      display_name: row.display_name || "",
+      pet_id: row.pet_id || "default",
+      skin: row.skin || "default",
+    },
+  }));
 }

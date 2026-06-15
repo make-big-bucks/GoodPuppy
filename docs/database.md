@@ -20,9 +20,11 @@
 | 函数 | `generate_gp_id(uuid)` | 从 auth.uid() 派生 gp_id 短码 |
 | 函数 | `generate_invite_code()` | 生成 8 位随机邀请码 |
 | RPC | `public.accept_connection(uuid)` | 原子接受好友请求并建房间的 public wrapper |
+| RPC | `public.get_pending_room_invitations()` | 返回当前用户收到的 pending 邀请摘要 |
 | RPC | `public.join_room_by_invite(text)` | 按邀请码加入房间的 public wrapper |
 | RPC | `public.leave_room(uuid)` | 永久退出房间；最后一人时自动删除房间 |
 | 私有函数 | `private.accept_connection(uuid)` | 接受请求的 `SECURITY DEFINER` 实现 |
+| 私有函数 | `private.get_pending_room_invitations()` | 读取 pending 邀请与房间摘要的 `SECURITY DEFINER` 实现 |
 | 私有函数 | `private.join_room_by_invite(text)` | 邀请码加入房间的 `SECURITY DEFINER` 实现 |
 | 触发器 | `profiles_set_gp_id` | INSERT profiles 时自动生成 gp_id |
 | 触发器 | `rooms_set_invite_code` | INSERT rooms 时自动生成 invite_code |
@@ -317,12 +319,14 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
-  v_from_id uuid;
-  v_to_id   uuid;
-  v_room_id uuid;
+  v_from_id  uuid;
+  v_to_id    uuid;
+  v_room_id  uuid;
+  v_req_room uuid;
 BEGIN
   -- 验证：请求存在、当前用户是接收方、状态为 pending
-  SELECT from_id, to_id INTO v_from_id, v_to_id
+  SELECT from_id, to_id, room_id
+  INTO v_from_id, v_to_id, v_req_room
   FROM public.connection_requests
   WHERE id = p_request_id
     AND to_id = auth.uid()
@@ -332,18 +336,28 @@ BEGIN
     RAISE EXCEPTION 'Invalid or unauthorized connection request';
   END IF;
 
-  -- 原子执行：改状态 → 建房间 → 加双方成员
+  -- 改状态
   UPDATE public.connection_requests SET status = 'accepted' WHERE id = p_request_id;
 
-  INSERT INTO public.rooms (created_by)
-  VALUES (auth.uid())
-  RETURNING id INTO v_room_id;
+  IF v_req_room IS NOT NULL THEN
+    -- 邀请加入已有房间：将双方都加入（幂等）
+    INSERT INTO public.room_members (room_id, user_id) VALUES
+      (v_req_room, v_from_id),
+      (v_req_room, v_to_id)
+    ON CONFLICT DO NOTHING;
+    RETURN v_req_room;
+  ELSE
+    -- 原行为：建新 1:1 房间并加入双方
+    INSERT INTO public.rooms (created_by)
+    VALUES (auth.uid())
+    RETURNING id INTO v_room_id;
 
-  INSERT INTO public.room_members (room_id, user_id) VALUES
-    (v_room_id, v_from_id),
-    (v_room_id, v_to_id);
+    INSERT INTO public.room_members (room_id, user_id) VALUES
+      (v_room_id, v_from_id),
+      (v_room_id, v_to_id);
 
-  RETURN v_room_id;
+    RETURN v_room_id;
+  END IF;
 END;
 $$;
 
@@ -368,6 +382,49 @@ const { data: roomId, error } = await supabase.rpc('accept_connection', {
   p_request_id: requestId,
 });
 ```
+
+### `get_pending_room_invitations()` → 邀请摘要行
+
+```sql
+CREATE OR REPLACE FUNCTION private.get_pending_room_invitations()
+RETURNS TABLE (
+  id uuid,
+  from_id uuid,
+  room_id uuid,
+  room_name text,
+  profile_id uuid,
+  gp_id text,
+  display_name text,
+  pet_id text,
+  skin text
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT
+    requests.id,
+    requests.from_id,
+    requests.room_id,
+    rooms.room_name,
+    profiles.id AS profile_id,
+    profiles.gp_id,
+    profiles.display_name,
+    profiles.pet_id,
+    profiles.skin
+  FROM public.connection_requests AS requests
+  JOIN public.profiles AS profiles
+    ON profiles.id = requests.from_id
+  LEFT JOIN public.rooms AS rooms
+    ON rooms.id = requests.room_id
+  WHERE requests.to_id = auth.uid()
+    AND requests.status = 'pending'
+  ORDER BY requests.created_at ASC;
+$$;
+```
+
+**作用：** 给会客厅邀请提示读取当前用户收到的 pending 邀请、发起人资料和有限房间摘要。被邀请者接受前还不是 `room_members`，不能通过通用 `rooms_select` RLS 读取房间；此 RPC 只暴露邀请卡片需要的白名单字段，避免放宽整张 `rooms` 表的读取权限。
 
 ---
 
@@ -494,6 +551,8 @@ CREATE POLICY "connection_requests_update" ON public.connection_requests
   FOR UPDATE TO authenticated
   USING (to_id = auth.uid()) WITH CHECK (to_id = auth.uid());
 ```
+
+会客厅的 pending 邀请提示不直接放宽 `rooms_select`。接收方在接受前不是房间成员，因此通过 `public.get_pending_room_invitations()` 读取邀请卡片需要的有限房间摘要。
 
 ### `messages`
 
