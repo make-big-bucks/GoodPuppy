@@ -11,14 +11,10 @@ async function initWinTitlebar() {
 
   document.body.classList.add('platform-windows');
 
-  // Rust stripped decorations while the window was hidden. Now resize to compensate
-  // for the 28px custom title bar so the app content area matches macOS (720px),
-  // then show the window — no flash since it was never visible before this point.
-  const appWindow = getCurrentWindow();
-  await appWindow.setSize(new LogicalSize(1120, 748));
-  await appWindow.setMinSize(new LogicalSize(1040, 708));
-  await appWindow.show();
-
+  // Attach the title bar controls FIRST, synchronously, so they are wired up
+  // regardless of how the sizing/show IPC below resolves. (Previously these were
+  // attached after the awaits, so a rejected/deferred resize left the title bar
+  // visible but undraggable.)
   const dragArea = document.querySelector('.win-titlebar-drag') as HTMLElement | null;
   const minBtn = document.querySelector('.win-minimize-btn') as HTMLButtonElement | null;
   const maxBtn = document.querySelector('.win-maximize-btn') as HTMLButtonElement | null;
@@ -40,6 +36,20 @@ async function initWinTitlebar() {
   closeBtn?.addEventListener('click', () => {
     void getCurrentWindow().hide();
   });
+
+  // Rust stripped decorations while the window was hidden. Now resize to compensate
+  // for the 28px custom title bar so the app content area matches macOS (720px),
+  // then show the window — no flash since it was never visible before this point.
+  // Done last (and defensively) so a sizing failure can never block the controls
+  // above or leave the window stuck hidden.
+  const appWindow = getCurrentWindow();
+  try {
+    await appWindow.setSize(new LogicalSize(1120, 748));
+    await appWindow.setMinSize(new LogicalSize(1040, 708));
+  } catch (error) {
+    console.warn('Failed to resize lounge window for custom title bar.', error);
+  }
+  await appWindow.show();
 }
 
 function initDragRegion() {

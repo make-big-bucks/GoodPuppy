@@ -99,9 +99,19 @@ body.platform-windows .win-titlebar {
   grid-template-rows: 1fr;
 }
 
+/* On Windows the 28px custom title bar stacks above the app content. Use a flex
+   column so the content area fills exactly the space left below the title bar —
+   no magic `100vh - 28px` math or min-height floor that can overflow (and clip
+   the panel's bottom corners / buttons) when the window is shorter than 708px. */
+body.platform-windows {
+  display: flex;
+  flex-direction: column;
+}
+
 body.platform-windows .app-window {
-  height: calc(100vh - 28px);
-  min-height: 680px;
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
 }
 
 body.platform-windows .sidebar-drag-region {
