@@ -1,39 +1,4 @@
 {
-  "app": {
-    "windows": [
-      {
-        "label": "lounge",
-        "title": "",
-        "url": "windows/lounge.html",
-        "width": 1120,
-        "height": 748,
-        "minWidth": 1040,
-        "minHeight": 708,
-        "visible": false,
-        "resizable": false,
-        "maximizable": true,
-        "decorations": false,
-        "acceptFirstMouse": true,
-        "center": true
-      },
-      {
-        "label": "main",
-        "title": "GoodPuppy",
-        "url": "windows/pet.html",
-        "width": 150,
-        "height": 220,
-        "visible": false,
-        "resizable": false,
-        "maximizable": false,
-        "decorations": false,
-        "transparent": true,
-        "acceptFirstMouse": true,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "shadow": false
-      }
-    ]
-  },
   "bundle": {
     "targets": ["msi", "nsis"],
     "icon": [
