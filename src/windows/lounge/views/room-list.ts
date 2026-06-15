@@ -104,7 +104,8 @@ export function renderPendingRequests(pendingRequests: ConnectionRequestRow[]) {
 
     const meta = document.createElement("div");
     meta.className = "invite-meta";
-    meta.textContent = sender.gp_id || req.from_id;
+    const roomName = req.rooms?.room_name;
+    meta.textContent = roomName ? `邀请你加入「${roomName}」` : (sender.gp_id || req.from_id);
     copy.appendChild(meta);
     item.appendChild(copy);
 

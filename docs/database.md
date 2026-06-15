@@ -117,6 +117,7 @@ CREATE TABLE public.connection_requests (
   to_id      uuid        NOT NULL REFERENCES public.profiles(id),
   status     text        NOT NULL DEFAULT 'pending'
                          CHECK (status IN ('pending', 'accepted', 'declined')),
+  room_id    uuid        REFERENCES public.rooms(id) ON DELETE SET NULL,  -- 非空时表示邀请加入指定房间
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (from_id, to_id),
   CHECK (from_id <> to_id)
@@ -125,6 +126,7 @@ CREATE TABLE public.connection_requests (
 
 **字段说明：**
 - `status`：只有 `to_id`（收到请求方）能通过 RLS 更新 status，防止发起方自己接受自己的请求。
+- `room_id`：可空。非空时表示这是一条"邀请加入指定房间"的请求；接受后 `accept_connection()` 会将双方加入该房间，而不是创建新房间。房间删除时自动置 NULL（`ON DELETE SET NULL`）。
 - `UNIQUE (from_id, to_id)`：同一对用户之间只能有一条请求（A→B）。B→A 是另一条独立记录，允许双向同时发起。
 - 接受后不删除此记录，保留状态为 `accepted` 作为连接历史。
 
@@ -355,7 +357,7 @@ AS $$
 $$;
 ```
 
-**作用：** 接受好友请求，同时建房间并将双方加入。三步操作在同一事务内原子执行，不会出现"房间建了但成员没加上"的断点状态。
+**作用：** 接受连接请求。若请求携带 `room_id`（邀请加入已有房间），则将双方加入该房间（幂等）；若无 `room_id`，则创建新 1:1 房间并将双方加入。所有操作在同一事务内原子执行。
 
 **为什么拆成 private 实现 + public wrapper：** 需要同时写 `connection_requests`、`rooms`、`room_members`，所以 private 实现使用 `SECURITY DEFINER` 绕过 RLS 做原子写入。public wrapper 是 `SECURITY INVOKER`，只负责给客户端提供 RPC 入口，并且只授予 `authenticated` 执行权限。
 
@@ -542,6 +544,7 @@ CREATE POLICY "presence_update" ON public.presence
 | `messages` | 实时收取新消息 |
 | `presence` | 实时感知对方上下线 |
 | `connection_requests` | 实时收到好友请求通知 |
+| `room_members` | 实时感知房间成员加入/退出 |
 
 **前端订阅示例（messages）：**
 

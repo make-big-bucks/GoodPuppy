@@ -95,7 +95,9 @@ let rooms: LoungeRoom[] = [];
 let pendingRequests: ConnectionRequestRow[] = [];
 let selectedRoomId: string | null = null;
 let requestChannel: RealtimeChannel | null = null;
+let sentRequestChannel: RealtimeChannel | null = null;
 let presenceChannel: RealtimeChannel | null = null;
+let roomMembersChannel: RealtimeChannel | null = null;
 let pendingTransition: PendingTransition | null = null;
 let currentProfile: LoungeProfile | null = null;
 
@@ -395,7 +397,7 @@ async function loadPanelData() {
         .eq("user_id", selfAuthId),
       supabaseClient
         .from("connection_requests")
-        .select("id, from_id, profiles!connection_requests_from_id_fkey(id, gp_id, display_name, pet_id, skin)")
+        .select("id, from_id, room_id, profiles!connection_requests_from_id_fkey(id, gp_id, display_name, pet_id, skin), rooms(id, room_name)")
         .eq("to_id", selfAuthId)
         .eq("status", "pending")
         .order("created_at", { ascending: true }),
@@ -599,10 +601,22 @@ async function inviteMember(targetGpId: string) {
     throw new Error("不能邀请自己");
   }
 
+  // 检查对方是否已经是当前房间成员
+  if (selectedRoomId) {
+    const { data: existing } = await supabaseClient
+      .from("room_members")
+      .select("user_id")
+      .eq("room_id", selectedRoomId)
+      .eq("user_id", target.id)
+      .maybeSingle();
+    if (existing) throw new Error("对方已经是房间成员");
+  }
+
   const { error } = await supabaseClient.from("connection_requests").insert({
     from_id: selfAuthId,
     to_id: target.id,
     status: "pending",
+    room_id: selectedRoomId,
   });
 
   if (error) throw error;
@@ -757,7 +771,12 @@ function subscribeToRequests() {
     void supabaseClient.removeChannel(requestChannel);
     requestChannel = null;
   }
+  if (sentRequestChannel) {
+    void supabaseClient.removeChannel(sentRequestChannel);
+    sentRequestChannel = null;
+  }
 
+  // 收到的邀请（to_id = 自己）
   requestChannel = supabaseClient
     .channel(`lounge-requests-${selfAuthId}`)
     .on(
@@ -767,6 +786,48 @@ function subscribeToRequests() {
         schema: "public",
         table: "connection_requests",
         filter: `to_id=eq.${selfAuthId}`,
+      },
+      () => {
+        void loadPanelData();
+      },
+    )
+    .subscribe();
+
+  // 发出的邀请被接受/拒绝时（from_id = 自己），刷新房间成员列表
+  sentRequestChannel = supabaseClient
+    .channel(`lounge-sent-requests-${selfAuthId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "connection_requests",
+        filter: `from_id=eq.${selfAuthId}`,
+      },
+      () => {
+        void loadPanelData();
+      },
+    )
+    .subscribe();
+}
+
+function subscribeToRoomMembers() {
+  if (!supabaseClient || !selfAuthId) return;
+
+  if (roomMembersChannel) {
+    void supabaseClient.removeChannel(roomMembersChannel);
+    roomMembersChannel = null;
+  }
+
+  // 监听 room_members 变更，实时感知新成员加入/退出
+  roomMembersChannel = supabaseClient
+    .channel(`lounge-room-members-${selfAuthId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "room_members",
       },
       () => {
         void loadPanelData();
@@ -968,6 +1029,7 @@ export function initLoungePanel({
   if (selfAuthId) {
     subscribeToRequests();
     subscribeToPresenceChanges();
+    subscribeToRoomMembers();
   }
 }
 
@@ -981,6 +1043,7 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId }: 
   if (isLoggedIn) {
     subscribeToRequests();
     subscribeToPresenceChanges();
+    subscribeToRoomMembers();
     renderAuthState(true);
     void loadPanelData();
   } else if (wasLoggedIn) {
@@ -988,9 +1051,17 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId }: 
       void supabaseClient.removeChannel(requestChannel);
       requestChannel = null;
     }
+    if (sentRequestChannel && supabaseClient) {
+      void supabaseClient.removeChannel(sentRequestChannel);
+      sentRequestChannel = null;
+    }
     if (presenceChannel && supabaseClient) {
       void supabaseClient.removeChannel(presenceChannel);
       presenceChannel = null;
+    }
+    if (roomMembersChannel && supabaseClient) {
+      void supabaseClient.removeChannel(roomMembersChannel);
+      roomMembersChannel = null;
     }
     rooms = [];
     pendingRequests = [];

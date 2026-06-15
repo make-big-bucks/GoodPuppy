@@ -138,7 +138,9 @@ export interface LoungeRoom {
 export interface ConnectionRequestRow {
   id: string;
   from_id: string;
+  room_id?: string | null;
   profiles?: LoungeProfile | null;
+  rooms?: { id?: string; room_name?: string | null } | null;
 }
 
 export interface RoomAction {
