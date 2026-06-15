@@ -30,6 +30,23 @@ const CURSOR_POLL_INTERVAL: Duration = Duration::from_millis(16);
 /// Re-emit unchanged cursor positions so late frontend listeners still receive state.
 const CURSOR_HEARTBEAT_INTERVAL: Duration = Duration::from_millis(250);
 
+#[derive(Debug, PartialEq, Eq)]
+struct LoungeStartupBehavior {
+    strip_decorations: bool,
+    show: bool,
+    focus: bool,
+    show_dock_icon: bool,
+}
+
+fn lounge_startup_behavior() -> LoungeStartupBehavior {
+    LoungeStartupBehavior {
+        strip_decorations: cfg!(target_os = "windows"),
+        show: true,
+        focus: true,
+        show_dock_icon: true,
+    }
+}
+
 #[derive(Clone, Serialize)]
 struct CursorPayload {
     /// Cursor X relative to the window content top-left, in CSS (logical) pixels.
@@ -308,14 +325,25 @@ pub fn run() {
             }
             spawn_cursor_monitor(app);
 
-            // On Windows: strip decorations while the window is still hidden, then let JS
-            // resize to compensate for the custom title bar and call show() itself.
-            // On other platforms: show immediately (macOS titleBarStyle handles the chrome).
+            let lounge_startup = lounge_startup_behavior();
+
+            if lounge_startup.show_dock_icon {
+                set_dock_visible(true);
+            }
+
+            // On Windows: strip decorations while the window is still hidden. The frontend
+            // still resizes for the custom title bar, but Rust owns first display so startup
+            // cannot remain hidden if frontend initialization is delayed or fails.
             if let Some(lounge) = app.get_webview_window("lounge") {
-                #[cfg(target_os = "windows")]
-                let _ = lounge.set_decorations(false);
-                #[cfg(not(target_os = "windows"))]
-                let _ = lounge.show();
+                if lounge_startup.strip_decorations {
+                    let _ = lounge.set_decorations(false);
+                }
+                if lounge_startup.show {
+                    let _ = lounge.show();
+                }
+                if lounge_startup.focus {
+                    let _ = lounge.set_focus();
+                }
             }
 
             // 登录成功：通知 Pet 窗口初始化（不自动显示，进房间时由前端控制）
@@ -368,9 +396,6 @@ pub fn run() {
                 });
             }
 
-            // Lounge 窗口默认可见，启动时展示 Dock 图标
-            set_dock_visible(true);
-
             let manage = MenuItemBuilder::with_id("open-lounge", "\u{4f1a}\u{5ba2}\u{5385}").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "\u{9000}\u{51fa}").build(app)?;
             let menu = MenuBuilder::new(app).items(&[&manage, &quit]).build()?;
@@ -419,6 +444,31 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_lounge_is_visible_and_focused() {
+        let behavior = lounge_startup_behavior();
+
+        assert!(behavior.show);
+        assert!(behavior.focus);
+        assert!(behavior.show_dock_icon);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn startup_lounge_strips_system_decorations_on_windows() {
+        let behavior = lounge_startup_behavior();
+
+        assert!(behavior.strip_decorations);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn startup_lounge_keeps_system_decorations_off_windows() {
+        let behavior = lounge_startup_behavior();
+
+        assert!(!behavior.strip_decorations);
+    }
 
     #[cfg(target_os = "macos")]
     #[test]
