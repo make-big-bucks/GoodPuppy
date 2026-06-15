@@ -5,6 +5,24 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { initLoungePanel, openLoungePanel, refreshLoungePanelActiveRoom, updateLoungePanelAuth } from "./lounge.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 
+function initWinTitlebar() {
+  if (!navigator.platform.startsWith('Win')) return;
+
+  document.body.classList.add('platform-windows');
+
+  const dragArea = document.querySelector('.win-titlebar-drag') as HTMLElement | null;
+  const closeBtn = document.querySelector('.win-close-btn') as HTMLButtonElement | null;
+
+  dragArea?.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    window.goodPuppy.startWindowDrag();
+  });
+
+  closeBtn?.addEventListener('click', () => {
+    void getCurrentWindow().hide();
+  });
+}
+
 function initDragRegion() {
   const dragRegion = document.querySelector(".sidebar-drag-region") as HTMLElement | null;
   if (!dragRegion) return;
@@ -126,6 +144,7 @@ async function init() {
     void emit("request-active-room");
   }
 
+  initWinTitlebar();
   initDragRegion();
   initResizeHandle();
 }

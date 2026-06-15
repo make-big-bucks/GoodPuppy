@@ -22,7 +22,7 @@
         "height": 720,
         "minWidth": 1040,
         "minHeight": 680,
-        "visible": true,
+        "visible": false,
         "resizable": true,
         "maximizable": false,
         "titleBarStyle": "Overlay",

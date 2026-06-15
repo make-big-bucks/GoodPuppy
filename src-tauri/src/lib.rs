@@ -268,6 +268,13 @@ pub fn run() {
             }
             spawn_cursor_monitor(app);
 
+            // Show lounge window; on Windows, strip native decorations first to avoid flash.
+            if let Some(lounge) = app.get_webview_window("lounge") {
+                #[cfg(target_os = "windows")]
+                let _ = lounge.set_decorations(false);
+                let _ = lounge.show();
+            }
+
             // 登录成功：通知 Pet 窗口初始化（不自动显示，进房间时由前端控制）
             let handle = app.handle().clone();
             app.listen("auth-ready", move |_| {
