@@ -490,8 +490,17 @@ body.platform-windows .sidebar {
 }
 
 .invite-actions {
-  display: flex;
-  gap: 8px;
+  width: 48px;
+  display: grid;
+  grid-template-rows: repeat(2, 28px);
+  gap: 6px;
+  justify-self: end;
+}
+
+.invite-actions .small-btn {
+  width: 48px;
+  height: 28px;
+  padding: 0;
 }
 
 .small-btn {

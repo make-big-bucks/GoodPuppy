@@ -17,6 +17,11 @@ function roomIconSvg() {
   `;
 }
 
+export function getInviteMetaText(req: ConnectionRequestRow) {
+  const roomName = req.rooms?.room_name;
+  return roomName ? `邀请你加入「${roomName}」` : (req.profiles?.gp_id || req.from_id);
+}
+
 export function renderRoomList(
   rooms: LoungeRoom[],
   selectedRoomId: string | null,
@@ -104,8 +109,9 @@ export function renderPendingRequests(pendingRequests: ConnectionRequestRow[]) {
 
     const meta = document.createElement("div");
     meta.className = "invite-meta";
-    const roomName = req.rooms?.room_name;
-    meta.textContent = roomName ? `邀请你加入「${roomName}」` : (sender.gp_id || req.from_id);
+    const metaText = getInviteMetaText(req);
+    meta.textContent = metaText;
+    meta.title = metaText;
     copy.appendChild(meta);
     item.appendChild(copy);
 
