@@ -8,3 +8,4 @@ backups/
 tmp/
 output/
 __pycache__/
+runs/

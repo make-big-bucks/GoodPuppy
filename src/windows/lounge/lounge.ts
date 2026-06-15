@@ -56,7 +56,11 @@ type RoomMembershipRow = {
 };
 
 function getErrorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error && typeof (error as { message: unknown }).message === "string") {
+    return (error as { message: string }).message || fallback;
+  }
+  return fallback;
 }
 
 function targetElement(target: EventTarget | null) {
@@ -303,6 +307,51 @@ function openLogoutConfirmDialog() {
   };
 }
 
+function openLeaveRoomPermanentDialog(room: LoungeRoom) {
+  const backdrop = modalBackdrop();
+  const form = modalForm();
+  if (!backdrop || !form) return;
+
+  const isLastMember = room.members.length === 1;
+  const bodyText = isLastMember
+    ? "你是此房间的最后一位成员。退出后，房间及其所有内容将被永久删除，无法恢复。"
+    : "退出后，此房间将从你的列表消失，且无法撤销。";
+
+  form.classList.remove("lounge-login-modal");
+  form.innerHTML = `
+    <h2 class="modal-title">永久退出房间</h2>
+    <p class="lounge-confirm-text">${bodyText}</p>
+    <div class="lounge-form-actions">
+      <button class="small-btn lounge-form-cancel" type="button">取消</button>
+      <button class="small-btn danger lounge-leave-permanent-confirm" type="button">确认退出</button>
+    </div>
+  `;
+
+  const cancel = requiredQuery<HTMLButtonElement>(form, ".lounge-form-cancel");
+  const confirmBtn = requiredQuery<HTMLButtonElement>(form, ".lounge-leave-permanent-confirm");
+
+  backdrop.hidden = false;
+
+  cancel.onclick = closeModal;
+  confirmBtn.onclick = async () => {
+    confirmBtn.disabled = true;
+    try {
+      if (getActiveRoomId?.() === room.id && onExitRoom) {
+        try { await onExitRoom(); } catch { /* ignore */ }
+      }
+      const { error } = await supabaseClient!.rpc("leave_room", { p_room_id: room.id });
+      if (error) throw error;
+      closeModal();
+      selectedRoomId = null;
+      showToast("已永久退出房间");
+      await loadPanelData();
+    } catch (error) {
+      closeModal();
+      showToast(getErrorMessage(error, "操作失败"), "error");
+    }
+  };
+}
+
 function onRoomSelect(id: string) {
   selectedRoomId = id;
   renderAll();
@@ -458,25 +507,30 @@ function openInputModal({
 
 async function createRoom(roomName: string) {
   if (!supabaseClient || !selfAuthId) return;
-  const { data: room, error: roomError } = await supabaseClient
+
+  // Pre-generate UUID client-side so we can insert room_members before SELECTing
+  // the room. rooms_select RLS requires the user to be in room_members, so doing
+  // .insert().select().single() on rooms would return 0 rows (user not a member yet).
+  const roomId = crypto.randomUUID();
+
+  const { error: roomError } = await supabaseClient
     .from("rooms")
     .insert({
+      id: roomId,
       room_name: roomName,
       created_by: selfAuthId,
-    })
-    .select("id, room_name, description, invite_code, created_by")
-    .single();
+    });
 
   if (roomError) throw roomError;
 
   const { error: memberError } = await supabaseClient.from("room_members").insert({
-    room_id: room.id,
+    room_id: roomId,
     user_id: selfAuthId,
   });
 
   if (memberError) throw memberError;
 
-  selectedRoomId = room.id;
+  selectedRoomId = roomId;
   showToast("房间已创建");
   await loadPanelData();
 }
@@ -794,6 +848,13 @@ function bindEvents() {
       if (!room || pendingTransition) return;
       const isExit = btn.dataset.action === "exit";
       void handleRoomTransition(room.id, isExit ? "exit" : "enter");
+      return;
+    }
+
+    if (btn.matches(".lounge-leave-room-permanent")) {
+      const room = getSelectedRoom();
+      if (!room || !selfAuthId) return;
+      openLeaveRoomPermanentDialog(room);
     }
   });
 

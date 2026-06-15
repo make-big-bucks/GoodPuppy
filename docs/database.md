@@ -21,6 +21,7 @@
 | 函数 | `generate_invite_code()` | 生成 8 位随机邀请码 |
 | RPC | `public.accept_connection(uuid)` | 原子接受好友请求并建房间的 public wrapper |
 | RPC | `public.join_room_by_invite(text)` | 按邀请码加入房间的 public wrapper |
+| RPC | `public.leave_room(uuid)` | 永久退出房间；最后一人时自动删除房间 |
 | 私有函数 | `private.accept_connection(uuid)` | 接受请求的 `SECURITY DEFINER` 实现 |
 | 私有函数 | `private.join_room_by_invite(text)` | 邀请码加入房间的 `SECURITY DEFINER` 实现 |
 | 触发器 | `profiles_set_gp_id` | INSERT profiles 时自动生成 gp_id |
@@ -463,12 +464,15 @@ CREATE POLICY "rooms_update" ON public.rooms
 |---|---|
 | SELECT | 当前用户是该房间成员（可见同房间其他成员） |
 | INSERT | `user_id = auth.uid()`（只能将自己加入房间） |
+| DELETE | `user_id = auth.uid()`（只能移除自己） |
 
 ```sql
 CREATE POLICY "room_members_select" ON public.room_members
   FOR SELECT TO authenticated USING (room_id IN (SELECT private.get_my_room_ids()));
 CREATE POLICY "room_members_insert" ON public.room_members
   FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
+CREATE POLICY "room_members_delete" ON public.room_members
+  FOR DELETE TO authenticated USING (user_id = auth.uid());
 ```
 
 ### `connection_requests`
@@ -605,8 +609,8 @@ supabase
 **2. `gp_id` 是确定性的还是随机的？**
 确定性（从 uuid 派生）。好处：同一个用户的 gp_id 永远不变，重建 profile 不会漂移。坏处：如果两个 uuid 前 8 位相同会碰撞（约四十亿分之一概率），`UNIQUE` 约束会报错，极罕见场景下需要手动处理。
 
-**3. `connection_requests` 的双向问题**
-A→B 和 B→A 是两条独立记录，`UNIQUE (from_id, to_id)` 只防止同方向重复发送。UI 层应该在发起请求前检查对方是否已经向自己发过请求，直接接受而不是再发一条新的。
+**3. `connection_requests` 的多次连接**
+`UNIQUE (from_id, to_id)` 约束已移除。同一对用户可以在永久退出旧房间后再次发起连接请求、建立新房间。UI 层应在发起请求前检查对方是否已经向自己发过 pending 请求，直接接受而不是再发一条新的。
 
 **4. `accept_connection()` 的 `created_by` 是谁？**
 接受方（`to_id`，即 `auth.uid()`）。这是实现细节，业务上无区别——两者都加入了房间，房间创建者在产品层面没有特殊权限。

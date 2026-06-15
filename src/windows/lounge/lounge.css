@@ -254,6 +254,29 @@ button {
   gap: 8px;
   overflow-y: auto;
   padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.room-list:hover {
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+
+.room-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.room-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.room-list::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+}
+
+.room-list:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
 }
 
 .room-item-row {
@@ -655,8 +678,26 @@ button {
   flex: 0 0 auto;
   margin-top: auto;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: flex-end;
   gap: 12px;
+}
+
+.lounge-leave-room-permanent {
+  background: none;
+  border: none;
+  padding: 4px 8px 4px 0;
+  font-size: 12px;
+  color: var(--muted);
+  opacity: 0.7;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.18s, opacity 0.18s;
+}
+
+.lounge-leave-room-permanent:hover {
+  color: var(--danger);
+  opacity: 1;
 }
 
 .actions .btn {
