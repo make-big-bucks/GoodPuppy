@@ -57,7 +57,9 @@ npm run tauri build
 - 不要引入 React、Vue、状态管理库或大型 UI 框架，除非用户明确要求并同步更新架构说明。
 - 透明桌面宠物的关键体验是窗口置顶、鼠标穿透、命中区域准确；改动相关代码时必须重点验证。
 - macOS 全屏 Space、窗口层级、`NSPanel` 相关逻辑非常敏感。修改 `src-tauri/src/lib.rs` 的窗口配置前，先读现有注释和 `docs/adr/0001-tauri-替代-electron.md`。
+- 项目需同时支持 macOS 与 Windows。开发新功能、修 bug 时必须考虑双平台兼容，Rust 侧平台差异用 `#[cfg(target_os = ...)]` 隔离，前端避免依赖仅 macOS 可用的系统行为。
 - Supabase 表结构、RLS、房间/成员关系改动必须同步更新 `docs/database.md`，必要时新增 ADR。
+- 涉及数据库结构调整或数据查询时，优先通过 Supabase MCP 插件获取真实 schema 与数据状态，不要仅凭 `docs/database.md` 推断。若 MCP 插件未连接，先提示用户在开启 Supabase 集成，再继续操作。
 
 ## 测试与验证
 
