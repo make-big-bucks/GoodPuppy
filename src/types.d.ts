@@ -110,7 +110,7 @@ export interface LoungeMemberRow {
 }
 
 export interface LoungePresenceRow {
-  room_id?: string;
+  current_room_id?: string | null;
   user_id: string;
   is_online?: boolean;
   last_seen?: string;

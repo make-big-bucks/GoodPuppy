@@ -174,20 +174,24 @@ const { data } = await supabase
 
 ### `presence`
 
-在线状态表。按房间隔离，每个用户在每个房间有独立的在线状态记录。
+在线状态表。每个用户全局只有一行，记录当前所在房间与在线状态。
 
 ```sql
 CREATE TABLE public.presence (
-  room_id    uuid        NOT NULL REFERENCES public.rooms(id) ON DELETE CASCADE,
-  user_id    uuid        NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  is_online  bool        NOT NULL DEFAULT false,
-  last_seen  timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (room_id, user_id)
+  user_id          uuid        NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  current_room_id  uuid        REFERENCES public.rooms(id) ON DELETE SET NULL,
+  is_online        bool        NOT NULL DEFAULT false,
+  last_seen        timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id)
 );
 ```
 
 **说明：**
-- 用户上线时 upsert 一行（`is_online = true`），下线时更新为 false。
+- 每个用户只有一行，从根本上杜绝同时在多个房间显示在线的可能。
+- 用户进入房间时 upsert `{ is_online: true, current_room_id: roomId }`，冲突键为 `user_id`。
+- 切换房间时直接 upsert 新房间，无需先清除旧房间的记录。
+- 退出房间时更新 `{ is_online: false, current_room_id: null }`。
+- `current_room_id` 设为 `ON DELETE SET NULL`：房间被删除时自动清空，避免脏数据。
 - v1 presence 为被动更新（前端 upsert），v2 可改为服务端心跳检测。
 
 ---
@@ -504,20 +508,23 @@ CREATE POLICY "messages_insert" ON public.messages
 
 | 操作 | 策略 |
 |---|---|
-| SELECT | `room_id IN private.get_my_room_ids()` |
-| INSERT | `user_id = auth.uid()` 且 `room_id IN private.get_my_room_ids()` |
-| UPDATE | `user_id = auth.uid()` 且 `room_id IN private.get_my_room_ids()` |
+| SELECT | `user_id = auth.uid()` 或 `current_room_id IN private.get_my_room_ids()` |
+| INSERT | `user_id = auth.uid()` |
+| UPDATE | `user_id = auth.uid()` |
 
 ```sql
 CREATE POLICY "presence_select" ON public.presence
-  FOR SELECT TO authenticated USING (room_id IN (SELECT private.get_my_room_ids()));
+  FOR SELECT TO authenticated USING (
+    user_id = auth.uid()
+    OR current_room_id IN (SELECT private.get_my_room_ids())
+  );
 CREATE POLICY "presence_insert" ON public.presence
   FOR INSERT TO authenticated
-  WITH CHECK (user_id = auth.uid() AND room_id IN (SELECT private.get_my_room_ids()));
+  WITH CHECK (user_id = auth.uid());
 CREATE POLICY "presence_update" ON public.presence
   FOR UPDATE TO authenticated
   USING (user_id = auth.uid())
-  WITH CHECK (user_id = auth.uid() AND room_id IN (SELECT private.get_my_room_ids()));
+  WITH CHECK (user_id = auth.uid());
 ```
 
 ---

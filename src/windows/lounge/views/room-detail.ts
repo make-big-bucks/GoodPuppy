@@ -2,6 +2,9 @@ import { getRoomAction } from "../loungeViewModels.js";
 import { createPetAvatar } from "./pet-avatar.js";
 import type { LoungeRoom } from "../../../types";
 
+const enterIconPaths = `<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><polyline points="10 17 15 12 10 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><line x1="15" y1="12" x2="3" y2="12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>`;
+const exitIconPaths = `<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><polyline points="16 17 21 12 16 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>`;
+
 export function switchView(name: "detail" | "empty") {
   const detail = document.querySelector<HTMLElement>(".lounge-room-detail");
   const empty = document.querySelector<HTMLElement>(".lounge-empty-detail");
@@ -40,7 +43,13 @@ export function renderRoomDetail(room: LoungeRoom | null, selfAuthId: string | n
 
   if (actionButton) {
     const roomAction = getRoomAction(room.id, activeRoomId);
+    const isExit = roomAction.action === "exit";
     actionButton.dataset.action = roomAction.action;
+    actionButton.classList.toggle("is-exit", isExit);
+
+    const svgEl = actionButton.querySelector("svg");
+    if (svgEl) svgEl.innerHTML = isExit ? exitIconPaths : enterIconPaths;
+
     const label = actionButton.querySelector<HTMLElement>(".lounge-enter-label");
     if (label) label.textContent = roomAction.label;
   }

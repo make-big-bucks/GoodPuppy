@@ -27,6 +27,7 @@ export function buildMemberViewModels(
   members: LoungeMemberRow[] = [],
   presenceRows: LoungePresenceRow[] = [],
   selfAuthId?: string | null,
+  roomId?: string | null,
 ): MemberViewModel[] {
   const presenceByUser = new Map(presenceRows.map((row) => [row.user_id, row]));
 
@@ -46,7 +47,7 @@ export function buildMemberViewModels(
         petId: profile.pet_id || "default",
         skin: profile.skin || "default",
         isSelf: member.user_id === selfAuthId,
-        isOnline: Boolean(presence?.is_online),
+        isOnline: Boolean(presence?.is_online && presence?.current_room_id === roomId),
       };
     });
 }

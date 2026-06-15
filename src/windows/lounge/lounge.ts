@@ -318,7 +318,7 @@ function onRoomSelect(id: string) {
 }
 
 function renderAll() {
-  renderRoomList(rooms, selectedRoomId, onRoomSelect);
+  renderRoomList(rooms, selectedRoomId, getActiveRoomId?.() || null, onRoomSelect);
   renderPendingRequests(pendingRequests);
   renderRoomDetail(getSelectedRoom(), selfAuthId, getActiveRoomId?.() || null);
 }
@@ -364,8 +364,8 @@ async function loadPanelData() {
           .in("room_id", roomIds),
         supabaseClient
           .from("presence")
-          .select("room_id, user_id, is_online, last_seen")
-          .in("room_id", roomIds),
+          .select("current_room_id, user_id, is_online, last_seen")
+          .in("current_room_id", roomIds),
       ]);
 
       if (membersResult.error) throw membersResult.error;
@@ -382,8 +382,9 @@ async function loadPanelData() {
       created_by: item.rooms?.created_by || "",
       members: buildMemberViewModels(
         allMembers.filter((member) => member.room_id === item.room_id),
-        allPresence.filter((presence) => presence.room_id === item.room_id),
+        allPresence,
         selfAuthId,
+        item.room_id,
       ),
     }));
 
@@ -763,6 +764,18 @@ function bindEvents() {
     if (btn.matches(".lounge-settings-btn")) {
       if (selfAuthId) {
         openLogoutConfirmDialog();
+      }
+      return;
+    }
+
+    if (btn.matches(".room-quick-action")) {
+      const roomId = btn.dataset.roomId;
+      if (!roomId) return;
+      if (btn.dataset.action === "exit") {
+        onExitRoom?.();
+        setMessage("已退出房间");
+      } else {
+        onEnterRoom?.(roomId);
       }
       return;
     }
