@@ -41,6 +41,11 @@ export interface GoodPuppyBridge {
   setIgnoreMouseEvents(shouldIgnore: boolean): void;
   /** 订阅原生光标流；返回取消订阅函数。 */
   onCursorMoved(callback: (point: CursorPoint | null) => void): () => void;
+  /**
+   * 订阅原生「鼠标左键松开」信号；返回取消订阅函数。
+   * Windows 原生拖拽会吞掉 webview 的 pointerup，需要靠它判定拖拽结束。
+   */
+  onDragEnded(callback: () => void): () => void;
   getAppConfig(): AppConfig;
 }
 

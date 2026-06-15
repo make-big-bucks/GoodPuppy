@@ -98,6 +98,32 @@ fn cursor_client_position<R: Runtime>(
     macos_window_cursor_position(window).or_else(|| fallback_global_cursor_position(handle, window))
 }
 
+/// Whether the primary (left) mouse button is currently held down, globally.
+///
+/// Native window drags (`startDragging`) on Windows run inside an OS modal move
+/// loop that swallows `pointerup`, so the webview never learns when the user
+/// lets go. Polling the real button state lets us emit a reliable drag-end
+/// signal on every platform. Returns `None` where the platform can't be queried.
+#[cfg(target_os = "windows")]
+fn left_mouse_button_down() -> Option<bool> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+    // VK_LBUTTON = 0x01; the high-order bit is set while the button is down.
+    let state = unsafe { GetAsyncKeyState(0x01) };
+    Some((state as u16 & 0x8000) != 0)
+}
+
+#[cfg(target_os = "macos")]
+fn left_mouse_button_down() -> Option<bool> {
+    // Bit 0 of the pressed-button mask is the left button.
+    let buttons = objc2_app_kit::NSEvent::pressedMouseButtons();
+    Some((buttons & 1) != 0)
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn left_mouse_button_down() -> Option<bool> {
+    None
+}
+
 /// Returns the collection behavior needed for a persistent overlay window that appears above
 /// macOS fullscreen apps on every Space.
 ///
@@ -209,6 +235,8 @@ fn spawn_cursor_monitor(app: &tauri::App) {
         let last_emitted: Arc<std::sync::Mutex<HashMap<String, ((i64, i64), Instant)>>> =
             Arc::new(std::sync::Mutex::new(HashMap::new()));
         let stop = Arc::new(AtomicBool::new(false));
+        // Tracks the left mouse button so we can emit a drag-end signal on release.
+        let last_button_down = Arc::new(AtomicBool::new(false));
 
         loop {
             if stop.load(Ordering::Relaxed) {
@@ -218,11 +246,22 @@ fn spawn_cursor_monitor(app: &tauri::App) {
 
             let handle = handle.clone();
             let last_emitted = last_emitted.clone();
+            let last_button_down = last_button_down.clone();
             let stop = stop.clone();
             let posted = handle.clone().run_on_main_thread(move || {
                 if handle.get_webview_window("main").is_none() {
                     stop.store(true, Ordering::Relaxed);
                     return;
+                }
+
+                // On a down→up transition, tell the pet a (possibly native) drag ended.
+                if let Some(down) = left_mouse_button_down() {
+                    let was_down = last_button_down.swap(down, Ordering::Relaxed);
+                    if was_down && !down {
+                        if let Some(main) = handle.get_webview_window("main") {
+                            let _ = main.emit("pet-drag-ended", ());
+                        }
+                    }
                 }
 
                 let mut guard = last_emitted.lock().unwrap();

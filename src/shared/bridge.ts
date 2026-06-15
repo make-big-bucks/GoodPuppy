@@ -53,6 +53,14 @@ const goodPuppy: GoodPuppyBridge = {
     });
     return () => unlisten();
   },
+  onDragEnded(callback: () => void) {
+    if (!inTauri) return () => {};
+    let unlisten = () => {};
+    listen("pet-drag-ended", () => callback()).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten();
+  },
   getAppConfig() {
     return appConfig;
   },

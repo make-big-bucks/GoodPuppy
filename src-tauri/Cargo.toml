@@ -26,4 +26,7 @@ tauri-plugin-log = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"
-objc2-app-kit = { version = "0.3.2", features = ["NSPanel"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSPanel", "NSEvent"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_UI_Input_KeyboardAndMouse"] }

@@ -205,6 +205,17 @@ function closestFromEvent<T extends Element>(
 function isPetOpaqueAt(event: HoverEventLike) {
   const image = closestFromEvent<HTMLImageElement>(event, ".pet-image");
   if (!image) return false;
+  if (!image.complete) {
+    // Image is transitioning to a new state; fall back to element bounds so
+    // the first click after a state change still registers as a hit.
+    const rect = image.getBoundingClientRect();
+    return (
+      event.clientX >= rect.left &&
+      event.clientX <= rect.right &&
+      event.clientY >= rect.top &&
+      event.clientY <= rect.bottom
+    );
+  }
   return isPointOpaqueInImage(event, image, image, hitContext, hitCanvas, {
     respectObjectFit: true,
     alphaThreshold: alphaHitThreshold,
@@ -431,15 +442,16 @@ petStage?.addEventListener("pointercancel", () => {
 
 window.addEventListener("pointerup", stopDragLift);
 window.addEventListener("blur", () => {
-  // On Windows, startDragging() immediately triggers blur. Skip stopping
-  // the drag-lift animation so it stays visible during the native drag.
+  // On Windows, startDragging() enters an OS modal move loop that fires a
+  // blur→focus bounce at drag *start*. Skip stopping during a native drag so
+  // the lift survives; the drag-end signal below ends it on actual release.
   if (!isNativeDragging) stopDragLift();
 });
-window.addEventListener("focus", () => {
-  if (isNativeDragging) {
-    isNativeDragging = false;
-    stopDragLift();
-  }
+// Native drags swallow pointerup (Windows especially), so end the lift on the
+// real mouse-button release reported by the Rust cursor monitor.
+window.goodPuppy.onDragEnded(() => {
+  isNativeDragging = false;
+  stopDragLift();
 });
 
 petImage?.addEventListener("load", refreshMousePassthrough);
