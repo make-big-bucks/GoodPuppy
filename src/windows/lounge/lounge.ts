@@ -5,6 +5,7 @@ import type { PendingTransition } from "./views/room-list.js";
 import { renderRoomDetail } from "./views/room-detail.js";
 import { renderProfileCard } from "./views/profile-card.js";
 import { showToast } from "./views/toast.js";
+import { initShowcase, openShowcase } from "./views/pet-showcase.js";
 import { buildMemberViewModels, normalizeGpId } from "./loungeViewModels.js";
 import type {
   ConnectionRequestRow,
@@ -96,6 +97,7 @@ let selectedRoomId: string | null = null;
 let requestChannel: RealtimeChannel | null = null;
 let presenceChannel: RealtimeChannel | null = null;
 let pendingTransition: PendingTransition | null = null;
+let currentProfile: LoungeProfile | null = null;
 
 const panel = () => document.querySelector<HTMLElement>(".lounge-panel");
 const modalBackdrop = () => document.querySelector<HTMLElement>(".lounge-modal-backdrop");
@@ -144,7 +146,21 @@ async function copyToClipboard(text: string | null | undefined, btn: HTMLButtonE
 }
 
 function renderProfile(profile: LoungeProfile | null) {
+  currentProfile = profile;
   renderProfileCard(profile);
+}
+
+function handleSkinChange(skin: string) {
+  if (currentProfile) {
+    currentProfile = { ...currentProfile, skin };
+    renderProfileCard(currentProfile);
+  }
+  for (const room of rooms) {
+    for (const member of room.members) {
+      if (member.isSelf) member.skin = skin;
+    }
+  }
+  renderAll();
 }
 
 function renderAuthState(isLoggedIn: boolean) {
@@ -772,12 +788,27 @@ function bindEvents() {
 
   p.dataset.bound = "true";
 
+  initShowcase();
+
   p.querySelector<HTMLElement>(".lounge-close")?.addEventListener("click", closeLoungePanel);
 
   p.addEventListener("click", (event) => {
     const target = targetElement(event.target);
     if (target?.closest(".lounge-login-btn")) {
       openLoginDialog();
+      return;
+    }
+
+    if (target?.closest(".pet-avatar") && target?.closest(".lounge-profile-card:not(.is-unauth)")) {
+      if (currentProfile && selfAuthId && supabaseClient) {
+        openShowcase({
+          petId: currentProfile.pet_id || "default",
+          skin: currentProfile.skin || "default",
+          selfAuthId,
+          supabase: supabaseClient,
+          onSkinChange: handleSkinChange,
+        });
+      }
       return;
     }
 

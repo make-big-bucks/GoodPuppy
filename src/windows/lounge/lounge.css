@@ -1093,6 +1093,147 @@ textarea.lounge-input {
   background: var(--green);
 }
 
+/* ── Pet Showcase ───────────────────────────────────────── */
+
+.showcase-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.showcase-backdrop[hidden] {
+  display: none;
+}
+
+.showcase-panel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 300px;
+  padding: 20px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.showcase-gif {
+  width: 160px;
+  height: 160px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.showcase-states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+}
+
+.showcase-state-btn {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
+}
+
+.showcase-state-btn svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.showcase-state-btn:hover {
+  background: var(--hover);
+  border-color: var(--line);
+  color: var(--text);
+}
+
+.showcase-state-btn.is-active {
+  background: var(--active);
+  border-color: #a8cabb;
+  color: var(--green);
+}
+
+.showcase-state-btn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 8px;
+  background: #222;
+  color: #fff;
+  font-size: 11px;
+  white-space: nowrap;
+  border-radius: 4px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 1;
+}
+
+.showcase-state-btn:hover::after {
+  opacity: 1;
+}
+
+.showcase-skins {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid var(--soft-line);
+  width: 100%;
+  justify-content: center;
+}
+
+.showcase-skin-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2.5px solid transparent;
+  background: var(--swatch, #aaa);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.14s, border-color 0.14s, box-shadow 0.14s;
+}
+
+.showcase-skin-btn:hover {
+  transform: scale(1.18);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.showcase-skin-btn.is-active {
+  border-color: var(--text);
+  transform: scale(1.18);
+}
+
+.lounge-profile-card:not(.is-unauth) .pet-avatar {
+  cursor: pointer;
+  border-radius: 8px;
+  transition: filter 0.14s, background 0.14s;
+}
+
+.lounge-profile-card:not(.is-unauth) .pet-avatar:hover {
+  filter: brightness(1.06);
+  background: var(--hover);
+}
+
 /* ── Spinner ────────────────────────────────────────────── */
 
 @keyframes gp-spin {
