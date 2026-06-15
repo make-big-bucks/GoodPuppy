@@ -1,8 +1,10 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import { renderRoomList, renderPendingRequests } from "./views/room-list.js";
+import type { PendingTransition } from "./views/room-list.js";
 import { renderRoomDetail } from "./views/room-detail.js";
 import { renderProfileCard } from "./views/profile-card.js";
+import { showToast } from "./views/toast.js";
 import { buildMemberViewModels, normalizeGpId } from "./loungeViewModels.js";
 import type {
   ConnectionRequestRow,
@@ -16,8 +18,8 @@ type LoungePanelOptions = {
   supabase: SupabaseClient;
   selfAuthId: string | null;
   getActiveRoomId: () => string | null;
-  onEnterRoom: (roomId: string) => void;
-  onExitRoom: () => void;
+  onEnterRoom: (roomId: string) => Promise<void>;
+  onExitRoom: () => Promise<void>;
   onLoginSuccess: () => void;
   onLogout: () => void;
 };
@@ -72,8 +74,8 @@ function requiredQuery<T extends Element>(root: ParentNode, selector: string) {
 let supabaseClient: SupabaseClient | null = null;
 let selfAuthId: string | null = null;
 let getActiveRoomId: (() => string | null) | null = null;
-let onEnterRoom: ((roomId: string) => void) | null = null;
-let onExitRoom: (() => void) | null = null;
+let onEnterRoom: ((roomId: string) => Promise<void>) | null = null;
+let onExitRoom: (() => Promise<void>) | null = null;
 let onLoginSuccess: (() => void) | null = null;
 let onLogout: (() => void) | null = null;
 
@@ -89,6 +91,7 @@ let pendingRequests: ConnectionRequestRow[] = [];
 let selectedRoomId: string | null = null;
 let requestChannel: RealtimeChannel | null = null;
 let presenceChannel: RealtimeChannel | null = null;
+let pendingTransition: PendingTransition | null = null;
 
 const panel = () => document.querySelector<HTMLElement>(".lounge-panel");
 const modalBackdrop = () => document.querySelector<HTMLElement>(".lounge-modal-backdrop");
@@ -96,20 +99,6 @@ const modalForm = () => document.querySelector<HTMLFormElement>(".lounge-modal")
 
 function getSelectedRoom() {
   return rooms.find((room) => room.id === selectedRoomId) || null;
-}
-
-function setMessage(text: string, { isError = false }: { isError?: boolean } = {}) {
-  const el = document.querySelector<HTMLElement>(".lounge-message");
-  if (!el) return;
-
-  el.textContent = text || "";
-  el.classList.toggle("is-error", isError);
-
-  if (text) {
-    setTimeout(() => {
-      if (el.textContent === text) el.textContent = "";
-    }, 3000);
-  }
 }
 
 function setModalMessage(text: string) {
@@ -146,7 +135,7 @@ async function copyToClipboard(text: string | null | undefined, btn: HTMLButtonE
       btn.innerHTML = original;
     }, 1500);
   } catch {
-    setMessage("复制失败", { isError: true });
+    showToast("复制失败", "error");
   }
 }
 
@@ -305,7 +294,9 @@ function openLogoutConfirmDialog() {
   cancel.onclick = closeModal;
   logoutBtn.onclick = async () => {
     logoutBtn.disabled = true;
-    onExitRoom?.();
+    if (onExitRoom) {
+      try { await onExitRoom(); } catch { /* ignore */ }
+    }
     await supabaseClient?.auth.signOut();
     closeModal();
     onLogout?.();
@@ -318,9 +309,9 @@ function onRoomSelect(id: string) {
 }
 
 function renderAll() {
-  renderRoomList(rooms, selectedRoomId, getActiveRoomId?.() || null, onRoomSelect);
+  renderRoomList(rooms, selectedRoomId, getActiveRoomId?.() || null, onRoomSelect, pendingTransition);
   renderPendingRequests(pendingRequests);
-  renderRoomDetail(getSelectedRoom(), selfAuthId, getActiveRoomId?.() || null);
+  renderRoomDetail(getSelectedRoom(), selfAuthId, getActiveRoomId?.() || null, pendingTransition);
 }
 
 async function loadPanelData() {
@@ -397,7 +388,7 @@ async function loadPanelData() {
 
     renderAll();
   } catch (error) {
-    setMessage(getErrorMessage(error, "加载失败"), { isError: true });
+    showToast(getErrorMessage(error, "加载失败"), "error");
   }
 }
 
@@ -486,7 +477,7 @@ async function createRoom(roomName: string) {
   if (memberError) throw memberError;
 
   selectedRoomId = room.id;
-  setMessage("房间已创建");
+  showToast("房间已创建");
   await loadPanelData();
 }
 
@@ -498,7 +489,7 @@ async function joinRoomByInvite(inviteCode: string) {
 
   if (error) throw error;
 
-  setMessage("已加入房间");
+  showToast("已加入房间");
   await loadPanelData();
 }
 
@@ -529,7 +520,7 @@ async function inviteMember(targetGpId: string) {
 
   if (error) throw error;
 
-  setMessage("邀请已发送");
+  showToast("邀请已发送");
 }
 
 async function updateDisplayName(displayName: string) {
@@ -634,7 +625,7 @@ async function acceptRequest(requestId: string) {
 
   if (error) throw error;
 
-  setMessage("已接受邀请");
+  showToast("已接受邀请");
   await loadPanelData();
 }
 
@@ -647,8 +638,29 @@ async function declineRequest(requestId: string) {
 
   if (error) throw error;
 
-  setMessage("已拒绝邀请");
+  showToast("已拒绝邀请");
   await loadPanelData();
+}
+
+async function handleRoomTransition(roomId: string, type: "enter" | "exit") {
+  if (pendingTransition) return;
+
+  pendingTransition = { roomId, type };
+  renderAll();
+
+  try {
+    if (type === "exit") {
+      await onExitRoom?.();
+      showToast("已退出房间");
+    } else {
+      await onEnterRoom?.(roomId);
+    }
+  } catch (error) {
+    showToast(getErrorMessage(error, "操作失败"), "error");
+  } finally {
+    pendingTransition = null;
+    renderAll();
+  }
 }
 
 function subscribeToRequests() {
@@ -771,27 +783,17 @@ function bindEvents() {
 
     if (btn.matches(".room-quick-action")) {
       const roomId = btn.dataset.roomId;
-      if (!roomId) return;
-      if (btn.dataset.action === "exit") {
-        onExitRoom?.();
-        setMessage("已退出房间");
-      } else {
-        onEnterRoom?.(roomId);
-      }
+      if (!roomId || pendingTransition) return;
+      const isExit = btn.dataset.action === "exit";
+      void handleRoomTransition(roomId, isExit ? "exit" : "enter");
       return;
     }
 
     if (btn.matches(".lounge-enter-room")) {
       const room = getSelectedRoom();
-      if (!room) return;
-
-      if (btn.dataset.action === "exit") {
-        onExitRoom?.();
-        setMessage("已退出房间");
-        return;
-      }
-
-      onEnterRoom?.(room.id);
+      if (!room || pendingTransition) return;
+      const isExit = btn.dataset.action === "exit";
+      void handleRoomTransition(room.id, isExit ? "exit" : "enter");
     }
   });
 
@@ -807,7 +809,7 @@ function bindEvents() {
       if (action === "accept") await acceptRequest(id);
       if (action === "decline") await declineRequest(id);
     } catch (error) {
-      setMessage(getErrorMessage(error, "操作失败"), { isError: true });
+      showToast(getErrorMessage(error, "操作失败"), "error");
     } finally {
       btn.disabled = false;
     }
@@ -884,6 +886,7 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId }: 
     rooms = [];
     pendingRequests = [];
     selectedRoomId = null;
+    pendingTransition = null;
     renderAuthState(false);
     renderProfile(null);
     renderAll();

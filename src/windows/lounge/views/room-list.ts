@@ -2,9 +2,12 @@ import { getDisplayName } from "../loungeViewModels.js";
 import { createPetAvatar } from "./pet-avatar.js";
 import type { ConnectionRequestRow, LoungeRoom } from "../../../types";
 
+export type PendingTransition = { roomId: string; type: "enter" | "exit" };
+
 const enterRoomSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>`;
 const exitRoomSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`;
 const hereIconSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-3.866 3.582-7 8-7s8 3.134 8 7"/></svg>`;
+const spinnerHtml = `<span class="btn-spinner"></span>`;
 
 function roomIconSvg() {
   return `
@@ -19,6 +22,7 @@ export function renderRoomList(
   selectedRoomId: string | null,
   activeRoomId: string | null,
   onSelectRoom: (roomId: string) => void,
+  pendingTransition: PendingTransition | null = null,
 ) {
   const list = document.querySelector<HTMLElement>(".lounge-room-list");
   if (!list) return;
@@ -31,6 +35,7 @@ export function renderRoomList(
 
   for (const room of rooms) {
     const isActive = room.id === activeRoomId;
+    const isPending = pendingTransition?.roomId === room.id;
 
     const row = document.createElement("div");
     row.className = `room-item-row${isActive ? " is-current-room" : ""}`;
@@ -52,9 +57,17 @@ export function renderRoomList(
     quickAction.className = "room-quick-action";
     quickAction.type = "button";
     quickAction.dataset.roomId = room.id;
-    quickAction.dataset.action = isActive ? "exit" : "enter";
-    quickAction.setAttribute("aria-label", isActive ? "退出房间" : "进入房间");
-    quickAction.innerHTML = isActive ? exitRoomSvg : enterRoomSvg;
+
+    if (isPending) {
+      quickAction.classList.add("is-pending");
+      quickAction.disabled = true;
+      quickAction.setAttribute("aria-label", "处理中");
+      quickAction.innerHTML = spinnerHtml;
+    } else {
+      quickAction.dataset.action = isActive ? "exit" : "enter";
+      quickAction.setAttribute("aria-label", isActive ? "退出房间" : "进入房间");
+      quickAction.innerHTML = isActive ? exitRoomSvg : enterRoomSvg;
+    }
 
     row.appendChild(btn);
     row.appendChild(quickAction);

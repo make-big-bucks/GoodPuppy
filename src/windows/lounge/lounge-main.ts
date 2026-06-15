@@ -53,6 +53,10 @@ function initResizeHandle() {
 const supabase = createAppSupabaseClient();
 let activeRoomId: string | null = null;
 
+// Deferred resolvers for room transition promises
+let pendingEnterResolve: (() => void) | null = null;
+let pendingExitResolve: (() => void) | null = null;
+
 async function init() {
   const { data } = await supabase.auth.getSession();
   const selfAuthId = data.session?.user?.id || null;
@@ -62,12 +66,16 @@ async function init() {
     selfAuthId,
     getActiveRoomId: () => activeRoomId,
     onEnterRoom: (roomId: string) => {
-      void emit("lounge-hidden");
-      void getCurrentWindow().hide();
       void emit("switch-room", { roomId });
+      return new Promise<void>((resolve) => {
+        pendingEnterResolve = resolve;
+      });
     },
     onExitRoom: () => {
       void emit("exit-room");
+      return new Promise<void>((resolve) => {
+        pendingExitResolve = resolve;
+      });
     },
     onLoginSuccess: () => {
       void emit("auth-ready");
@@ -91,7 +99,25 @@ async function init() {
 
   listen<{ roomId?: string | null }>("active-room-changed", (event) => {
     activeRoomId = event.payload?.roomId || null;
-    refreshLoungePanelActiveRoom();
+
+    if (activeRoomId && pendingEnterResolve) {
+      // Room entry confirmed: resolve promise, then hide lounge
+      const resolve = pendingEnterResolve;
+      pendingEnterResolve = null;
+      resolve();
+      void emit("lounge-hidden");
+      void getCurrentWindow().hide();
+      // lounge.ts handleRoomTransition will call renderAll after resolve
+    } else if (!activeRoomId && pendingExitResolve) {
+      // Room exit confirmed: resolve promise
+      const resolve = pendingExitResolve;
+      pendingExitResolve = null;
+      resolve();
+      // lounge.ts handleRoomTransition will call renderAll after resolve
+    } else {
+      // No pending transition — refresh normally (e.g. request-active-room response)
+      refreshLoungePanelActiveRoom();
+    }
   });
 
   openLoungePanel();

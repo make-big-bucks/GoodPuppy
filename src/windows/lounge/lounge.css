@@ -1006,3 +1006,79 @@ textarea.lounge-input {
   background: #b04e2e;
   transform: translateY(-1px);
 }
+
+/* ── Toast ─────────────────────────────────────────────── */
+
+.lounge-toast-container {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  pointer-events: none;
+}
+
+.lounge-toast {
+  padding: 7px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: #333;
+  color: #fff;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  pointer-events: none;
+}
+
+.lounge-toast--visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.lounge-toast--error {
+  background: var(--danger);
+}
+
+.lounge-toast--success {
+  background: var(--green);
+}
+
+/* ── Spinner ────────────────────────────────────────────── */
+
+@keyframes gp-spin {
+  to { transform: rotate(360deg); }
+}
+
+.btn-spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: gp-spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+
+/* room-quick-action loading */
+.room-quick-action.is-pending {
+  display: flex;
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* lounge-enter-room loading */
+.lounge-enter-room.is-pending {
+  opacity: 0.65;
+  cursor: not-allowed;
+  pointer-events: none;
+}

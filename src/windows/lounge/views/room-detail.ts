@@ -1,6 +1,7 @@
 import { getRoomAction } from "../loungeViewModels.js";
 import { createPetAvatar } from "./pet-avatar.js";
 import type { LoungeRoom } from "../../../types";
+import type { PendingTransition } from "./room-list.js";
 
 const enterIconPaths = `<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><polyline points="10 17 15 12 10 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><line x1="15" y1="12" x2="3" y2="12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>`;
 const exitIconPaths = `<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><polyline points="16 17 21 12 16 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>`;
@@ -14,7 +15,12 @@ export function switchView(name: "detail" | "empty") {
   empty.hidden = isDetail;
 }
 
-export function renderRoomDetail(room: LoungeRoom | null, selfAuthId: string | null, activeRoomId: string | null = null) {
+export function renderRoomDetail(
+  room: LoungeRoom | null,
+  selfAuthId: string | null,
+  activeRoomId: string | null = null,
+  pendingTransition: PendingTransition | null = null,
+) {
   if (!room) {
     switchView("empty");
     return;
@@ -42,16 +48,35 @@ export function renderRoomDetail(room: LoungeRoom | null, selfAuthId: string | n
   }
 
   if (actionButton) {
-    const roomAction = getRoomAction(room.id, activeRoomId);
-    const isExit = roomAction.action === "exit";
-    actionButton.dataset.action = roomAction.action;
-    actionButton.classList.toggle("is-exit", isExit);
+    const isPending = pendingTransition?.roomId === room.id;
 
-    const svgEl = actionButton.querySelector("svg");
-    if (svgEl) svgEl.innerHTML = isExit ? exitIconPaths : enterIconPaths;
+    if (isPending) {
+      actionButton.disabled = true;
+      actionButton.classList.add("is-pending");
+      actionButton.classList.remove("is-exit");
+      actionButton.dataset.action = "";
 
-    const label = actionButton.querySelector<HTMLElement>(".lounge-enter-label");
-    if (label) label.textContent = roomAction.label;
+      const svgEl = actionButton.querySelector("svg");
+      if (svgEl) svgEl.innerHTML = "";
+
+      const label = actionButton.querySelector<HTMLElement>(".lounge-enter-label");
+      if (label) {
+        label.innerHTML = `<span class="btn-spinner" style="border-color:#fff;border-top-color:transparent;"></span>`;
+      }
+    } else {
+      const roomAction = getRoomAction(room.id, activeRoomId);
+      const isExit = roomAction.action === "exit";
+      actionButton.disabled = false;
+      actionButton.classList.remove("is-pending");
+      actionButton.dataset.action = roomAction.action;
+      actionButton.classList.toggle("is-exit", isExit);
+
+      const svgEl = actionButton.querySelector("svg");
+      if (svgEl) svgEl.innerHTML = isExit ? exitIconPaths : enterIconPaths;
+
+      const label = actionButton.querySelector<HTMLElement>(".lounge-enter-label");
+      if (label) label.textContent = roomAction.label;
+    }
   }
 
   if (members) {
