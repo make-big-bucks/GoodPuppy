@@ -340,14 +340,19 @@ pub fn run() {
                             }
                         }
                         "quit" => {
-                            // 通知 pet 窗口先做 presence 清理，再退出。
-                            // spawn 线程避免阻塞 tray 事件循环；2s 超时兜底崩溃/无响应场景。
+                            // 握手式退出：通知 JS 清理 presence，JS 完成后回 ack，Rust 立即退出。
+                            // 3s 超时兜底：网络异常或 JS 未响应时仍能正常关闭。
                             let app_handle = app.clone();
-                            std::thread::spawn(move || {
+                            thread::spawn(move || {
+                                let (tx, rx) = std::sync::mpsc::channel::<()>();
+                                let tx2 = tx.clone();
+                                app_handle.once("app-quit-ready", move |_| {
+                                    let _ = tx2.send(());
+                                });
                                 if let Some(pet) = app_handle.get_webview_window("pet") {
                                     let _ = pet.emit("app-before-quit", ());
                                 }
-                                std::thread::sleep(std::time::Duration::from_millis(2000));
+                                let _ = rx.recv_timeout(Duration::from_millis(3000));
                                 app_handle.exit(0);
                             });
                         }
