@@ -158,7 +158,7 @@ function renderAuthState(isLoggedIn: boolean) {
   document.querySelector<HTMLElement>(".profile-section")?.classList.toggle("is-unauth", !isLoggedIn);
 
   const sidebarActions = document.querySelector<HTMLElement>(".sidebar-actions");
-  if (sidebarActions) sidebarActions.hidden = true;
+  if (sidebarActions) sidebarActions.hidden = !isLoggedIn;
 
   const requestList = document.querySelector<HTMLElement>(".lounge-request-list");
   if (requestList && !isLoggedIn) requestList.hidden = true;
