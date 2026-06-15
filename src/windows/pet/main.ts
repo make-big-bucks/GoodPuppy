@@ -2,7 +2,7 @@ import "../../shared/bridge.js";
 import "../../shared/styles.css";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { exitCurrentRoom, getCurrentRoomId, startPetApp, switchRoom } from "./renderer.js";
+import { exitCurrentRoom, getCurrentRoomId, startPetApp, switchRoom, setOnRoomReadyCallback } from "./renderer.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
@@ -17,6 +17,14 @@ async function startFromStoredSession() {
 }
 
 if (inTauri) {
+  setOnRoomReadyCallback(() => {
+    if (getCurrentRoomId()) {
+      void getCurrentWindow().show();
+    } else {
+      void getCurrentWindow().hide();
+    }
+  });
+
   listen("pet-init", startFromStoredSession);
 
   startFromStoredSession().catch((error) => {
