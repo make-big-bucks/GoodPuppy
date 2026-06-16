@@ -4,6 +4,8 @@ import {
   sortByTime,
   buildMessageList,
   insertMessage,
+  trimMessages,
+  MAX_STACK_MESSAGES,
   canShowPrevious,
   canShowNext,
 } from "./messageLog.js";
@@ -74,6 +76,36 @@ describe("insertMessage", () => {
     const { messages, normalized } = insertMessage(history, { info: "" });
     expect(messages).toBe(history);
     expect(normalized).toBeNull();
+  });
+});
+
+describe("trimMessages", () => {
+  const make = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: String(i),
+      info: `m${i}`,
+      from: "u",
+      created_at: `2026-01-01T00:00:${String(i).padStart(2, "0")}Z`,
+    }));
+
+  it("keeps the list untouched when within capacity", () => {
+    const list = make(3);
+    expect(trimMessages(list, 5)).toBe(list);
+  });
+
+  it("keeps only the most recent (tail) entries when over capacity", () => {
+    const out = trimMessages(make(25), 20);
+    expect(out).toHaveLength(20);
+    expect(out[0].id).toBe("5");
+    expect(out[19].id).toBe("24");
+  });
+
+  it("defaults to MAX_STACK_MESSAGES capacity", () => {
+    expect(trimMessages(make(50))).toHaveLength(MAX_STACK_MESSAGES);
+  });
+
+  it("returns empty for a non-positive capacity", () => {
+    expect(trimMessages(make(3), 0)).toEqual([]);
   });
 });
 

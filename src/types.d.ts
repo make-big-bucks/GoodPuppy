@@ -32,8 +32,14 @@ export interface CursorPoint {
 export interface GoodPuppyBridge {
   getWindowPosition(): Promise<WindowPoint>;
   getWindowLayout(): Promise<WindowLayout>;
+  /** 宠物窗口当前所在显示器的可用区域（逻辑像素），用于气泡边缘翻转判定。 */
+  getMonitorWorkArea(): Promise<WindowPoint & WindowSize>;
   setWindowPosition(position: WindowPoint): void;
   setWindowSize(size: WindowSize): void;
+  /** 原子化设置窗口位置+尺寸（单次 IPC），避免增高/翻转时的闪烁跳动。 */
+  setWindowBounds(bounds: WindowPoint & WindowSize): void;
+  /** 让置顶面板成为 key window，使记号棒输入框可接收键盘输入；返回是否成为 key window。 */
+  setFocus(reason?: string): Promise<boolean>;
   /** 是否支持系统原生窗口拖拽；缺失时回退到手动跟随。 */
   supportsNativeWindowDrag(): boolean;
   /** 把本次手势交给系统接管（fire-and-forget）。 */

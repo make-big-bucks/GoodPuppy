@@ -1,218 +1,116 @@
-import { buildMessageList, insertMessage, canShowPrevious, canShowNext } from "./messageLog.js";
+import { buildMessageList, insertMessage, trimMessages } from "./messageLog.js";
 import type { LocalMessage } from "../../types";
 
-type BubbleCallbacks = {
+// 每只宠物（self / 各 remote）头上一个独立的、可滚动的气泡堆叠。
+// 同一窗口内多只宠物各自维护一份消息，DOM 节点挂在各自 .dog-area 的 .bubble-stack 内。
+// 最新消息始终是最后一个 .bubble 子节点，靠 CSS :last-child 画指向宠物头的小尾巴。
+
+type StackCallbacks = {
   onRefreshPassthrough: () => void;
-  onSubmitMessage: (info: string) => Promise<void>;
+  /** 任一堆叠显示/隐藏（影响窗口是否需要为气泡增高）时调用。 */
+  onVisibilityChange: () => void;
 };
 
-let bubbleEl: HTMLElement | null = null;
-let cbs: BubbleCallbacks = {
+let cbs: StackCallbacks = {
   onRefreshPassthrough: () => {},
-  onSubmitMessage: async () => {},
+  onVisibilityChange: () => {},
 };
-let messageHistory: LocalMessage[] = [];
-let messageIndex = -1;
-let isUnread = false;
 
-function getBubbleTextElement() {
-  return bubbleEl?.querySelector<HTMLElement>(".bubble-text") ?? null;
-}
-function getBubblePrevButton() {
-  return bubbleEl?.querySelector<HTMLButtonElement>(".bubble-prev") ?? null;
-}
-function getBubbleNextButton() {
-  return bubbleEl?.querySelector<HTMLButtonElement>(".bubble-next") ?? null;
-}
-function getBubbleAlert() {
-  return bubbleEl?.querySelector<HTMLElement>(".message-alert") ?? null;
-}
-function getBubbleComposer() {
-  return bubbleEl?.querySelector<HTMLFormElement>(".bubble-composer") ?? null;
-}
-function getBubbleInput() {
-  return bubbleEl?.querySelector<HTMLTextAreaElement>(".bubble-input") ?? null;
-}
-function getBubbleStatus() {
-  return bubbleEl?.querySelector<HTMLElement>(".bubble-status") ?? null;
-}
+// 每个 dog-area 对应的消息列表（按时间升序）。
+const messagesByArea = new WeakMap<HTMLElement, LocalMessage[]>();
 
-function setComposerStatus(message: string) {
-  const status = getBubbleStatus();
-  if (status) status.textContent = message || "";
-}
-
-function setBubbleText(text: string) {
-  const el = getBubbleTextElement();
-  if (el) el.textContent = text;
-}
-
-function updateBubbleNav() {
-  const prev = getBubblePrevButton();
-  const next = getBubbleNextButton();
-  if (prev) prev.disabled = !canShowPrevious(messageIndex);
-  if (next) next.disabled = !canShowNext(messageIndex, messageHistory.length);
-}
-
-function renderMessageAt(index: number, { markUnread = false }: { markUnread?: boolean } = {}) {
-  const message = messageHistory[index];
-  if (!message || !bubbleEl) {
-    updateBubbleNav();
-    return;
-  }
-  messageIndex = index;
-  setBubbleText(message.info);
-  bubbleEl.hidden = false;
-  setUnread(markUnread);
-  updateBubbleNav();
-  cbs.onRefreshPassthrough();
-}
-
-export function initMessageBubble(el: HTMLElement, callbacks: BubbleCallbacks) {
-  bubbleEl = el;
+export function initBubbleStacks(callbacks: StackCallbacks) {
   cbs = callbacks;
-
-  const composer = getBubbleComposer();
-  const cancelButton = bubbleEl.querySelector(".bubble-cancel");
-
-  composer?.addEventListener("submit", async (event: Event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const input = getBubbleInput();
-    const info = input?.value.trim();
-    if (!info) {
-      setComposerStatus("请先输入消息");
-      input?.focus();
-      return;
-    }
-    setComposerStatus("正在发送...");
-    try {
-      await cbs.onSubmitMessage(info);
-      setComposerStatus("");
-      closeComposer();
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      setComposerStatus(message || "发送失败");
-      getBubbleInput()?.focus();
-    }
-  });
-
-  cancelButton?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    closeComposer();
-  });
-
-  getBubblePrevButton()?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    showPreviousMessage();
-  });
-
-  getBubbleNextButton()?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    showNextMessage();
-  });
-
-  bubbleEl.querySelector<HTMLElement>(".bubble-compose")?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    openComposer();
-  });
-
-  getBubbleAlert()?.addEventListener("click", (event) => {
-    event.stopPropagation();
-  });
 }
 
-export function setLocalMessages(messages: Array<Partial<LocalMessage> | null | undefined>) {
-  const normalized = buildMessageList(messages);
-  messageHistory.length = 0;
-  messageHistory.push(...normalized);
-  if (normalized.length === 0) {
-    messageIndex = -1;
-    setBubbleText("");
-    setUnread(false);
-    updateBubbleNav();
+function getStackEl(area: HTMLElement): HTMLElement | null {
+  return area.querySelector<HTMLElement>(".bubble-stack");
+}
+
+/** 绑定某只宠物气泡堆叠的关闭按钮（hover 才浮现，点击仅隐藏不删消息）。 */
+export function mountStack(area: HTMLElement) {
+  const stack = getStackEl(area);
+  if (!stack) return;
+  if (!messagesByArea.has(area)) messagesByArea.set(area, []);
+  const closeBtn = stack.querySelector<HTMLButtonElement>(".bubble-close");
+  closeBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    dismissArea(area);
+  });
+  renderArea(area);
+}
+
+function renderArea(area: HTMLElement) {
+  const stack = getStackEl(area);
+  if (!stack) return;
+  const messages = messagesByArea.get(area) ?? [];
+  // 清掉旧气泡，保留关闭按钮。
+  stack.querySelectorAll(".bubble").forEach((el) => el.remove());
+
+  const dismissed = area.classList.contains("bubbles-dismissed");
+  if (messages.length === 0 || dismissed) {
+    stack.hidden = true;
+    cbs.onVisibilityChange();
+    cbs.onRefreshPassthrough();
     return;
   }
-  renderMessageAt(normalized.length - 1, { markUnread: false });
+
+  for (const message of messages) {
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.textContent = message.info;
+    stack.appendChild(bubble);
+  }
+  stack.hidden = false;
+  // 简单版：新消息总是滚到最新（最后一个 .bubble）。
+  stack.querySelector<HTMLElement>(".bubble:last-child")?.scrollIntoView({ block: "nearest" });
+  cbs.onVisibilityChange();
+  cbs.onRefreshPassthrough();
 }
 
-export function addLocalMessage(
-  message: Partial<LocalMessage> | null | undefined,
-  { markUnread = false }: { markUnread?: boolean } = {},
+export function setMessagesForArea(
+  area: HTMLElement,
+  messages: Array<Partial<LocalMessage> | null | undefined>,
 ) {
-  const { messages, normalized } = insertMessage(messageHistory, message);
+  messagesByArea.set(area, trimMessages(buildMessageList(messages)));
+  area.classList.remove("bubbles-dismissed");
+  renderArea(area);
+}
+
+export function addMessageToArea(area: HTMLElement, message: Partial<LocalMessage> | null | undefined) {
+  const history = messagesByArea.get(area) ?? [];
+  const { messages, normalized } = insertMessage(history, message);
   if (!normalized) return;
-  messageHistory.length = 0;
-  messageHistory.push(...messages);
-  renderMessageAt(messageHistory.length - 1, { markUnread });
+  messagesByArea.set(area, trimMessages(messages));
+  // 新消息到达：撤销「已关闭」状态，重新展开全部堆叠。
+  area.classList.remove("bubbles-dismissed");
+  renderArea(area);
 }
 
-export function setUnread(hasUnread: boolean) {
-  isUnread = hasUnread;
-  bubbleEl?.classList.toggle("has-unread", hasUnread);
+/** 隐藏该宠物堆叠（消息保留在内存，下一条新消息会重新展开）。 */
+export function dismissArea(area: HTMLElement) {
+  area.classList.add("bubbles-dismissed");
+  renderArea(area);
 }
 
-export function showPreviousMessage() {
-  if (canShowPrevious(messageIndex)) renderMessageAt(messageIndex - 1);
+/** 重新展开该宠物堆叠（撤销已关闭状态）。无消息时无可见效果。 */
+export function showArea(area: HTMLElement) {
+  area.classList.remove("bubbles-dismissed");
+  renderArea(area);
 }
 
-export function showNextMessage() {
-  if (canShowNext(messageIndex, messageHistory.length)) renderMessageAt(messageIndex + 1);
+export function clearArea(area: HTMLElement) {
+  messagesByArea.delete(area);
+  const stack = getStackEl(area);
+  stack?.querySelectorAll(".bubble").forEach((el) => el.remove());
+  if (stack) stack.hidden = true;
 }
 
-export function showMessageBubble() {
-  if (messageHistory.length === 0) return;
-  renderMessageAt(messageIndex >= 0 ? messageIndex : messageHistory.length - 1, {
-    markUnread: false,
-  });
+export function hasMessagesForArea(area: HTMLElement): boolean {
+  return (messagesByArea.get(area)?.length ?? 0) > 0;
 }
 
-export function closeMessageBubble() {
-  if (!bubbleEl || bubbleEl.hidden) return;
-  bubbleEl.hidden = true;
-  setUnread(false);
-  cbs.onRefreshPassthrough();
-}
-
-export function openComposer() {
-  if (!bubbleEl) return;
-  const composer = getBubbleComposer();
-  const input = getBubbleInput();
-  if (!composer || !input) return;
-  bubbleEl.hidden = false;
-  bubbleEl.classList.add("is-editing");
-  setUnread(false);
-  setComposerStatus("");
-  composer.hidden = false;
-  input.value = "";
-  input.focus();
-  cbs.onRefreshPassthrough();
-}
-
-export function closeComposer() {
-  if (!bubbleEl) return;
-  const composer = getBubbleComposer();
-  const input = getBubbleInput();
-  if (!composer || !input) return;
-  bubbleEl.classList.remove("is-editing");
-  composer.hidden = true;
-  setComposerStatus("");
-  input.value = "";
-  cbs.onRefreshPassthrough();
-}
-
-export function isComposerOpen(): boolean {
-  return bubbleEl?.classList.contains("is-editing") ?? false;
-}
-
-export function getBubbleElement(): HTMLElement | null {
-  return bubbleEl;
-}
-
-export function hasMessages(): boolean {
-  return messageHistory.length > 0;
-}
-
-export function isBubbleHidden(): boolean {
-  return bubbleEl == null || bubbleEl.hidden === true;
+/** 窗口内是否存在任一可见气泡（决定窗口要不要为气泡增高）。 */
+export function hasVisibleBubbles(): boolean {
+  return Boolean(document.querySelector(".bubble-stack:not([hidden]) .bubble"));
 }

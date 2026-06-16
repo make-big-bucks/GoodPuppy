@@ -1,7 +1,8 @@
 import { PetAnimator } from "./petState.js";
 import { loadPetManifest, durationFromManifest } from "./animationCatalog.js";
-import { getPetWindowLayout, orderRemotePetIds } from "./petLayout.js";
+import { orderRemotePetIds } from "./petLayout.js";
 import { applyStateToImage } from "./renderImage.js";
+import { mountStack, clearArea, showArea } from "./messageBubble.js";
 import type { PresenceUser } from "../../types";
 
 type RemotePetEntry = {
@@ -16,6 +17,8 @@ let selfAreaEl: HTMLElement | null = null;
 let getPetScale: () => number = () => 1;
 let onRefreshPassthrough: () => void = () => {};
 let onSelfGreet: () => void = () => {};
+let onRelayout: () => void = () => {};
+let onRemotePetCreated: (userId: string, area: HTMLElement) => void = () => {};
 
 const remotePetsMap = new Map<string, RemotePetEntry>();
 
@@ -33,12 +36,16 @@ export function initRemotePets(opts: {
   getPetScale: () => number;
   onRefreshPassthrough: () => void;
   onSelfGreet: () => void;
+  onRelayout: () => void;
+  onRemotePetCreated?: (userId: string, area: HTMLElement) => void;
 }) {
   petStageEl = opts.stage;
   selfAreaEl = opts.selfArea;
   getPetScale = opts.getPetScale;
   onRefreshPassthrough = opts.onRefreshPassthrough;
   onSelfGreet = opts.onSelfGreet;
+  onRelayout = opts.onRelayout;
+  onRemotePetCreated = opts.onRemotePetCreated ?? (() => {});
 }
 
 function createRemotePetElement(userId: string): HTMLElement {
@@ -48,21 +55,15 @@ function createRemotePetElement(userId: string): HTMLElement {
   section.dataset.userId = userId;
   section.setAttribute("aria-label", "Remote puppy");
   section.innerHTML = `
-    <div class="message-bubble" role="status" aria-live="polite" data-user="remote" hidden>
-      <span class="message-alert" aria-hidden="true">!</span>
-      <div class="bubble-content">
-        <div class="bubble-text"></div>
-        <div class="bubble-nav" aria-label="Message navigation">
-          <button class="bubble-nav-button bubble-prev" type="button" aria-label="Previous message">&lt;</button>
-          <button class="bubble-nav-button bubble-next" type="button" aria-label="Next message">&gt;</button>
-        </div>
-      </div>
+    <div class="bubble-stack" role="log" aria-live="polite" aria-label="Messages" data-user="remote" hidden>
+      <button class="bubble-close" type="button" aria-label="Close messages">&times;</button>
     </div>
     <img class="pet-image" data-user="remote" alt="Remote puppy" draggable="false" />
   `;
   const img = section.querySelector<HTMLImageElement>(".pet-image");
   img?.addEventListener("load", onRefreshPassthrough);
   petStageEl?.appendChild(section);
+  mountStack(section);
   return section;
 }
 
@@ -72,13 +73,18 @@ export function relayoutRemotePets() {
     remotePetsMap.get(userId)?.element.style.setProperty("--pet-index", String(index + 1));
   });
   selfAreaEl?.style.setProperty("--pet-index", "0");
-  window.goodPuppy.setWindowSize(getPetWindowLayout(ids.length, getPetScale()));
-  onRefreshPassthrough();
+  // 窗口尺寸由 renderer 的布局编排统一处理（需同时考虑气泡纵向空间）。
+  onRelayout();
+}
+
+export function getRemotePetCount(): number {
+  return remotePetsMap.size;
 }
 
 export function clearRemotePets() {
   for (const entry of remotePetsMap.values()) {
     if (entry.removeTimer != null) clearTimeout(entry.removeTimer);
+    clearArea(entry.element);
     entry.animator.destroy();
     entry.element.remove();
   }
@@ -97,6 +103,7 @@ function createRemotePet(userId: string, info: PresenceUser): RemotePetEntry {
   loadPetManifest(info.petId).then((manifest) => animator.setManifest(manifest));
   const entry: RemotePetEntry = { element, animator, leaving: false, removeTimer: null };
   remotePetsMap.set(userId, entry);
+  onRemotePetCreated(userId, element);
   return entry;
 }
 
@@ -110,6 +117,7 @@ export function applyPresence(users: PresenceUser[]) {
     entry.animator.playTransient("leave");
     const ms = durationFromManifest(entry.animator.manifest?.states?.["leave"]);
     entry.removeTimer = setTimeout(() => {
+      clearArea(entry.element);
       entry.animator.destroy();
       entry.element.remove();
       remotePetsMap.delete(userId);
@@ -165,12 +173,15 @@ export function animatorForRemoteUser(userId: string): PetAnimator | null {
   return remotePetsMap.get(userId)?.animator ?? null;
 }
 
+/** 取某远程宠物的 dog-area（用于把其主人的消息路由到该宠物头上的堆叠）。 */
+export function getRemotePetArea(userId: string): HTMLElement | null {
+  return remotePetsMap.get(userId)?.element ?? null;
+}
+
+/** 远程右键「查看状态」：重新展开该宠物已被关闭的消息堆叠。 */
 export function showRemoteBubble(userId: string) {
-  const element = remotePetsMap.get(userId)?.element;
-  const bubble = element?.querySelector<HTMLElement>(".message-bubble");
-  const text = bubble?.querySelector<HTMLElement>(".bubble-text");
-  if (!bubble || !text) return;
-  text.textContent = "在线";
-  bubble.hidden = false;
+  const area = remotePetsMap.get(userId)?.element;
+  if (!area) return;
+  showArea(area);
   onRefreshPassthrough();
 }

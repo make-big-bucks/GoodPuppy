@@ -60,6 +60,8 @@ npm run tauri build
 - 项目需同时支持 macOS 与 Windows。开发新功能、修 bug 时必须考虑双平台兼容，Rust 侧平台差异用 `#[cfg(target_os = ...)]` 隔离，前端避免依赖仅 macOS 可用的系统行为。
 - Supabase 表结构、RLS、房间/成员关系改动必须同步更新 `docs/database.md`，必要时新增 ADR。
 - 涉及数据库结构调整或数据查询时，优先通过 Supabase MCP 插件获取真实 schema 与数据状态，不要仅凭 `docs/database.md` 推断。若 MCP 插件未连接，先提示用户在开启 Supabase 集成，再继续操作。
+- 涉及第三方库、框架、SDK、CLI 或云服务的 API、配置、版本迁移等问题时，优先通过 Context7 MCP 获取官方最新文档，不要仅凭训练数据作答。
+- Context7 仅用于查官方文档；重构、从零写脚本、调试业务逻辑、代码评审等不依赖外部文档的任务无需调用。
 
 ## 测试与验证
 

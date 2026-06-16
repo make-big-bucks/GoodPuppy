@@ -4,9 +4,9 @@ const joinRoom = vi.fn();
 const leaveRoom = vi.fn();
 const joinInteractions = vi.fn();
 const leaveInteractions = vi.fn();
-const fetchSelfMessages = vi.fn();
-const subscribeToSelfMessages = vi.fn();
-const unsubscribeSelfMessages = vi.fn();
+const fetchRoomMessages = vi.fn();
+const subscribeToRoomMessages = vi.fn();
+const unsubscribeRoomMessages = vi.fn();
 
 vi.mock("./presence.js", () => ({
   joinRoom,
@@ -18,10 +18,10 @@ vi.mock("./interactions.js", () => ({
   leaveInteractions,
 }));
 
-vi.mock("./selfMessages.js", () => ({
-  fetchSelfMessages,
-  subscribeToSelfMessages,
-  unsubscribeSelfMessages,
+vi.mock("./roomMessages.js", () => ({
+  fetchRoomMessages,
+  subscribeToRoomMessages,
+  unsubscribeRoomMessages,
 }));
 
 function createQuery(result: unknown) {
@@ -71,13 +71,13 @@ describe("roomManager", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    fetchSelfMessages.mockResolvedValue([]);
-    subscribeToSelfMessages.mockResolvedValue(undefined);
+    fetchRoomMessages.mockResolvedValue([]);
+    subscribeToRoomMessages.mockResolvedValue(undefined);
     joinRoom.mockResolvedValue(undefined);
     leaveRoom.mockResolvedValue(undefined);
     joinInteractions.mockResolvedValue(undefined);
     leaveInteractions.mockResolvedValue(undefined);
-    unsubscribeSelfMessages.mockResolvedValue(undefined);
+    unsubscribeRoomMessages.mockResolvedValue(undefined);
   });
 
   it("does not auto-activate a membership when no active room is stored", async () => {

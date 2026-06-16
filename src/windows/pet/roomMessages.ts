@@ -11,6 +11,9 @@ type MessageInsert = {
 
 let messagesChannel: RealtimeChannel | null = null;
 
+// 拉取的房间历史上限；按发送者分组后每只宠物再裁剪到 MAX_STACK_MESSAGES。
+const ROOM_HISTORY_LIMIT = 120;
+
 function msgToLocal(msg: MessageInsert): LocalMessage {
   return {
     id: msg.id,
@@ -20,27 +23,26 @@ function msgToLocal(msg: MessageInsert): LocalMessage {
   };
 }
 
-export async function fetchSelfMessages(
+/** 拉取房间内最近的文本消息（所有成员），升序返回。由调用方按 sender 分组到各宠物。 */
+export async function fetchRoomMessages(
   supabase: SupabaseClient,
   roomId: string,
-  selfAuthId: string,
 ): Promise<LocalMessage[]> {
   const { data, error } = await supabase
     .from("messages")
     .select("id, content, created_at, sender_id, kind")
     .eq("room_id", roomId)
-    .eq("sender_id", selfAuthId)
     .eq("kind", "text")
     .order("created_at", { ascending: false })
-    .limit(5);
+    .limit(ROOM_HISTORY_LIMIT);
   if (error) throw error;
-  return (data || []).map(msgToLocal);
+  return (data || []).map(msgToLocal).reverse();
 }
 
-export async function subscribeToSelfMessages(
+/** 订阅房间内所有成员的文本消息 INSERT；由调用方按 sender 路由到对应宠物头上。 */
+export async function subscribeToRoomMessages(
   supabase: SupabaseClient,
   roomId: string,
-  selfAuthId: string,
   onMessage: (msg: LocalMessage) => void,
 ): Promise<void> {
   if (messagesChannel) {
@@ -48,7 +50,7 @@ export async function subscribeToSelfMessages(
     messagesChannel = null;
   }
   messagesChannel = supabase
-    .channel("self-messages-" + roomId)
+    .channel("room-messages-" + roomId)
     .on(
       "postgres_changes",
       {
@@ -59,14 +61,13 @@ export async function subscribeToSelfMessages(
       },
       (payload) => {
         if (payload.new?.kind !== "text") return;
-        const msg = msgToLocal(payload.new as MessageInsert);
-        if (msg.from === selfAuthId) onMessage(msg);
+        onMessage(msgToLocal(payload.new as MessageInsert));
       },
     )
     .subscribe();
 }
 
-export async function unsubscribeSelfMessages(supabase: SupabaseClient): Promise<void> {
+export async function unsubscribeRoomMessages(supabase: SupabaseClient): Promise<void> {
   if (messagesChannel) {
     await supabase.removeChannel(messagesChannel);
     messagesChannel = null;

@@ -14,9 +14,30 @@ use tauri::{
 };
 
 #[cfg(target_os = "macos")]
-use objc2::ClassType;
+use objc2::{define_class, ClassType};
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{NSPanel, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowStyleMask};
+
+// A borderless (decorationless) NSPanel returns NO from -canBecomeKeyWindow by
+// default, so makeKeyAndOrderFront cannot make it key and its HTML text inputs
+// never receive keystrokes. Subclass NSPanel and force -canBecomeKeyWindow to
+// YES. The subclass adds no ivars, so swapping an existing NSWindow instance to
+// it via object_setClass keeps the instance layout identical (same trick used
+// for the NSPanel class swap). Being a subclass of NSPanel, isKindOfClass:
+// [NSPanel class] still returns YES, preserving the fullscreen-Space behavior.
+#[cfg(target_os = "macos")]
+define_class!(
+    #[unsafe(super(NSPanel))]
+    #[name = "GoodPuppyPanel"]
+    struct GoodPuppyPanel;
+
+    impl GoodPuppyPanel {
+        #[unsafe(method(canBecomeKeyWindow))]
+        fn can_become_key_window(&self) -> bool {
+            true
+        }
+    }
+);
 
 // NSPopUpMenuWindowLevel (101) — the same level Electron uses for always-on-top panel windows.
 // Appearing above fullscreen apps is determined by FullScreenAuxiliary collection behavior, not
@@ -192,7 +213,7 @@ fn configure_macos_overlay_level<R: Runtime>(window: &WebviewWindow<R>) {
     // add NSWindowStyleMaskNonactivatingPanel on an NSWindow subclass), except we go one step
     // further and make isKindOfClass:[NSPanel class] return YES.
     unsafe {
-        let panel_class = <NSPanel as ClassType>::class();
+        let panel_class = GoodPuppyPanel::class();
         objc2::ffi::object_setClass(
             ns_window as *const NSWindow as *mut objc2::runtime::AnyObject,
             panel_class,
@@ -315,9 +336,96 @@ fn spawn_cursor_monitor(app: &tauri::App) {
     });
 }
 
+/// Resize and reposition a window atomically (single IPC round-trip → single
+/// runloop tick → one paint). Setting size and position via two separate JS
+/// calls lets the compositor paint an intermediate frame with mismatched
+/// geometry, which shows as the window flashing/jumping when the bubble stack
+/// or compose stick grows the pet window upward. Size first, then position last
+/// pins the final top-left on both macOS and Windows.
+#[tauri::command]
+fn set_window_bounds(
+    window: WebviewWindow,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    // macOS: a single -[NSWindow setFrame:display:] call. Doing set_size +
+    // set_position separately flashes when the stack grows the window upward:
+    // -setContentSize: keeps the TOP-LEFT fixed (window grows DOWNWARD, moving
+    // the bottom-anchored pet down), then -setFrameOrigin: moves it back — the
+    // compositor catches that two-step. setFrame: applies the final geometry in
+    // one shot with the Cocoa bottom-left origin anchored, so the pet never moves.
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::MainThreadMarker;
+        use objc2_app_kit::NSScreen;
+        use objc2_foundation::{NSPoint, NSRect, NSSize};
+
+        let win = window.clone();
+        return window
+            .run_on_main_thread(move || {
+                let Ok(ns_window_ptr) = win.ns_window() else {
+                    return;
+                };
+                let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
+                // Primary screen (Cocoa global origin = its bottom-left).
+                let Some(mtm) = MainThreadMarker::new() else {
+                    return;
+                };
+                let primary_height = NSScreen::screens(mtm)
+                    .firstObject()
+                    .map(|screen| screen.frame().size.height)
+                    .unwrap_or(0.0);
+                // Tauri logical coords: origin at primary's TOP-left, Y down.
+                // Cocoa: origin at primary's BOTTOM-left, Y up.
+                let cocoa_y = primary_height - (y + height);
+                let frame = NSRect::new(NSPoint::new(x, cocoa_y), NSSize::new(width, height));
+                ns_window.setFrame_display(frame, true);
+            })
+            .map_err(|e| e.to_string());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        use tauri::{LogicalPosition, LogicalSize};
+        let win = window.clone();
+        window
+            .run_on_main_thread(move || {
+                let _ = win.set_size(LogicalSize::new(width, height));
+                let _ = win.set_position(LogicalPosition::new(x, y));
+            })
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// Make the pet panel the key window so its HTML text inputs (the compose
+/// stick's textarea) can receive keyboard events. The panel is a nonactivating
+/// NSPanel, so this grabs key status WITHOUT activating the app (Spotlight
+/// style). Returns whether the panel actually became key — used both to fix
+/// input focus and as a diagnostic. Must run AFTER any native menu has fully
+/// dismissed, otherwise the menu teardown resigns key again.
+#[tauri::command]
+fn focus_pet_panel(window: WebviewWindow) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let Ok(ns_window_ptr) = window.ns_window() else {
+            return false;
+        };
+        let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
+        ns_window.makeKeyAndOrderFront(None);
+        ns_window.isKeyWindow()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        window.set_focus().is_ok()
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![set_window_bounds, focus_pet_panel])
         .setup(|app| {
             configure_macos_app_activation_policy(app);
             if let Some(window) = app.get_webview_window("main") {

@@ -1,10 +1,10 @@
 import * as presence from "./presence.js";
 import { joinInteractions, leaveInteractions } from "./interactions.js";
 import {
-  fetchSelfMessages,
-  subscribeToSelfMessages,
-  unsubscribeSelfMessages,
-} from "./selfMessages.js";
+  fetchRoomMessages,
+  subscribeToRoomMessages,
+  unsubscribeRoomMessages,
+} from "./roomMessages.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Session } from "@supabase/supabase-js";
 import type { InteractionPayload, LocalMessage, PetStatus, PresenceUser } from "../../types";
@@ -111,11 +111,9 @@ async function activateRoom(roomId: string): Promise<void> {
 
   try {
     if (activeSupabase && selfAuthId) {
-      const messages = await fetchSelfMessages(activeSupabase, roomId, selfAuthId);
+      const messages = await fetchRoomMessages(activeSupabase, roomId);
       callbacks.onMessagesLoaded(messages);
-      await subscribeToSelfMessages(activeSupabase, roomId, selfAuthId, (msg) =>
-        callbacks!.onNewMessage(msg),
-      );
+      await subscribeToRoomMessages(activeSupabase, roomId, (msg) => callbacks!.onNewMessage(msg));
     }
   } catch (error) {
     console.error(error);
@@ -201,7 +199,7 @@ export async function exitCurrentRoom(): Promise<void> {
   await leaveInteractions();
   await presence.leaveRoom();
   await markPresenceNotInRoom();
-  if (activeSupabase) await unsubscribeSelfMessages(activeSupabase);
+  if (activeSupabase) await unsubscribeRoomMessages(activeSupabase);
   currentRoomId = null;
   callbacks?.onClearRemotePets();
 }

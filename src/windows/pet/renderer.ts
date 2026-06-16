@@ -4,26 +4,37 @@ import { isPointOpaqueInImage } from "./hitTesting.js";
 import { applyStateToImage } from "./renderImage.js";
 import { startNativeWindowDragWithLift } from "./petDrag.js";
 import * as presence from "./presence.js";
-import { clampPetScale, stepPetScale, DEFAULT_PET_SCALE, MIN_PET_SCALE, MAX_PET_SCALE } from "./petLayout.js";
+import {
+  clampPetScale,
+  stepPetScale,
+  DEFAULT_PET_SCALE,
+  MIN_PET_SCALE,
+  MAX_PET_SCALE,
+  PET_WINDOW_HEIGHT,
+  getBubbleWindowLayout,
+  computeWindowTop,
+  petAnchorBottomY,
+  shouldFlipStack,
+} from "./petLayout.js";
 import { readStoredSkin, writeStoredSkin, readStoredScale, writeStoredScale } from "./preferences.js";
 import {
-  initMessageBubble,
-  setLocalMessages,
-  addLocalMessage,
-  showMessageBubble,
-  closeMessageBubble,
-  openComposer,
-  closeComposer,
-  isComposerOpen,
-  getBubbleElement,
-  hasMessages,
+  initBubbleStacks,
+  mountStack,
+  setMessagesForArea,
+  addMessageToArea,
+  showArea,
+  hasMessagesForArea,
+  hasVisibleBubbles,
 } from "./messageBubble.js";
+import { initComposeStick, openComposeStick, isComposeOpen, getComposeStickElement } from "./composeStick.js";
 import {
   initRemotePets,
   applyPresence,
   clearRemotePets,
   relayoutRemotePets,
   getPetIdentityForEvent,
+  getRemotePetArea,
+  getRemotePetCount,
   showRemoteBubble,
 } from "./remotePets.js";
 import { initPetInteractions, applyInteraction, triggerInteraction } from "./petInteractions.js";
@@ -37,7 +48,7 @@ import {
   switchRoom,
   exitCurrentRoom,
 } from "./roomManager.js";
-import type { PetStatus, WindowPoint } from "../../types";
+import type { LocalMessage, PetStatus, WindowPoint } from "../../types";
 
 export { startPetApp, switchRoom, getCurrentRoomId, exitCurrentRoom };
 
@@ -50,7 +61,6 @@ type PointerPoint = { x: number; y: number };
 type HoverEventLike = { clientX: number; clientY: number; target: EventTarget | null };
 
 const petStage = document.querySelector<HTMLElement>(".pet-stage");
-const cloudHitImage = new Image();
 const hitCanvas = document.createElement("canvas");
 const hitContext = hitCanvas.getContext("2d", { willReadFrequently: true });
 const alphaHitThreshold = 16;
@@ -59,9 +69,7 @@ const supportsNativeWindowDrag = window.goodPuppy.supportsNativeWindowDrag();
 
 const petImage = document.querySelector<HTMLImageElement>('.pet-image[data-user="self"]');
 const selfArea = document.querySelector<HTMLElement>('.dog-area[data-user="self"]');
-const selfBubble = document.querySelector<HTMLElement>('.message-bubble[data-user="self"]');
-
-selfBubble?.classList.add("is-owned");
+const selfComposeStick = document.querySelector<HTMLElement>('.compose-stick[data-user="self"]');
 
 let selfPetId = "default";
 let selfSkin = readStoredSkin();
@@ -70,11 +78,19 @@ let petScale = readStoredScale();
 let pointerStart: PointerPoint | null = null;
 let windowStart: WindowPoint | null = null;
 let isDragging = false;
-let bubblePointerStart = false;
 let isIgnoringMouseEvents = false;
 let lastPointerEvent: HoverEventLike | null = null;
 let dragLiftTimer: ReturnType<typeof setTimeout> | null = null;
 let isNativeDragging = false;
+
+// 上一次应用的窗口纵向布局，用于反推宠物锚点（保证增高/翻转时宠物视觉不动）。
+let currentLayout = { height: Math.round(PET_WINDOW_HEIGHT * petScale), belowWin: 0 };
+let layoutPending = false;
+let layoutQueued = false;
+
+// 房间最近消息缓存：远程宠物晚于消息加载时入场，可据此补齐其头上堆叠。
+let roomMessageCache: LocalMessage[] = [];
+const ROOM_CACHE_LIMIT = 200;
 
 // ── Self pet animator ─────────────────────────────────────────
 
@@ -102,7 +118,6 @@ loadPetManifest(selfPetId).then((manifest) => {
   selfAnimator.playTransient("enter");
 });
 
-cloudHitImage.src = "/img/cloud_transparent.png";
 applyPetScale();
 selfArea?.style.setProperty("--pet-index", "0");
 petStage?.classList.remove("is-initializing");
@@ -123,15 +138,152 @@ function setSelfSkin(skin: string | null | undefined) {
   presence.updateLocalPresence({ skin: next }).catch(console.error);
 }
 
+// ── Message routing ───────────────────────────────────────────
+
+function cacheMessage(msg: LocalMessage) {
+  if (roomMessageCache.some((m) => m.id === msg.id)) return;
+  roomMessageCache.push(msg);
+  if (roomMessageCache.length > ROOM_CACHE_LIMIT) {
+    roomMessageCache = roomMessageCache.slice(roomMessageCache.length - ROOM_CACHE_LIMIT);
+  }
+}
+
+function areaForSender(senderId: string): HTMLElement | null {
+  if (senderId === getSelfAuthId()) return selfArea;
+  return getRemotePetArea(senderId);
+}
+
+/** 路由单条消息到对应宠物头上的堆叠（发送者未在房间渲染时忽略）。 */
+function routeMessage(msg: LocalMessage) {
+  cacheMessage(msg);
+  const area = areaForSender(msg.from);
+  if (area) addMessageToArea(area, msg);
+}
+
+/** 房间历史载入：缓存全部，并按发送者分组渲染到各宠物堆叠。 */
+function loadRoomMessages(messages: LocalMessage[]) {
+  roomMessageCache = messages.slice(-ROOM_CACHE_LIMIT);
+  const bySender = new Map<string, LocalMessage[]>();
+  for (const m of messages) {
+    const list = bySender.get(m.from) ?? [];
+    list.push(m);
+    bySender.set(m.from, list);
+  }
+  for (const [sender, list] of bySender) {
+    const area = areaForSender(sender);
+    if (area) setMessagesForArea(area, list);
+  }
+}
+
+// ── Window layout (dynamic height + edge-aware flip) ──────────
+
+/**
+ * 统一编排宠物窗口尺寸：水平随宠物数量、纵向随气泡有无增高，顶部空间不足时翻转，
+ * 并补偿窗口位置使宠物视觉位置保持不变。串行化以避免并发的尺寸/位置竞争。
+ */
+let layoutSeq = 0;
+async function applyWindowLayout(reason = "?") {
+  if (layoutPending) {
+    layoutQueued = true;
+    console.log(`[layout] coalesced (busy) reason=${reason}`);
+    return;
+  }
+  layoutPending = true;
+  const seq = ++layoutSeq;
+  try {
+    const hasBubbles = hasVisibleBubbles() || isComposeOpen();
+    const scale = petScale;
+    const pos = await window.goodPuppy.getWindowPosition();
+    const anchor = petAnchorBottomY(pos.y, currentLayout);
+
+    let flipped = false;
+    let workTop: number | null = null;
+    if (hasBubbles) {
+      const work = await window.goodPuppy.getMonitorWorkArea();
+      workTop = work.y;
+      flipped = shouldFlipStack({ anchorBottomY: anchor, scale, workAreaTop: work.y });
+    }
+
+    const layout = getBubbleWindowLayout({
+      remotePetCount: getRemotePetCount(),
+      scale,
+      hasBubbles,
+      flipped,
+    });
+    const top = computeWindowTop(anchor, layout);
+
+    console.log(
+      `[layout] #${seq} reason=${reason} ` +
+        JSON.stringify({
+          hasBubbles,
+          scale,
+          posY: pos.y,
+          curH: currentLayout.height,
+          curBelow: currentLayout.belowWin,
+          anchor,
+          workTop,
+          flipped,
+          newTop: top,
+          newH: layout.height,
+          newBelow: layout.belowWin,
+        }),
+    );
+
+    document.documentElement.style.setProperty("--stack-below", `${layout.belowWin}px`);
+    petStage?.classList.toggle("is-flipped", flipped);
+
+    window.goodPuppy.setWindowBounds({ x: pos.x, y: top, width: layout.width, height: layout.height });
+    currentLayout = { height: layout.height, belowWin: layout.belowWin };
+    refreshMousePassthrough();
+
+    // DIAGNOSTIC: read back where the window actually came to rest, twice, to
+    // catch the OS clamping/moving it after we set the bounds (which would show
+    // as a flash). wanted == settled means our set stuck.
+    const wantedTop = top;
+    requestAnimationFrame(async () => {
+      const s1 = await window.goodPuppy.getWindowPosition();
+      requestAnimationFrame(async () => {
+        const s2 = await window.goodPuppy.getWindowPosition();
+        console.log(`[layout] #${seq} settled posY: wanted=${wantedTop} frame1=${s1.y} frame2=${s2.y}`);
+      });
+    });
+  } catch (error) {
+    console.error("applyWindowLayout failed:", error);
+  } finally {
+    layoutPending = false;
+    if (layoutQueued) {
+      layoutQueued = false;
+      void applyWindowLayout("queued");
+    }
+  }
+}
+
 // ── Module initialization ─────────────────────────────────────
 
+initBubbleStacks({
+  onRefreshPassthrough: refreshMousePassthrough,
+  onVisibilityChange: () => {
+    void applyWindowLayout("bubble-visibility");
+  },
+});
+
 if (petStage && selfArea) {
+  mountStack(selfArea);
   initRemotePets({
     stage: petStage,
     selfArea,
     getPetScale: () => petScale,
     onRefreshPassthrough: refreshMousePassthrough,
     onSelfGreet: () => selfAnimator.playTransient("greet"),
+    onRelayout: () => {
+      void applyWindowLayout("remote-relayout");
+    },
+    onRemotePetCreated: (userId, area) => {
+      setMessagesForArea(
+        area,
+        roomMessageCache.filter((m) => m.from === userId),
+      );
+    },
   });
 }
 
@@ -140,26 +292,27 @@ initPetInteractions({
   getSelfAnimator: () => selfAnimator,
 });
 
-if (selfBubble) {
-  initMessageBubble(selfBubble, {
+if (selfComposeStick) {
+  initComposeStick(selfComposeStick, {
     onRefreshPassthrough: refreshMousePassthrough,
+    onVisibilityChange: () => {
+      void applyWindowLayout("compose-visibility");
+    },
     onSubmitMessage: async (info) => {
       const supabase = getActiveSupabase();
       const authId = getSelfAuthId();
       const roomId = getCurrentRoomId();
       if (!supabase || !authId || !roomId) throw new Error("请先登录");
-      const { error } = await supabase.from("messages").insert({
+      const { data, error } = await supabase.from("messages").insert({
         room_id: roomId,
         sender_id: authId,
         kind: "text",
         content: info,
-      });
+      }).select("id, created_at").single();
       if (error) throw error;
       selfAnimator.playTransient("message");
-      addLocalMessage(
-        { id: `local-${Date.now()}`, info, from: authId, created_at: new Date().toISOString() },
-        { markUnread: false },
-      );
+      // 用数据库返回的真实 ID 立即路由，realtime 事件抵达时 insertMessage 按 ID 去重，避免重复。
+      routeMessage({ id: data.id, info, from: authId, created_at: data.created_at });
     },
   });
 }
@@ -167,8 +320,8 @@ if (selfBubble) {
 initRoomManager({
   onPresenceChange: applyPresence,
   onInteraction: applyInteraction,
-  onMessagesLoaded: (messages) => setLocalMessages(messages),
-  onNewMessage: (msg) => addLocalMessage(msg, { markUnread: false }),
+  onMessagesLoaded: (messages) => loadRoomMessages(messages),
+  onNewMessage: (msg) => routeMessage(msg),
   onRoomReady: () => {
     petStage?.classList.remove("is-initializing");
     refreshMousePassthrough();
@@ -218,15 +371,6 @@ function isPetOpaqueAt(event: HoverEventLike) {
   });
 }
 
-function isBubbleOpaqueAt(event: HoverEventLike) {
-  const bubble = getBubbleForPoint(event);
-  if (!bubble || bubble.hidden) return false;
-  return isPointOpaqueInImage(event, bubble, cloudHitImage, hitContext, hitCanvas, {
-    alphaThreshold: alphaHitThreshold,
-    hitSlop: alphaHitSlop,
-  });
-}
-
 function isPointInsideElement(event: HoverEventLike, element: HTMLElement) {
   const rect = element.getBoundingClientRect();
   return (
@@ -237,33 +381,17 @@ function isPointInsideElement(event: HoverEventLike, element: HTMLElement) {
   );
 }
 
-function getBubbleForPoint(event: HoverEventLike) {
-  const targetBubble = closestFromEvent<HTMLElement>(event, ".message-bubble");
-  if (targetBubble && !targetBubble.hidden && isPointInsideElement(event, targetBubble)) {
-    return targetBubble;
-  }
-  return (
-    [...document.querySelectorAll<HTMLElement>(".message-bubble:not([hidden])")].find((bubble) =>
-      isPointInsideElement(event, bubble),
-    ) || null
-  );
-}
+const BUBBLE_REGION_SELECTOR = ".bubble-stack:not([hidden]), .compose-stick:not([hidden])";
 
-function isBubbleControlAt(event: HoverEventLike) {
-  const bubble = getBubbleForPoint(event);
-  if (!bubble) return false;
-  return [...bubble.querySelectorAll<HTMLElement>("button, textarea, input")].some((control) =>
-    isPointInsideElement(event, control),
+/** 命中任一可见气泡堆叠 / 记号棒区域（代码绘制气泡用矩形包围盒，不再按图 alpha 采样）。 */
+function isBubbleRegionAt(event: HoverEventLike) {
+  return [...document.querySelectorAll<HTMLElement>(BUBBLE_REGION_SELECTOR)].some((region) =>
+    isPointInsideElement(event, region),
   );
 }
 
 function isInteractiveAt(event: HoverEventLike) {
-  const bubble = getBubbleForPoint(event);
-  if (isBubbleControlAt(event)) return true;
-  if (isComposerOpen() && bubble) return true;
-  if (bubble) return true;
-  if (document.querySelector(".message-bubble:not([hidden])") && isBubbleOpaqueAt(event))
-    return true;
+  if (isBubbleRegionAt(event)) return true;
   return isPetOpaqueAt(event);
 }
 
@@ -275,7 +403,7 @@ function setMousePassthrough(shouldPassThrough: boolean) {
 
 function updateMousePassthrough(event: HoverEventLike) {
   lastPointerEvent = event;
-  if (pointerStart || bubblePointerStart) {
+  if (pointerStart) {
     setMousePassthrough(false);
     return;
   }
@@ -291,7 +419,7 @@ function refreshMousePassthrough() {
 
 document.addEventListener("mousemove", updateMousePassthrough);
 document.addEventListener("mouseleave", () => {
-  if (!pointerStart && !bubblePointerStart) setMousePassthrough(true);
+  if (!pointerStart) setMousePassthrough(true);
 });
 
 window.goodPuppy.onCursorMoved((point) => {
@@ -338,29 +466,39 @@ async function showPetContextMenu(event: MouseEvent) {
     selfSkin,
     petScale,
     manifest: selfAnimator.manifest,
-    hasMessages: hasMessages(),
-    onShowMessage: showMessageBubble,
-    onWriteMessage: openComposer,
+    hasMessages: selfArea ? hasMessagesForArea(selfArea) : false,
+    onShowMessage: () => {
+      if (selfArea) showArea(selfArea);
+    },
+    onWriteMessage: openComposeStick,
     onSetStatus: setSelfStatus,
     onSetSkin: setSelfSkin,
     onSetScale: setPetScale,
   });
+
+  // The "写消息" action fires inside the native menu's nested event loop; the
+  // menu teardown resigns the panel's key status right after. Re-assert key +
+  // input focus on the next frame, once the menu has fully dismissed, so the
+  // compose textarea can actually receive keystrokes.
+  if (isComposeOpen()) {
+    requestAnimationFrame(() => {
+      void window.goodPuppy.setFocus("post-menu-raf");
+      getComposeStickElement()
+        ?.querySelector<HTMLTextAreaElement>(".compose-input")
+        ?.focus();
+    });
+  }
 }
 
 petStage?.addEventListener("pointerdown", async (event: PointerEvent) => {
   setMousePassthrough(false);
   if (event.button !== 0) return;
-  if (targetElement(event.target)?.closest(".bubble-composer")) return;
-  if (targetElement(event.target)?.closest(".bubble-nav")) return;
-  if (targetElement(event.target)?.closest(".bubble-text")) return;
-
-  if (isBubbleOpaqueAt(event)) {
-    bubblePointerStart = true;
-    pointerStart = null;
-    windowStart = null;
-    isDragging = false;
+  // 气泡堆叠 / 记号棒区域：交给其内部控件与滚动，不触发窗口拖拽。
+  if (
+    targetElement(event.target)?.closest(".bubble-stack") ||
+    targetElement(event.target)?.closest(".compose-stick")
+  )
     return;
-  }
 
   if (!isPetOpaqueAt(event)) return;
 
@@ -388,13 +526,11 @@ petStage?.addEventListener("pointerdown", async (event: PointerEvent) => {
 
 petStage?.addEventListener("contextmenu", (event: MouseEvent) => {
   if (
-    targetElement(event.target)?.closest(".bubble-composer") ||
-    targetElement(event.target)?.closest(".bubble-nav") ||
-    targetElement(event.target)?.closest(".bubble-text")
+    targetElement(event.target)?.closest(".bubble-stack") ||
+    targetElement(event.target)?.closest(".compose-stick")
   )
     return;
   event.preventDefault();
-  if (isBubbleOpaqueAt(event)) return;
   if (!isPetOpaqueAt(event)) return;
   showPetContextMenu(event).catch(console.error);
 });
@@ -414,17 +550,7 @@ petStage?.addEventListener("pointermove", (event: PointerEvent) => {
 });
 
 petStage?.addEventListener("pointerup", (event: PointerEvent) => {
-  if (targetElement(event.target)?.closest(".bubble-nav")) return;
-  if (targetElement(event.target)?.closest(".bubble-composer")) return;
-
-  if (bubblePointerStart) {
-    if (event.button === 0 && isBubbleOpaqueAt(event)) {
-      if (!isComposerOpen()) closeMessageBubble();
-    }
-    bubblePointerStart = false;
-    return;
-  }
-
+  const dragged = isDragging;
   pointerStart = null;
   windowStart = null;
   isDragging = false;
@@ -434,13 +560,14 @@ petStage?.addEventListener("pointerup", (event: PointerEvent) => {
   }
 
   updateMousePassthrough(event);
+  // 仅在确实拖动过时重算：窗口可能已贴近屏幕顶部，按需翻转气泡 / 输入条。
+  if (dragged) void applyWindowLayout("drag-ended");
 });
 
 petStage?.addEventListener("pointercancel", () => {
   pointerStart = null;
   windowStart = null;
   isDragging = false;
-  bubblePointerStart = false;
 });
 
 window.addEventListener("pointerup", stopDragLift);
@@ -455,6 +582,8 @@ window.addEventListener("blur", () => {
 window.goodPuppy.onDragEnded(() => {
   isNativeDragging = false;
   stopDragLift();
+  // 拖动后窗口可能已贴近屏幕顶部，重算布局以按需翻转气泡 / 输入条。
+  void applyWindowLayout("drag-ended");
 });
 
 petImage?.addEventListener("load", refreshMousePassthrough);
