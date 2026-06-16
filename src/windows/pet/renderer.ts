@@ -401,8 +401,19 @@ function setMousePassthrough(shouldPassThrough: boolean) {
   window.goodPuppy.setIgnoreMouseEvents(shouldPassThrough);
 }
 
+/** 光标落在某只宠物气泡区时给其 .dog-area 加 .bubble-hovered，控制关闭按钮显隐。
+ * 由全局光标采样（onCursorMoved）驱动，故窗口未聚焦时悬浮也能浮现。 */
+function updateBubbleHover(event: HoverEventLike) {
+  document.querySelectorAll<HTMLElement>(".dog-area").forEach((area) => {
+    const stack = area.querySelector<HTMLElement>(".bubble-stack:not([hidden])");
+    const hovered = Boolean(stack) && isPointInsideElement(event, stack!);
+    area.classList.toggle("bubble-hovered", hovered);
+  });
+}
+
 function updateMousePassthrough(event: HoverEventLike) {
   lastPointerEvent = event;
+  updateBubbleHover(event);
   if (pointerStart) {
     setMousePassthrough(false);
     return;

@@ -55,9 +55,7 @@ function createRemotePetElement(userId: string): HTMLElement {
   section.dataset.userId = userId;
   section.setAttribute("aria-label", "Remote puppy");
   section.innerHTML = `
-    <div class="bubble-stack" role="log" aria-live="polite" aria-label="Messages" data-user="remote" hidden>
-      <button class="bubble-close" type="button" aria-label="Close messages">&times;</button>
-    </div>
+    <div class="bubble-stack" role="log" aria-live="polite" aria-label="Messages" data-user="remote" hidden></div>
     <img class="pet-image" data-user="remote" alt="Remote puppy" draggable="false" />
   `;
   const img = section.querySelector<HTMLImageElement>(".pet-image");

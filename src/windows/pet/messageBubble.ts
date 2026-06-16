@@ -27,13 +27,15 @@ function getStackEl(area: HTMLElement): HTMLElement | null {
   return area.querySelector<HTMLElement>(".bubble-stack");
 }
 
-/** 绑定某只宠物气泡堆叠的关闭按钮（hover 才浮现，点击仅隐藏不删消息）。 */
+/** 绑定某只宠物气泡堆叠的关闭按钮（hover 才浮现，点击仅隐藏不删消息）。
+ * 关闭按钮随气泡每次重建挂到最新气泡上，故用事件委托绑定一次。 */
 export function mountStack(area: HTMLElement) {
   const stack = getStackEl(area);
   if (!stack) return;
   if (!messagesByArea.has(area)) messagesByArea.set(area, []);
-  const closeBtn = stack.querySelector<HTMLButtonElement>(".bubble-close");
-  closeBtn?.addEventListener("click", (event) => {
+  stack.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target?.closest(".bubble-close")) return;
     event.stopPropagation();
     dismissArea(area);
   });
@@ -61,9 +63,19 @@ function renderArea(area: HTMLElement) {
     bubble.textContent = message.info;
     stack.appendChild(bubble);
   }
+  // 关闭按钮锚定在最新气泡（最贴近宠物头那条）右上角，固定可见、不随滚动跑到顶端。
+  const latest = stack.querySelector<HTMLElement>(".bubble:last-child");
+  if (latest) {
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "bubble-close";
+    closeBtn.type = "button";
+    closeBtn.setAttribute("aria-label", "Close messages");
+    closeBtn.textContent = "×";
+    latest.appendChild(closeBtn);
+  }
   stack.hidden = false;
   // 简单版：新消息总是滚到最新（最后一个 .bubble）。
-  stack.querySelector<HTMLElement>(".bubble:last-child")?.scrollIntoView({ block: "nearest" });
+  latest?.scrollIntoView({ block: "nearest" });
   cbs.onVisibilityChange();
   cbs.onRefreshPassthrough();
 }

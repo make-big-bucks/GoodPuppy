@@ -253,37 +253,39 @@ body {
   border-bottom: 7px solid rgba(255, 255, 255, 0.92);
 }
 
-/* 关闭按钮：悬浮气泡区才浮现，仅隐藏不删消息。 */
+/* 关闭按钮：锚在最新气泡右上角；悬浮气泡区才浮现（由 JS 加 .bubble-hovered
+   驱动，不依赖窗口聚焦），仅隐藏不删消息。 */
 .bubble-close {
-  position: sticky;
-  top: 2px;
-  align-self: flex-end;
-  margin-right: 4px;
-  width: 18px;
-  height: 18px;
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   display: none;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(47, 47, 53, 0.2);
+  border: 1px solid rgba(47, 47, 53, 0.14);
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.94);
-  color: var(--gp-pet-ink);
+  background: rgba(255, 255, 255, 0.96);
+  color: rgba(47, 47, 53, 0.6);
   font-family: "Segoe UI Symbol", "Microsoft YaHei", sans-serif;
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1;
   cursor: pointer;
   pointer-events: auto;
-  box-shadow: 0 2px 6px rgba(55, 43, 18, 0.16);
-  z-index: 2;
+  box-shadow: 0 1px 4px rgba(55, 43, 18, 0.18);
+  transition: color 0.12s ease, transform 0.12s ease;
+  z-index: 3;
 }
 
-.bubble-stack:hover .bubble-close {
+.dog-area.bubble-hovered .bubble-close {
   display: flex;
 }
 
 .bubble-close:hover {
   color: var(--gp-pet-danger);
+  transform: scale(1.08);
 }
 
 .bubble-stack::-webkit-scrollbar,
