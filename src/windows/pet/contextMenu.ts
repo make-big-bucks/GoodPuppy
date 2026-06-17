@@ -3,16 +3,20 @@ import { Menu, Submenu, MenuItem, CheckMenuItem } from "@tauri-apps/api/menu";
 import { stepPetScale, DEFAULT_PET_SCALE, MIN_PET_SCALE, MAX_PET_SCALE } from "./petLayout.js";
 import type { PetManifest, PetStatus } from "../../types";
 
+export type PetMode = "free" | "semi";
+
 export type SelfMenuContext = {
   selfSkin: string;
   petScale: number;
   manifest: PetManifest | null | undefined;
   hasMessages: boolean;
+  petMode: PetMode;
   onShowMessage: () => void;
   onWriteMessage: () => void;
   onSetStatus: (status: PetStatus) => void;
   onSetSkin: (skin: string) => void;
   onSetScale: (scale: number) => void;
+  onSetMode: (mode: PetMode) => void;
 };
 
 export type RemoteMenuContext = {
@@ -96,9 +100,28 @@ export async function showSelfContextMenu(ctx: SelfMenuContext) {
       },
       ...(skinMenu ? [skinMenu] : []),
       sizeMenu,
+      await buildModeSubmenu(ctx.petMode, ctx.onSetMode),
     ],
   });
   await menu.popup();
+}
+
+async function buildModeSubmenu(petMode: PetMode, onSetMode: (mode: PetMode) => void) {
+  const items = await Promise.all([
+    CheckMenuItem.new({
+      id: "mode-free",
+      text: "自由摆放",
+      checked: petMode === "free",
+      action: () => onSetMode("free"),
+    }),
+    CheckMenuItem.new({
+      id: "mode-semi",
+      text: "自动排布",
+      checked: petMode === "semi",
+      action: () => onSetMode("semi"),
+    }),
+  ]);
+  return Submenu.new({ text: "朋友摆放", items });
 }
 
 export async function showRemoteContextMenu(ctx: RemoteMenuContext) {

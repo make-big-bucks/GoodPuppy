@@ -31,6 +31,8 @@ export interface CursorPoint {
 /** bridge.ts 暴露的桥接 API，挂在 window.goodPuppy。 */
 export interface GoodPuppyBridge {
   getWindowPosition(): Promise<WindowPoint>;
+  /** 当前窗口外尺寸（逻辑像素）。 */
+  getWindowSize(): Promise<WindowSize>;
   getWindowLayout(): Promise<WindowLayout>;
   /** 宠物窗口当前所在显示器的可用区域（逻辑像素），用于气泡边缘翻转判定。 */
   getMonitorWorkArea(): Promise<WindowPoint & WindowSize>;
@@ -45,6 +47,16 @@ export interface GoodPuppyBridge {
   /** 把本次手势交给系统接管（fire-and-forget）。 */
   startWindowDrag(): void;
   setIgnoreMouseEvents(shouldIgnore: boolean): void;
+  /** 当前 webview 窗口的 label（"main" = 自己/协调者，"pet-<userId>" = 远程呈现者）。 */
+  getWindowLabel(): string;
+  /** 协调者请求 Rust 动态创建一只远程成员的 pet 窗口（label `pet-<userId>`）。 */
+  spawnPetWindow(opts: { label: string; x: number; y: number; width: number; height: number }): Promise<void>;
+  /** 协调者请求销毁某只远程 pet 窗口。 */
+  closePetWindow(label: string): Promise<void>;
+  /** 向指定窗口定向发送一个跨窗口事件（协调者 → 呈现者，或呈现者 → 协调者）。 */
+  emitToWindow(label: string, event: string, payload?: unknown): Promise<void>;
+  /** 订阅本窗口收到的跨窗口事件（含定向到本窗口的事件）；返回取消订阅函数。 */
+  onAppEvent<T = unknown>(event: string, callback: (payload: T) => void): () => void;
   /** 订阅原生光标流；返回取消订阅函数。 */
   onCursorMoved(callback: (point: CursorPoint | null) => void): () => void;
   /**

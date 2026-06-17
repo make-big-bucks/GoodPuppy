@@ -1,7 +1,7 @@
 import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emitTo } from "@tauri-apps/api/event";
 import appConfig from "./appConfig.js";
 import { createIgnoreMouseEventsController } from "./cursorEventsController.js";
 import type { CursorPoint, GoodPuppyBridge, WindowPoint, WindowSize } from "../types";
@@ -17,6 +17,13 @@ const goodPuppy: GoodPuppyBridge = {
     const physical = await appWindow.outerPosition();
     const logical = physical.toLogical(scale);
     return { x: logical.x, y: logical.y };
+  },
+  async getWindowSize() {
+    if (!appWindow) return { width: 150, height: 120 };
+    const scale = await appWindow.scaleFactor();
+    const physical = await appWindow.outerSize();
+    const logical = physical.toLogical(scale);
+    return { width: logical.width, height: logical.height };
   },
   async getWindowLayout() {
     const pos = await this.getWindowPosition();
@@ -101,6 +108,41 @@ const goodPuppy: GoodPuppyBridge = {
   },
   setIgnoreMouseEvents(shouldIgnore: boolean) {
     ignoreMouseEventsController.setIgnoreMouseEvents(shouldIgnore);
+  },
+  getWindowLabel() {
+    return appWindow?.label ?? "main";
+  },
+  spawnPetWindow(opts: { label: string; x: number; y: number; width: number; height: number }) {
+    if (!inTauri) return Promise.resolve();
+    return invoke<void>("spawn_pet_window", {
+      label: opts.label,
+      x: Math.round(opts.x),
+      y: Math.round(opts.y),
+      width: Math.round(opts.width),
+      height: Math.round(opts.height),
+    }).catch((error) => {
+      console.error("spawn_pet_window failed:", error);
+    });
+  },
+  closePetWindow(label: string) {
+    if (!inTauri) return Promise.resolve();
+    return invoke<void>("close_pet_window", { label }).catch((error) => {
+      console.error("close_pet_window failed:", error);
+    });
+  },
+  emitToWindow(label: string, event: string, payload?: unknown) {
+    if (!inTauri) return Promise.resolve();
+    return emitTo(label, event, payload).catch((error) => {
+      console.error(`emitTo(${label}, ${event}) failed:`, error);
+    });
+  },
+  onAppEvent<T = unknown>(event: string, callback: (payload: T) => void) {
+    if (!inTauri) return () => {};
+    let unlisten = () => {};
+    listen<T>(event, (e) => callback(e.payload)).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten();
   },
   onCursorMoved(callback: (point: CursorPoint | null) => void) {
     if (!inTauri) return () => {};
