@@ -4,8 +4,12 @@ import {
   writeStoredSkin,
   readStoredScale,
   writeStoredScale,
+  readStoredMode,
+  writeStoredMode,
   SKIN_STORAGE_KEY,
   SCALE_STORAGE_KEY,
+  PET_MODE_STORAGE_KEY,
+  DEFAULT_PET_MODE,
 } from "./preferences.js";
 import { DEFAULT_SKIN } from "./animationCatalog.js";
 import { clampPetScale, DEFAULT_PET_SCALE, MAX_PET_SCALE } from "./petLayout.js";
@@ -82,5 +86,34 @@ describe("writeStoredScale", () => {
 
   it("swallows storage errors without throwing", () => {
     expect(() => writeStoredScale(1.25, throwingStorage())).not.toThrow();
+  });
+});
+
+describe("readStoredMode", () => {
+  it("defaults to free when nothing is stored", () => {
+    expect(readStoredMode(fakeStorage())).toBe(DEFAULT_PET_MODE);
+    expect(DEFAULT_PET_MODE).toBe("free");
+  });
+
+  it("returns a valid stored mode", () => {
+    expect(readStoredMode(fakeStorage({ [PET_MODE_STORAGE_KEY]: "semi" }))).toBe("semi");
+    expect(readStoredMode(fakeStorage({ [PET_MODE_STORAGE_KEY]: "free" }))).toBe("free");
+  });
+
+  it("falls back to default for unknown values or storage errors", () => {
+    expect(readStoredMode(fakeStorage({ [PET_MODE_STORAGE_KEY]: "bogus" }))).toBe(DEFAULT_PET_MODE);
+    expect(readStoredMode(throwingStorage())).toBe(DEFAULT_PET_MODE);
+  });
+});
+
+describe("writeStoredMode", () => {
+  it("persists the mode under the mode key", () => {
+    const storage = fakeStorage();
+    writeStoredMode("semi", storage);
+    expect(storage.getItem(PET_MODE_STORAGE_KEY)).toBe("semi");
+  });
+
+  it("swallows storage errors without throwing", () => {
+    expect(() => writeStoredMode("semi", throwingStorage())).not.toThrow();
   });
 });

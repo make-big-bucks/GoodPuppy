@@ -3,8 +3,6 @@
 // 额外增高承接（见本文件与 renderer.ts）。
 export const PET_WINDOW_HEIGHT = 120;
 export const BASE_PET_WINDOW_WIDTH = 150;
-export const PET_SLOT_WIDTH = 120;
-export const PET_STAGE_PADDING_X = 15;
 
 /** 气泡堆叠在宠物上方/下方预留的纵向空间（CSS px，会随 --pet-scale 缩放）。
    约等于 3 条气泡高度，再多靠滚动。见 docs/superpowers/specs/2026-06-15-...。 */
@@ -30,15 +28,12 @@ export function stepPetScale(scale: number | string | null | undefined, directio
   return clampPetScale(clampPetScale(scale) + Math.sign(direction) * PET_SCALE_STEP);
 }
 
-export function getPetWindowLayout(remotePetCount: number, scale = DEFAULT_PET_SCALE) {
-  const count = Math.max(0, Number(remotePetCount) || 0);
+/** 单只 pet 窗口的基础尺寸（无气泡时），随 --pet-scale 缩放。
+ * 多窗口拆分后，每个窗口只容纳一只 pet，不再随成员数横向撑宽。 */
+export function getPetWindowSize(scale = DEFAULT_PET_SCALE) {
   const s = clampPetScale(scale);
-  const baseWidth = Math.max(
-    BASE_PET_WINDOW_WIDTH,
-    PET_STAGE_PADDING_X * 2 + (count + 1) * PET_SLOT_WIDTH,
-  );
   return {
-    width: Math.round(baseWidth * s),
+    width: Math.round(BASE_PET_WINDOW_WIDTH * s),
     height: Math.round(PET_WINDOW_HEIGHT * s),
   };
 }
@@ -58,14 +53,13 @@ export type BubbleWindowLayout = {
  * - 有气泡时在宠物上方（默认）或下方（翻转）增高一段堆叠空间。
  */
 export function getBubbleWindowLayout(opts: {
-  remotePetCount: number;
   scale?: number;
   hasBubbles: boolean;
   flipped: boolean;
 }): BubbleWindowLayout {
-  const { remotePetCount, hasBubbles, flipped } = opts;
+  const { hasBubbles, flipped } = opts;
   const s = clampPetScale(opts.scale ?? DEFAULT_PET_SCALE);
-  const base = getPetWindowLayout(remotePetCount, s);
+  const base = getPetWindowSize(s);
   const stack = hasBubbles ? Math.round(BUBBLE_STACK_SPACE * s) : 0;
   const belowWin = hasBubbles && flipped ? stack : 0;
   const aboveWin = stack - belowWin;

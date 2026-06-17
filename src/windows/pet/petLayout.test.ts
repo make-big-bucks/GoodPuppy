@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  getPetWindowLayout,
+  getPetWindowSize,
   orderRemotePetIds,
   clampPetScale,
   stepPetScale,
@@ -21,25 +21,19 @@ describe("orderRemotePetIds", () => {
   });
 });
 
-describe("getPetWindowLayout", () => {
-  it("keeps the base one-pet window size when no remote pets are online", () => {
-    expect(getPetWindowLayout(0)).toEqual({ width: 150, height: 120 });
-  });
-
-  it("widens the single transparent window as remote pets join", () => {
-    expect(getPetWindowLayout(1)).toEqual({ width: 270, height: 120 });
-    expect(getPetWindowLayout(2)).toEqual({ width: 390, height: 120 });
+describe("getPetWindowSize", () => {
+  it("keeps the base one-pet window size (no horizontal widening per member)", () => {
+    expect(getPetWindowSize()).toEqual({ width: 150, height: 120 });
   });
 
   it("scales window dimensions by the user-chosen pet scale", () => {
-    expect(getPetWindowLayout(0, 2)).toEqual({ width: 300, height: 240 });
-    expect(getPetWindowLayout(0, 0.6)).toEqual({ width: 90, height: 72 });
-    expect(getPetWindowLayout(1, 1.5)).toEqual({ width: 405, height: 180 });
+    expect(getPetWindowSize(2)).toEqual({ width: 300, height: 240 });
+    expect(getPetWindowSize(0.6)).toEqual({ width: 90, height: 72 });
   });
 
   it("clamps out-of-range scales before applying to the window", () => {
-    expect(getPetWindowLayout(0, 99)).toEqual(getPetWindowLayout(0, MAX_PET_SCALE));
-    expect(getPetWindowLayout(0, 0)).toEqual(getPetWindowLayout(0, DEFAULT_PET_SCALE));
+    expect(getPetWindowSize(99)).toEqual(getPetWindowSize(MAX_PET_SCALE));
+    expect(getPetWindowSize(0)).toEqual(getPetWindowSize(DEFAULT_PET_SCALE));
   });
 });
 
@@ -68,26 +62,26 @@ describe("clampPetScale", () => {
 
 describe("getBubbleWindowLayout", () => {
   it("keeps pet-only height when there are no visible bubbles", () => {
-    const layout = getBubbleWindowLayout({ remotePetCount: 0, scale: 1, hasBubbles: false, flipped: false });
+    const layout = getBubbleWindowLayout({ scale: 1, hasBubbles: false, flipped: false });
     expect(layout).toEqual({ width: 150, height: 120, belowWin: 0, aboveWin: 0 });
   });
 
   it("grows upward by the stack space when bubbles are shown", () => {
-    const layout = getBubbleWindowLayout({ remotePetCount: 0, scale: 1, hasBubbles: true, flipped: false });
+    const layout = getBubbleWindowLayout({ scale: 1, hasBubbles: true, flipped: false });
     expect(layout.height).toBe(PET_WINDOW_HEIGHT + BUBBLE_STACK_SPACE);
     expect(layout.aboveWin).toBe(BUBBLE_STACK_SPACE);
     expect(layout.belowWin).toBe(0);
   });
 
   it("reserves the stack space below the pet when flipped", () => {
-    const layout = getBubbleWindowLayout({ remotePetCount: 0, scale: 1, hasBubbles: true, flipped: true });
+    const layout = getBubbleWindowLayout({ scale: 1, hasBubbles: true, flipped: true });
     expect(layout.height).toBe(PET_WINDOW_HEIGHT + BUBBLE_STACK_SPACE);
     expect(layout.belowWin).toBe(BUBBLE_STACK_SPACE);
     expect(layout.aboveWin).toBe(0);
   });
 
   it("scales the stack space with the pet scale", () => {
-    const layout = getBubbleWindowLayout({ remotePetCount: 0, scale: 2, hasBubbles: true, flipped: false });
+    const layout = getBubbleWindowLayout({ scale: 2, hasBubbles: true, flipped: false });
     expect(layout.height).toBe(PET_WINDOW_HEIGHT * 2 + BUBBLE_STACK_SPACE * 2);
   });
 });
@@ -98,13 +92,13 @@ describe("computeWindowTop / petAnchorBottomY", () => {
     const anchor = petAnchorBottomY(500, { height: PET_WINDOW_HEIGHT, belowWin: 0 });
     expect(anchor).toBe(500 + PET_WINDOW_HEIGHT);
     // Grow upward: window moves up by the stack space, bottom stays put.
-    const grown = getBubbleWindowLayout({ remotePetCount: 0, scale: 1, hasBubbles: true, flipped: false });
+    const grown = getBubbleWindowLayout({ scale: 1, hasBubbles: true, flipped: false });
     expect(computeWindowTop(anchor, grown)).toBe(500 - BUBBLE_STACK_SPACE);
   });
 
   it("keeps the window top fixed when flipping (space added below)", () => {
     const anchor = petAnchorBottomY(500, { height: PET_WINDOW_HEIGHT, belowWin: 0 });
-    const flipped = getBubbleWindowLayout({ remotePetCount: 0, scale: 1, hasBubbles: true, flipped: true });
+    const flipped = getBubbleWindowLayout({ scale: 1, hasBubbles: true, flipped: true });
     expect(computeWindowTop(anchor, flipped)).toBe(500);
   });
 });
