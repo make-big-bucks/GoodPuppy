@@ -100,6 +100,10 @@ function initResizeHandle() {
 const supabase = createAppSupabaseClient();
 let activeRoomId: string | null = null;
 
+function sessionIsAnonymous(session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"]) {
+  return Boolean(session?.user?.is_anonymous);
+}
+
 // Deferred resolvers for room transition promises
 let pendingEnterResolve: (() => void) | null = null;
 let pendingExitResolve: (() => void) | null = null;
@@ -111,6 +115,7 @@ async function init() {
   initLoungePanel({
     supabase,
     selfAuthId,
+    isAnonymous: sessionIsAnonymous(data.session),
     getActiveRoomId: () => activeRoomId,
     onEnterRoom: (roomId: string) => {
       void emit("switch-room", { roomId });
@@ -136,7 +141,11 @@ async function init() {
   // 认证状态变化时同步更新会客厅（跳过初次 INITIAL_SESSION，已由 getSession 处理）
   supabase.auth.onAuthStateChange((event, session) => {
     if (event === "INITIAL_SESSION") return;
-    updateLoungePanelAuth({ supabase, selfAuthId: session?.user?.id || null });
+    updateLoungePanelAuth({
+      supabase,
+      selfAuthId: session?.user?.id || null,
+      isAnonymous: sessionIsAnonymous(session),
+    });
   });
 
   listen("lounge-refresh", () => {

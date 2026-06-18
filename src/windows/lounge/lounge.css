@@ -172,6 +172,10 @@ body.platform-windows .sidebar {
   margin-bottom: 28px;
 }
 
+.profile-section.is-anonymous {
+  grid-template-columns: 1fr 38px 38px;
+}
+
 .profile-section.is-unauth {
   grid-template-columns: 1fr;
 }
@@ -297,6 +301,10 @@ body.platform-windows .sidebar {
 .icon-btn:hover {
   border-color: var(--line);
   background: var(--hover);
+}
+
+.lounge-bind-account-btn {
+  color: var(--blue);
 }
 
 .sidebar-head {
@@ -1110,6 +1118,19 @@ textarea.lounge-input {
 
 .lounge-auth-secondary:hover:not(:disabled) {
   background: #f7f7f7;
+}
+
+.lounge-quick-entry {
+  margin-top: 13px;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font-size: 14px;
+  font-weight: 680;
+}
+
+.lounge-quick-entry:hover:not(:disabled) {
+  text-decoration: underline;
 }
 
 .lounge-enter-room.is-exit {

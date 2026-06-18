@@ -81,6 +81,21 @@ async function signUp() {
   }
 }
 
+async function signInAnonymously() {
+  setAuthBusy(true);
+  setAuthMessage("正在创建匿名账号...");
+
+  try {
+    const { error } = await supabase.auth.signInAnonymously();
+    if (error) throw error;
+    await notifyAuthReady();
+  } catch (error) {
+    setAuthMessage(getErrorMessage(error, "匿名登录失败"), { isError: true });
+  } finally {
+    setAuthBusy(false);
+  }
+}
+
 function setupPasswordToggle() {
   if (!passwordInput || !passwordToggle) return;
   const eyeSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>`;
@@ -116,6 +131,10 @@ export async function initializeAuth() {
 
   document.querySelector<HTMLButtonElement>(".auth-register")?.addEventListener("click", () => {
     void signUp();
+  });
+
+  document.querySelector<HTMLButtonElement>(".auth-quick-entry")?.addEventListener("click", () => {
+    void signInAnonymously();
   });
 
   subscribeToAuthChanges();
