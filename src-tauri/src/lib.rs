@@ -95,20 +95,50 @@ fn appkit_window_mouse_location_to_client_point(
     }
 }
 
+/// Run an AppKit closure, catching any Objective-C exception it raises.
+///
+/// Window-teardown races (leave-room destroys overlay windows while the cursor
+/// monitor / layout still touch them) can make an AppKit call raise an
+/// NSException. A foreign exception unwinding through Rust aborts the whole
+/// process (`fatal runtime error: Rust cannot catch foreign exceptions`). Catch
+/// it at the FFI boundary so the race degrades to a logged no-op instead.
+#[cfg(target_os = "macos")]
+fn guard_appkit<R>(op: &str, f: impl FnOnce() -> R) -> Option<R> {
+    use std::panic::AssertUnwindSafe;
+    match objc2::exception::catch(AssertUnwindSafe(f)) {
+        Ok(value) => Some(value),
+        Err(exception) => {
+            log::warn!("AppKit exception caught during {op}: {exception:?}");
+            None
+        }
+    }
+}
+
+/// Return a dynamically-spawned overlay panel to a benign state just before it
+/// is destroyed, so AppKit's teardown doesn't raise an Objective-C exception
+/// (see `close_pet_window`). Order-out resigns key/IMK and ends any native drag
+/// tracking; clearing the collection behavior drops it from all Spaces.
+#[cfg(target_os = "macos")]
+fn neutralize_overlay_before_close<R: Runtime>(window: &WebviewWindow<R>) {
+    let Ok(ns_window_ptr) = window.ns_window() else {
+        return;
+    };
+    let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
+    ns_window.setCollectionBehavior(NSWindowCollectionBehavior::empty());
+    ns_window.orderOut(None);
+}
+
 #[cfg(target_os = "macos")]
 fn macos_window_cursor_position<R: Runtime>(
     window: &WebviewWindow<R>,
 ) -> Option<CursorPayload> {
     let ns_window_ptr = window.ns_window().ok()?;
-    let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
-    let mouse = ns_window.mouseLocationOutsideOfEventStream();
-    let content_rect = ns_window.contentLayoutRect();
-
-    Some(appkit_window_mouse_location_to_client_point(
-        mouse.x,
-        mouse.y,
-        content_rect.size.height,
-    ))
+    guard_appkit("cursor_position", || {
+        let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
+        let mouse = ns_window.mouseLocationOutsideOfEventStream();
+        let content_rect = ns_window.contentLayoutRect();
+        appkit_window_mouse_location_to_client_point(mouse.x, mouse.y, content_rect.size.height)
+    })
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -306,7 +336,8 @@ fn spawn_cursor_monitor(app: &tauri::App) {
                     if was_down && !down {
                         for (label, window) in handle.webview_windows() {
                             if is_pet_window_label(&label) {
-                                let _ = window.emit("pet-drag-ended", ());
+                                // 定向到该窗口自己：避免广播给全部窗口造成 N×N 次派发。
+                                let _ = window.emit_to(label.as_str(), "pet-drag-ended", ());
                             }
                         }
                     }
@@ -333,8 +364,11 @@ fn spawn_cursor_monitor(app: &tauri::App) {
                     };
 
                     if should_emit {
+                        // 必须定向到该窗口：`emit` 会广播给所有 webview，而每个窗口的
+                        // cursor-moved 坐标是相对各自内容区算的。广播会让每个 pet 窗口
+                        // 收到 N 份「别的窗口的坐标」，导致穿透状态乱抖（拖不动 / 卡 / 不稳定）。
+                        let _ = window.emit_to(label.as_str(), "cursor-moved", client_point);
                         guard.insert(label, (rounded, now));
-                        let _ = window.emit("cursor-moved", client_point);
                     }
                 }
             });
@@ -393,7 +427,7 @@ fn position_overlay_window<R: Runtime>(
         // Cocoa: origin at primary's BOTTOM-left, Y up.
         let cocoa_y = primary_height - (y + height);
         let frame = NSRect::new(NSPoint::new(x, cocoa_y), NSSize::new(width, height));
-        ns_window.setFrame_display(frame, true);
+        guard_appkit("set_frame", || ns_window.setFrame_display(frame, true));
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -464,10 +498,45 @@ async fn spawn_pet_window(
 }
 
 /// Destroy a previously spawned pet overlay window (member went offline / left).
+///
+/// The teardown MUST run on the main thread. Tauri commands may run on a worker
+/// thread; destroying an NSWindow/NSPanel off the main thread tears down its
+/// input-method context off-thread (`error messaging the mach port for
+/// IMKCFRunLoopWakeUpReliable`) and raises an Objective-C exception that unwinds
+/// through Rust — `fatal runtime error: Rust cannot catch foreign exceptions`.
+/// `spawn_pet_window` / `set_window_bounds` already marshal to the main thread
+/// for the same reason; this kept calling `destroy()` inline and crashed on leave.
 #[tauri::command]
-fn close_pet_window(app: AppHandle, label: String) -> Result<(), String> {
+async fn close_pet_window(app: AppHandle, label: String) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(&label) {
-        window.destroy().map_err(|e| e.to_string())?;
+        let win = window.clone();
+        window
+            .run_on_main_thread(move || {
+                // These overlay windows were promoted to a custom NSPanel
+                // (`GoodPuppyPanel`) with all-Spaces / FullScreenAuxiliary
+                // collection behavior. The old single-window design never
+                // destroyed such a window; the multi-window split does, and
+                // AppKit's teardown of a promoted, all-Spaces, possibly-key
+                // panel (removing it from every Space, resigning key/IMK,
+                // ending an in-flight native drag) raises an Objective-C
+                // exception that unwinds through Rust on a later runloop tick
+                // → `Rust cannot catch foreign exceptions` abort.
+                //
+                // Put the panel back into a benign state BEFORE destroying it:
+                // order it out (resigns key / ends drag tracking) and clear the
+                // collection behavior (drops it from all Spaces) so the deferred
+                // native teardown has nothing dangerous left to do.
+                #[cfg(target_os = "macos")]
+                guard_appkit("destroy_window", || {
+                    neutralize_overlay_before_close(&win);
+                    let _ = win.destroy();
+                });
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let _ = win.destroy();
+                }
+            })
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
