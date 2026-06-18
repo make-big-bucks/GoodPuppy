@@ -65,6 +65,19 @@ export interface GoodPuppyBridge {
   spawnPetWindow(opts: { label: string; x: number; y: number; width: number; height: number }): Promise<void>;
   /** 协调者请求销毁某只远程 pet 窗口。 */
   closePetWindow(label: string): Promise<void>;
+  /** 协调者请求创建一只 pet 的气泡子窗口（label `bubble-self` / `bubble-<userId>`），
+   * 作为 parentLabel（pet 窗口）的原生子窗口跟随移动；isSelf 时提升为可输入 panel。 */
+  spawnBubbleWindow(opts: {
+    label: string;
+    parentLabel: string;
+    isSelf: boolean;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): Promise<void>;
+  /** 协调者请求销毁某只远程气泡窗口（自己的气泡窗口整会话只隐藏不销毁）。 */
+  closeBubbleWindow(label: string): Promise<void>;
   /** 向指定窗口定向发送一个跨窗口事件（协调者 → 呈现者，或呈现者 → 协调者）。 */
   emitToWindow(label: string, event: string, payload?: unknown): Promise<void>;
   /** 订阅本窗口收到的跨窗口事件（含定向到本窗口的事件）；返回取消订阅函数。 */

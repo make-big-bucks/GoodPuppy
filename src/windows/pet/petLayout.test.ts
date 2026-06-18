@@ -1,18 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   getPetWindowSize,
+  getBubbleWindowSize,
   orderRemotePetIds,
   clampPetScale,
   stepPetScale,
   MIN_PET_SCALE,
   MAX_PET_SCALE,
   DEFAULT_PET_SCALE,
-  PET_WINDOW_HEIGHT,
   BUBBLE_STACK_SPACE,
-  getBubbleWindowLayout,
-  computeWindowTop,
-  petAnchorBottomY,
-  shouldFlipStack,
+  computeBubbleWindowPosition,
 } from "./petLayout.js";
 
 describe("orderRemotePetIds", () => {
@@ -60,57 +57,61 @@ describe("clampPetScale", () => {
   });
 });
 
-describe("getBubbleWindowLayout", () => {
-  it("keeps pet-only height when there are no visible bubbles", () => {
-    const layout = getBubbleWindowLayout({ scale: 1, hasBubbles: false, flipped: false });
-    expect(layout).toEqual({ width: 150, height: 120, belowWin: 0, aboveWin: 0 });
+describe("getBubbleWindowSize", () => {
+  it("matches pet width (centers over the pet) and reserves the stack height", () => {
+    expect(getBubbleWindowSize()).toEqual({ width: 150, height: BUBBLE_STACK_SPACE });
   });
 
-  it("grows upward by the stack space when bubbles are shown", () => {
-    const layout = getBubbleWindowLayout({ scale: 1, hasBubbles: true, flipped: false });
-    expect(layout.height).toBe(PET_WINDOW_HEIGHT + BUBBLE_STACK_SPACE);
-    expect(layout.aboveWin).toBe(BUBBLE_STACK_SPACE);
-    expect(layout.belowWin).toBe(0);
-  });
-
-  it("reserves the stack space below the pet when flipped", () => {
-    const layout = getBubbleWindowLayout({ scale: 1, hasBubbles: true, flipped: true });
-    expect(layout.height).toBe(PET_WINDOW_HEIGHT + BUBBLE_STACK_SPACE);
-    expect(layout.belowWin).toBe(BUBBLE_STACK_SPACE);
-    expect(layout.aboveWin).toBe(0);
-  });
-
-  it("scales the stack space with the pet scale", () => {
-    const layout = getBubbleWindowLayout({ scale: 2, hasBubbles: true, flipped: false });
-    expect(layout.height).toBe(PET_WINDOW_HEIGHT * 2 + BUBBLE_STACK_SPACE * 2);
+  it("scales with the pet scale", () => {
+    expect(getBubbleWindowSize(2)).toEqual({ width: 300, height: BUBBLE_STACK_SPACE * 2 });
   });
 });
 
-describe("computeWindowTop / petAnchorBottomY", () => {
-  it("keeps the pet anchor fixed when growing upward (round-trips)", () => {
-    // Start: no bubbles, window top 500, height PET_WINDOW_HEIGHT, belowWin 0 → anchor 620.
-    const anchor = petAnchorBottomY(500, { height: PET_WINDOW_HEIGHT, belowWin: 0 });
-    expect(anchor).toBe(500 + PET_WINDOW_HEIGHT);
-    // Grow upward: window moves up by the stack space, bottom stays put.
-    const grown = getBubbleWindowLayout({ scale: 1, hasBubbles: true, flipped: false });
-    expect(computeWindowTop(anchor, grown)).toBe(500 - BUBBLE_STACK_SPACE);
+describe("computeBubbleWindowPosition", () => {
+  const bubble = { width: 150, height: 180 };
+  const workArea = { x: 0, y: 0, width: 1440, height: 900 };
+
+  it("places the bubble above the pet by default, centered over it", () => {
+    const pet = { x: 700, y: 500, width: 150, height: 120 };
+    const r = computeBubbleWindowPosition({ pet, bubble, workArea });
+    expect(r.placement).toBe("above");
+    expect(r.y).toBe(500 - 180); // bubble bottom meets pet top
+    expect(r.x).toBe(700); // same width → centered = same x
   });
 
-  it("keeps the window top fixed when flipping (space added below)", () => {
-    const anchor = petAnchorBottomY(500, { height: PET_WINDOW_HEIGHT, belowWin: 0 });
-    const flipped = getBubbleWindowLayout({ scale: 1, hasBubbles: true, flipped: true });
-    expect(computeWindowTop(anchor, flipped)).toBe(500);
-  });
-});
-
-describe("shouldFlipStack", () => {
-  it("flips when growing upward would cross the work-area top", () => {
-    // anchor near the top: 200, scale 1 → not-flipped top = 200 - 400 = -200 < 0.
-    expect(shouldFlipStack({ anchorBottomY: 200, scale: 1, workAreaTop: 0 })).toBe(true);
+  it("flips below when there is not enough room above (pet near the top)", () => {
+    const pet = { x: 700, y: 120, width: 150, height: 120 };
+    const r = computeBubbleWindowPosition({ pet, bubble, workArea });
+    expect(r.placement).toBe("below");
+    expect(r.y).toBe(120 + 120); // bubble top meets pet bottom
   });
 
-  it("does not flip when there is room above", () => {
-    expect(shouldFlipStack({ anchorBottomY: 900, scale: 1, workAreaTop: 0 })).toBe(false);
+  it("centers a wider/narrower bubble over the pet", () => {
+    const pet = { x: 700, y: 500, width: 150, height: 120 };
+    const r = computeBubbleWindowPosition({ pet, bubble: { width: 100, height: 180 }, workArea });
+    expect(r.x).toBe(700 + (150 - 100) / 2);
+  });
+
+  it("clamps the bubble horizontally into the work area", () => {
+    const nearLeft = computeBubbleWindowPosition({
+      pet: { x: -20, y: 500, width: 150, height: 120 },
+      bubble,
+      workArea,
+    });
+    expect(nearLeft.x).toBe(0); // clamped to work-area left
+    const nearRight = computeBubbleWindowPosition({
+      pet: { x: 1400, y: 500, width: 150, height: 120 },
+      bubble,
+      workArea,
+    });
+    expect(nearRight.x).toBe(1440 - 150); // clamped to work-area right
+  });
+
+  it("respects a non-zero work-area top when deciding the flip", () => {
+    const pet = { x: 700, y: 200, width: 150, height: 120 };
+    // above would be y=20, which is below a menu-bar top of 25 → flip below.
+    const r = computeBubbleWindowPosition({ pet, bubble, workArea: { x: 0, y: 25, width: 1440, height: 875 } });
+    expect(r.placement).toBe("below");
   });
 });
 

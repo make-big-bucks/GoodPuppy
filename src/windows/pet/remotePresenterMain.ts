@@ -11,19 +11,17 @@ import { createPetPresenter } from "./petPresenter.js";
 import { showRemoteContextMenu } from "./contextMenu.js";
 import {
   userIdFromLabel,
+  bubbleWindowLabel,
   COORDINATOR_LABEL,
   PET_STATE,
-  PET_HISTORY,
-  PET_MESSAGE,
   PET_INTERACTION,
   PET_LEAVE,
   PET_MODE,
   PET_ARRANGE,
   PET_MOVED,
   PET_INTERACT_REQUEST,
+  BUBBLE_SHOW,
   type PetStatePayload,
-  type PetHistoryPayload,
-  type PetMessagePayload,
   type PetInteractionPayload,
   type PetModePayload,
   type PetArrangePayload,
@@ -36,8 +34,10 @@ const petStage = document.querySelector<HTMLElement>(".pet-stage");
 const area = document.querySelector<HTMLElement>(".dog-area");
 const petImage = area?.querySelector<HTMLImageElement>(".pet-image") ?? null;
 const composeStick = document.querySelector<HTMLElement>(".compose-stick");
-// 远程窗口没有输入条：移除它，避免命中/布局误判。
+// 远程 pet 窗口没有输入条；气泡也搬进独立气泡窗口（bubble-<userId>，多窗口 Phase A）。
+// 移除窗口内的记号棒与气泡堆叠，pet 窗口只剩单 pet 动画 + 拖动 + 像素命中。
 composeStick?.remove();
+area?.querySelector(".bubble-stack")?.remove();
 
 if (petStage && area && petImage) {
   area.dataset.user = "remote";
@@ -49,17 +49,16 @@ if (petStage && area && petImage) {
 
   const animator = new PetAnimator({ petId: currentPetId, skin: "default" });
 
-  const presenter = createPetPresenter({
+  createPetPresenter({
     stage: petStage,
-    area,
     petImage,
     animator,
-    getScale: () => 1,
     isDraggable: () => draggable,
     onShowContextMenu: () =>
       showRemoteContextMenu({
         targetId: userId,
-        onShowRemoteStatus: () => presenter.showBubble(),
+        // 气泡在独立气泡窗口里：「查看状态」改为通知该气泡窗口重新展开堆叠。
+        onShowRemoteStatus: () => void bridge.emitToWindow(bubbleWindowLabel(userId), BUBBLE_SHOW),
         onInteract: (action, targetId) =>
           void bridge.emitToWindow(COORDINATOR_LABEL, PET_INTERACT_REQUEST, { action, targetId }),
       }),
@@ -81,11 +80,8 @@ if (petStage && area && petImage) {
     animator.setStatus(payload.status);
   });
 
-  bridge.onAppEvent<PetHistoryPayload>(PET_HISTORY, (payload) => presenter.setMessages(payload.messages));
-  bridge.onAppEvent<PetMessagePayload>(PET_MESSAGE, (payload) => {
-    presenter.addMessage(payload.message);
-    animator.playTransient("message");
-  });
+  // 消息渲染搬到气泡窗口（bubble-<userId>）。pet 窗口只在新消息时弹跳一下：
+  // 协调者用 PET_INTERACTION{state:"message"} 通知，复用下方互动动画通道。
   bridge.onAppEvent<PetInteractionPayload>(PET_INTERACTION, (payload) =>
     animator.playTransient(payload.state, { durationMs: payload.durationMs, mirrored: payload.mirrored }),
   );
@@ -95,7 +91,7 @@ if (petStage && area && petImage) {
   });
   bridge.onAppEvent<PetArrangePayload>(PET_ARRANGE, (pos) => {
     const size = getPetWindowSize(1);
+    // 只重设 pet 窗口位置/尺寸；气泡子窗口由 OS 跟随（macOS）/Moved 重定位（Windows）。
     bridge.setWindowBounds({ x: pos.x, y: pos.y, width: size.width, height: size.height });
-    void presenter.applyWindowLayout("arrange");
   });
 }

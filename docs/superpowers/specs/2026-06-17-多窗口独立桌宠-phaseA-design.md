@@ -1,9 +1,9 @@
 # 多窗口独立桌宠 · Phase A 设计
 
 - 日期：2026-06-17（2026-06-18 修订：合入「`main` 去 panel 化 / 修复 first-mouse / 自己·远程气泡 panel 分流」，对齐 ADR-0014）
-- 状态：待评审（依赖 Phase B 落地）
+- 状态：已实现（落地见 [ADR-0016：气泡升级为独立子窗口](../../adr/0016-气泡升级为独立子窗口.md)；分 Slice A 远程气泡子窗口 / Slice B 自己气泡 + main 去 panel / Slice C 删纵向布局 + 上下避让纯函数三片交付）
 - 前置：[Phase B 设计](2026-06-17-多窗口独立桌宠-phaseB-design.md)
-- 关联：[ADR-0014：放弃全屏覆盖与动态窗口去 NSPanel 化](../../adr/0014-放弃全屏覆盖与动态窗口去-nspanel-化.md)（本期把 textarea 搬出 `main` 后，`main` 也随之去 panel 化，是 ADR-0014 方向的延续）
+- 关联：[ADR-0014：放弃全屏覆盖与动态窗口去 NSPanel 化](../../adr/0014-放弃全屏覆盖与动态窗口去-nspanel-化.md)（本期把 textarea 搬出 `main` 后，`main` 也随之去 panel 化，是 ADR-0014 方向的延续）；落地决策记于 [ADR-0016](../../adr/0016-气泡升级为独立子窗口.md)
 
 ## 背景与目标
 

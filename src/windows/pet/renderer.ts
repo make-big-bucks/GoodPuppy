@@ -16,11 +16,13 @@ import {
 import { createPetPresenter } from "./petPresenter.js";
 import { createRoomCoordinator } from "./roomCoordinator.js";
 import {
-  initComposeStick,
-  openComposeStick,
-  isComposeOpen,
-  getComposeStickElement,
-} from "./composeStick.js";
+  BUBBLE_SELF_LABEL,
+  SELF_OPEN_COMPOSE,
+  SELF_COMPOSE_SUBMIT,
+  SELF_COMPOSE_RESULT,
+  BUBBLE_SHOW,
+  type SelfComposeSubmitPayload,
+} from "./petWindowEvents.js";
 import { showSelfContextMenu } from "./contextMenu.js";
 import {
   initRoomManager,
@@ -43,7 +45,6 @@ export function setOnRoomReadyCallback(fn: () => void) {
 const petStage = document.querySelector<HTMLElement>(".pet-stage");
 const selfArea = document.querySelector<HTMLElement>('.dog-area[data-user="self"]');
 const petImage = document.querySelector<HTMLImageElement>('.pet-image[data-user="self"]');
-const selfComposeStick = document.querySelector<HTMLElement>('.compose-stick[data-user="self"]');
 
 let selfPetId = "default";
 let selfSkin = readStoredSkin();
@@ -64,12 +65,9 @@ selfArea.style.setProperty("--pet-index", "0");
 
 const presenter = createPetPresenter({
   stage: petStage,
-  area: selfArea,
   petImage,
   animator: selfAnimator,
-  getScale: () => petScale,
   isDraggable: () => true,
-  hasComposeOpen: () => isComposeOpen(),
   onShowContextMenu: (event) => showPetContextMenu(event),
   onDragEnded: (pos) => coordinator.handleSelfMoved(pos),
 });
@@ -111,32 +109,47 @@ function setPetScale(next: number | string | null | undefined) {
   petScale = clamped;
   applyPetScale();
   writeStoredScale(petScale);
-  void presenter.applyWindowLayout("scale");
+  void resizeSelfWindow();
   coordinator.refreshArrangement();
 }
 
-// ── Compose stick (self only) ─────────────────────────────────────────────
-if (selfComposeStick) {
-  initComposeStick(selfComposeStick, {
-    onRefreshPassthrough: () => presenter.refreshPassthrough(),
-    onVisibilityChange: () => void presenter.applyWindowLayout("compose-visibility"),
-    onSubmitMessage: async (info) => {
-      const supabase = getActiveSupabase();
-      const authId = getSelfAuthId();
-      const roomId = getCurrentRoomId();
-      if (!supabase || !authId || !roomId) throw new Error("请先登录");
-      const { data, error } = await supabase
-        .from("messages")
-        .insert({ room_id: roomId, sender_id: authId, kind: "text", content: info })
-        .select("id, created_at")
-        .single();
-      if (error) throw error;
-      selfAnimator.playTransient("message");
-      // 用数据库返回的真实 ID 立即路由，realtime 抵达时按 ID 去重。
-      coordinator.onNewMessage({ id: data.id, info, from: authId, created_at: data.created_at });
-    },
-  });
+/** pet 窗口固定 pet 尺寸（气泡在 bubble-self）。缩放时按新尺寸重设窗口，并保持视觉
+ * 底边不变（宠物锚定窗口底部），避免宠物随缩放上下跳。气泡窗口由 OS 跟随。 */
+async function resizeSelfWindow() {
+  const [cur, pos] = await Promise.all([
+    window.goodPuppy.getWindowSize(),
+    window.goodPuppy.getWindowPosition(),
+  ]);
+  const size = getPetWindowSize(petScale);
+  const top = pos.y + cur.height - size.height;
+  window.goodPuppy.setWindowBounds({ x: pos.x, y: top, width: size.width, height: size.height });
+  // 自己窗口尺寸变了，气泡窗口随之重排（上/下避让 + 居中）。
+  void coordinator.refreshSelfBubble();
 }
+
+// ── 写消息链路（记号棒在 bubble-self，跨窗口回环）─────────────────────────
+// 自己的气泡窗口提交文本 → 这里走 Supabase 插入 → 回报结果给气泡窗口收尾。
+window.goodPuppy.onAppEvent<SelfComposeSubmitPayload>(SELF_COMPOSE_SUBMIT, async ({ text }) => {
+  try {
+    const supabase = getActiveSupabase();
+    const authId = getSelfAuthId();
+    const roomId = getCurrentRoomId();
+    if (!supabase || !authId || !roomId) throw new Error("请先登录");
+    const { data, error } = await supabase
+      .from("messages")
+      .insert({ room_id: roomId, sender_id: authId, kind: "text", content: text })
+      .select("id, created_at")
+      .single();
+    if (error) throw error;
+    selfAnimator.playTransient("message");
+    // 用数据库返回的真实 ID 立即路由（投到 bubble-self），realtime 抵达时按 ID 去重。
+    coordinator.onNewMessage({ id: data.id, info: text, from: authId, created_at: data.created_at });
+    void window.goodPuppy.emitToWindow(BUBBLE_SELF_LABEL, SELF_COMPOSE_RESULT, { ok: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    void window.goodPuppy.emitToWindow(BUBBLE_SELF_LABEL, SELF_COMPOSE_RESULT, { ok: false, error: message });
+  }
+});
 
 // ── Context menu (self) ────────────────────────────────────────────────────
 async function showPetContextMenu(event: MouseEvent) {
@@ -145,24 +158,18 @@ async function showPetContextMenu(event: MouseEvent) {
     selfSkin,
     petScale,
     manifest: selfAnimator.manifest,
-    hasMessages: presenter.hasMessages(),
+    // 消息已搬到 bubble-self，用协调者缓存判断有无对话。
+    hasMessages: coordinator.selfHasMessages(),
     petMode: coordinator.getMode(),
-    onShowMessage: () => presenter.showBubble(),
-    onWriteMessage: openComposeStick,
+    // 「查看对话」/「写消息」改为通知自己的气泡窗口；聚焦逻辑亦在那边处理
+    // （bubble-self 收到 SELF_OPEN_COMPOSE 后自行展开记号棒 + 取 key 聚焦）。
+    onShowMessage: () => void window.goodPuppy.emitToWindow(BUBBLE_SELF_LABEL, BUBBLE_SHOW),
+    onWriteMessage: () => void window.goodPuppy.emitToWindow(BUBBLE_SELF_LABEL, SELF_OPEN_COMPOSE),
     onSetStatus: setSelfStatus,
     onSetSkin: setSelfSkin,
     onSetScale: setPetScale,
     onSetMode: (mode) => coordinator.setMode(mode),
   });
-
-  // 「写消息」在原生菜单的嵌套事件循环里触发；菜单收起会让面板失去 key 状态。
-  // 等菜单完全消失后于下一帧重新取 key + 聚焦，输入框才能收键。
-  if (isComposeOpen()) {
-    requestAnimationFrame(() => {
-      void window.goodPuppy.setFocus("post-menu-raf");
-      getComposeStickElement()?.querySelector<HTMLTextAreaElement>(".compose-input")?.focus();
-    });
-  }
 }
 
 // ── Room manager wiring ────────────────────────────────────────────────────
@@ -173,6 +180,8 @@ initRoomManager({
   onNewMessage: coordinator.onNewMessage,
   onRoomReady: () => {
     restoreSelfPosition();
+    // 自己的气泡窗口（panel，承载记号棒）：首次进房间时按需创建，之后随 main 跟随。
+    void coordinator.ensureSelfBubble();
     presenter.refreshPassthrough();
     _onRoomReadyCb?.();
   },
@@ -192,9 +201,13 @@ initRoomManager({
 let selfPositionRestored = false;
 function restoreSelfPosition() {
   if (selfPositionRestored) return;
-  const stored: WindowPoint | null = coordinator.storedSelfPos;
-  if (!stored) return;
   selfPositionRestored = true;
+  // pet 窗口固定 pet 尺寸：进房间时按当前缩放对齐窗口尺寸（不再靠 applyWindowLayout）。
   const size = getPetWindowSize(petScale);
-  window.goodPuppy.setWindowBounds({ x: stored.x, y: stored.y, width: size.width, height: size.height });
+  const stored: WindowPoint | null = coordinator.storedSelfPos;
+  if (stored) {
+    window.goodPuppy.setWindowBounds({ x: stored.x, y: stored.y, width: size.width, height: size.height });
+  } else {
+    window.goodPuppy.setWindowSize(size);
+  }
 }

@@ -141,9 +141,7 @@ body {
      偏移量与缩放一起放大，保证多只 pet 的槽位不重叠；transform 统一缩放
      pet 与气泡，命中测试用包围盒自适应。 */
   left: calc((15px + var(--pet-index, 0) * 120px) * var(--pet-scale, 1));
-  /* 气泡翻到下方时，window 在宠物下方留出 --stack-below，dog-area 以此为底偏移，
-     宠物视觉位置由 renderer 的窗口定位补偿保持不变。 */
-  bottom: var(--stack-below, 0px);
+  bottom: 0;
   width: 120px;
   height: 220px;
   transform: scale(var(--pet-scale, 1));
@@ -203,15 +201,6 @@ body {
   display: none;
 }
 
-/* 翻转：顶部空间不足时整组改到宠物下方，最新一条贴近脚（顶部）。
-   top 以 dog-area（高 220px）顶为基准；脚底在 14px 处 → top = 220-14 = 206px，
-   让气泡从脚下开始向下生长，不覆盖宠物本身。 */
-.pet-stage.is-flipped .bubble-stack {
-  bottom: auto;
-  top: 206px;
-  flex-direction: column-reverse;
-}
-
 .bubble {
   position: relative;
   box-sizing: border-box;
@@ -244,13 +233,6 @@ body {
   border-left: 6px solid transparent;
   border-right: 6px solid transparent;
   border-top: 7px solid rgba(255, 255, 255, 0.92);
-}
-
-.pet-stage.is-flipped .bubble-stack .bubble:last-child::after {
-  bottom: auto;
-  top: -6px;
-  border-top: 0;
-  border-bottom: 7px solid rgba(255, 255, 255, 0.92);
 }
 
 /* 关闭按钮：锚在最新气泡右上角；悬浮气泡区才浮现（由 JS 加 .bubble-hovered
@@ -329,12 +311,6 @@ body {
   display: none;
 }
 
-/* 翻转：与气泡堆叠对称，顶部空间不足时输入条改到宠物脚下，不覆盖宠物本身。 */
-.pet-stage.is-flipped .compose-stick {
-  bottom: auto;
-  top: 206px;
-}
-
 .compose-input {
   flex: 1 1 100%;
   box-sizing: border-box;
@@ -403,6 +379,72 @@ body {
 
 .compose-status:empty {
   display: none;
+}
+
+/* ── 独立气泡窗口（多窗口 Phase A） ─────────────────────────────
+   气泡窗口是某只 pet 窗口的原生子窗口，整窗只渲染消息堆叠（自己窗口另含记号棒）。
+   复用上面的 .bubble / .bubble-close / .compose-* 视觉样式，只重定位容器：
+   dog-area 充满整窗，堆叠按 data-placement 贴窗口下沿（宠物在下，above）或上沿（below）。 */
+.bubble-window {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+}
+
+.bubble-window.is-initializing {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bubble-window .dog-area {
+  position: absolute;
+  inset: 0;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  transform: scale(var(--pet-scale, 1));
+  transform-origin: bottom center;
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* above：堆叠贴窗口底沿向上生长，尾巴朝下指向下方的宠物（默认尾巴方向即朝下）。 */
+.bubble-window .bubble-stack {
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 10px;
+  top: auto;
+  max-height: calc(100% - 16px);
+}
+
+/* below：宠物在上，堆叠贴窗口顶沿向下生长，尾巴朝上。 */
+.bubble-window[data-placement="below"] .bubble-stack {
+  bottom: auto;
+  top: 10px;
+  flex-direction: column-reverse;
+}
+
+.bubble-window[data-placement="below"] .bubble-stack .bubble:last-child::after {
+  bottom: auto;
+  top: -6px;
+  border-top: 0;
+  border-bottom: 7px solid rgba(255, 255, 255, 0.92);
+}
+
+/* 气泡窗口里只有堆叠区可交互，关闭按钮用纯 CSS hover 浮现（无需 JS 跟踪 hover）。 */
+.bubble-window .dog-area:hover .bubble-close {
+  display: flex;
+}
+
+.bubble-window .compose-stick {
+  bottom: 10px;
+  top: auto;
+}
+
+.bubble-window[data-placement="below"] .compose-stick {
+  bottom: auto;
+  top: 10px;
 }
 
 /* ── Connect panel ─────────────────────────────────────────── */

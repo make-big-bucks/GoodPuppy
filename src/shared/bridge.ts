@@ -131,6 +131,34 @@ const goodPuppy: GoodPuppyBridge = {
       console.error("close_pet_window failed:", error);
     });
   },
+  spawnBubbleWindow(opts: {
+    label: string;
+    parentLabel: string;
+    isSelf: boolean;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) {
+    if (!inTauri) return Promise.resolve();
+    return invoke<void>("spawn_bubble_window", {
+      label: opts.label,
+      parentLabel: opts.parentLabel,
+      isSelf: opts.isSelf,
+      x: Math.round(opts.x),
+      y: Math.round(opts.y),
+      width: Math.round(opts.width),
+      height: Math.round(opts.height),
+    }).catch((error) => {
+      console.error("spawn_bubble_window failed:", error);
+    });
+  },
+  closeBubbleWindow(label: string) {
+    if (!inTauri) return Promise.resolve();
+    return invoke<void>("close_bubble_window", { label }).catch((error) => {
+      console.error("close_bubble_window failed:", error);
+    });
+  },
   emitToWindow(label: string, event: string, payload?: unknown) {
     if (!inTauri) return Promise.resolve();
     return emitTo(label, event, payload).catch((error) => {

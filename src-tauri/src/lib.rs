@@ -16,7 +16,9 @@ use tauri::{
 #[cfg(target_os = "macos")]
 use objc2::{define_class, ClassType};
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSPanel, NSWindow, NSWindowAnimationBehavior, NSWindowStyleMask};
+use objc2_app_kit::{
+    NSPanel, NSWindow, NSWindowAnimationBehavior, NSWindowOrderingMode, NSWindowStyleMask,
+};
 
 // A borderless (decorationless) window returns NO from -canBecomeKeyWindow by
 // default, so makeKeyAndOrderFront cannot make it key and its HTML text inputs
@@ -24,9 +26,9 @@ use objc2_app_kit::{NSPanel, NSWindow, NSWindowAnimationBehavior, NSWindowStyleM
 // YES; promoting to a non-activating panel lets the window take key focus for the
 // compose textarea WITHOUT activating the whole app. The subclass adds no ivars,
 // so swapping an existing NSWindow instance to it via object_setClass keeps the
-// instance layout identical. Only the never-destroyed `main` window is promoted
-// (see configure_self_panel) — spawned pet windows stay plain so they can be
-// destroyed safely.
+// instance layout identical. Only the never-destroyed `bubble-self` window is
+// promoted (see configure_self_panel) — `main`, remote pets and remote bubbles
+// stay plain so they can be destroyed safely (and so `main` gets first-mouse).
 #[cfg(target_os = "macos")]
 define_class!(
     #[unsafe(super(NSPanel))]
@@ -48,12 +50,45 @@ define_class!(
 #[cfg(target_os = "macos")]
 const NS_POPUP_MENU_WINDOW_LEVEL: objc2_app_kit::NSWindowLevel = 101;
 
-/// Pet overlay windows that the cursor monitor / drag-end signal serve: the
-/// coordinator + self window (`main`) and every dynamically spawned remote pet
-/// window (`pet-<userId>`). The lounge / login windows are excluded.
+/// Pet overlay windows that the drag-end signal serves: the coordinator + self
+/// window (`main`) and every dynamically spawned remote pet window
+/// (`pet-<userId>`). The lounge / login windows are excluded.
 fn is_pet_window_label(label: &str) -> bool {
     label == "main" || label.starts_with("pet-")
 }
+
+/// Bubble overlay windows (`bubble-self`, `bubble-<userId>`): one per pet,
+/// auto-following its parent pet window. They carry their own pixel hit shape
+/// (close button / scroll / textarea) so the cursor monitor must serve them too.
+fn is_bubble_window_label(label: &str) -> bool {
+    label.starts_with("bubble-")
+}
+
+/// Every transparent overlay the native cursor monitor owns passthrough for:
+/// pet windows + their bubble windows.
+fn is_overlay_window_label(label: &str) -> bool {
+    is_pet_window_label(label) || is_bubble_window_label(label)
+}
+
+/// Tracks dynamically spawned bubble windows so they can follow their parent pet
+/// window. macOS auto-follows via `addChildWindow:` (this map is unused there),
+/// but Windows `set_parent` is owner-only and does NOT move the child, so we
+/// reposition it from the parent's `Moved` events using the stored offset.
+#[derive(Default)]
+struct BubbleRegistry {
+    /// bubble label → parent pet label.
+    parent_of: HashMap<String, String>,
+    /// parent pet label → its bubble labels.
+    children_of: HashMap<String, Vec<String>>,
+    /// bubble label → (offset_x, offset_y) from parent top-left, logical px.
+    offset_of: HashMap<String, (f64, f64)>,
+    /// parent pet labels that already have a `Moved` follow listener attached.
+    /// Read only on Windows (macOS auto-follows), so unused elsewhere.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    listening_parents: std::collections::HashSet<String>,
+}
+
+type Bubbles = Arc<std::sync::Mutex<BubbleRegistry>>;
 
 /// How often the native cursor monitor samples the cursor position.
 const CURSOR_POLL_INTERVAL: Duration = Duration::from_millis(16);
@@ -210,16 +245,17 @@ fn configure_floating_overlay<R: Runtime>(window: &WebviewWindow<R>) {
 #[cfg(not(target_os = "macos"))]
 fn configure_floating_overlay<R: Runtime>(_window: &WebviewWindow<R>) {}
 
-/// Configure the self / coordinator window (`main`), which also hosts the compose
+/// Configure the self bubble window (`bubble-self`), which hosts the compose
 /// textarea. A borderless NSWindow returns NO from -canBecomeKeyWindow, so its
 /// text input never receives keystrokes; promote it to a non-activating NSPanel
 /// (`GoodPuppyPanel` overrides -canBecomeKeyWindow → YES) so typing works without
 /// activating the whole app (Spotlight style).
 ///
-/// Only `main` is promoted, and `main` lives for the entire session (it is hidden,
-/// never destroyed). Dynamically spawned pet windows stay plain (see
-/// `configure_floating_overlay`) precisely so they can be destroyed safely — the
-/// abort on leave-room came from tearing down a promoted panel.
+/// Only `bubble-self` is promoted, and like `main` it lives for the entire session
+/// (hidden, never destroyed) so it never hits the panel-teardown abort. Every other
+/// overlay (`main`, remote pets, remote bubbles) stays a plain floating window via
+/// `configure_floating_overlay` — destroyable safely, and `main` plain also restores
+/// first-mouse dragging.
 #[cfg(target_os = "macos")]
 fn configure_self_panel<R: Runtime>(window: &WebviewWindow<R>) {
     let Ok(ns_window_ptr) = window.ns_window() else {
@@ -248,6 +284,87 @@ fn configure_self_panel<R: Runtime>(window: &WebviewWindow<R>) {
 
 #[cfg(not(target_os = "macos"))]
 fn configure_self_panel<R: Runtime>(_window: &WebviewWindow<R>) {}
+
+/// Make `child` a native macOS child window of `parent`, ordered above it. The OS
+/// then moves the child in lockstep with the parent — during programmatic
+/// `setFrame:` AND during a native drag's modal move loop — with zero latency.
+/// This is the whole reason bubbles are separate windows: free, native follow.
+#[cfg(target_os = "macos")]
+fn add_child_window<R: Runtime>(parent: &WebviewWindow<R>, child: &WebviewWindow<R>) {
+    let (Ok(parent_ptr), Ok(child_ptr)) = (parent.ns_window(), child.ns_window()) else {
+        return;
+    };
+    guard_appkit("add_child_window", || {
+        let parent_ns: &NSWindow = unsafe { &*parent_ptr.cast() };
+        let child_ns: &NSWindow = unsafe { &*child_ptr.cast() };
+        unsafe { parent_ns.addChildWindow_ordered(child_ns, NSWindowOrderingMode::Above) };
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+fn add_child_window<R: Runtime>(_parent: &WebviewWindow<R>, _child: &WebviewWindow<R>) {}
+
+/// Windows-only: attach a `Moved` listener to the parent pet window that repositions
+/// every registered bubble child by its stored offset. macOS auto-follows via
+/// `addChildWindow`, so this is a no-op there. The offset is refreshed whenever the
+/// coordinator repositions a bubble (see `set_window_bounds`), so above/below flips
+/// stay correct on the next parent move.
+#[cfg(target_os = "windows")]
+fn ensure_parent_follow_listener<R: Runtime>(
+    app: &AppHandle<R>,
+    parent_label: &str,
+    bubbles: &Bubbles,
+) {
+    {
+        let mut reg = bubbles.lock().unwrap();
+        if reg.listening_parents.contains(parent_label) {
+            return;
+        }
+        reg.listening_parents.insert(parent_label.to_string());
+    }
+    let Some(parent) = app.get_webview_window(parent_label) else {
+        return;
+    };
+    let app = app.clone();
+    let bubbles = bubbles.clone();
+    let parent_label = parent_label.to_string();
+    parent.on_window_event(move |event| {
+        if let tauri::WindowEvent::Moved(pos) = event {
+            let scale = app
+                .get_webview_window(&parent_label)
+                .and_then(|w| w.scale_factor().ok())
+                .unwrap_or(1.0);
+            let parent_x = pos.x as f64 / scale;
+            let parent_y = pos.y as f64 / scale;
+            let children: Vec<(String, (f64, f64))> = {
+                let reg = bubbles.lock().unwrap();
+                reg.children_of
+                    .get(&parent_label)
+                    .map(|labels| {
+                        labels
+                            .iter()
+                            .filter_map(|l| reg.offset_of.get(l).map(|off| (l.clone(), *off)))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            for (label, (ox, oy)) in children {
+                if let Some(child) = app.get_webview_window(&label) {
+                    use tauri::LogicalPosition;
+                    let _ = child.set_position(LogicalPosition::new(parent_x + ox, parent_y + oy));
+                }
+            }
+        }
+    });
+}
+
+#[cfg(not(target_os = "windows"))]
+fn ensure_parent_follow_listener<R: Runtime>(
+    _app: &AppHandle<R>,
+    _parent_label: &str,
+    _bubbles: &Bubbles,
+) {
+}
 
 /// Switches the macOS Dock icon on or off at runtime.
 ///
@@ -387,7 +504,7 @@ fn spawn_cursor_monitor(app: &tauri::App, hit_shapes: HitShapes) {
                 let shapes = hit_shapes.lock().unwrap();
 
                 for (label, window) in handle.webview_windows() {
-                    if !is_pet_window_label(&label) {
+                    if !is_overlay_window_label(&label) {
                         continue;
                     }
 
@@ -478,15 +595,49 @@ fn position_overlay_window<R: Runtime>(
 #[tauri::command]
 fn set_window_bounds(
     window: WebviewWindow,
+    bubbles: tauri::State<'_, Bubbles>,
     x: f64,
     y: f64,
     width: f64,
     height: f64,
 ) -> Result<(), String> {
+    // A bubble being repositioned (e.g. flipped above↔below the pet) changes its
+    // offset from the parent; refresh it so the Windows `Moved` follow stays exact.
+    // macOS auto-follow re-derives the offset from the child's own frame, so this
+    // bookkeeping is Windows-only but harmless to keep updated everywhere.
+    refresh_bubble_offset(&window, &bubbles, x, y);
     let win = window.clone();
     window
         .run_on_main_thread(move || position_overlay_window(&win, x, y, width, height))
         .map_err(|e| e.to_string())
+}
+
+/// Recompute a bubble window's stored offset from its parent after an explicit
+/// reposition, so the parent-`Moved` follow keeps the bubble glued in its new spot.
+fn refresh_bubble_offset<R: Runtime>(window: &WebviewWindow<R>, bubbles: &Bubbles, x: f64, y: f64) {
+    let label = window.label().to_string();
+    if !is_bubble_window_label(&label) {
+        return;
+    }
+    let parent_label = {
+        let reg = bubbles.lock().unwrap();
+        reg.parent_of.get(&label).cloned()
+    };
+    let Some(parent_label) = parent_label else {
+        return;
+    };
+    let Some(parent) = window.app_handle().get_webview_window(&parent_label) else {
+        return;
+    };
+    let Some((px, py)) = parent
+        .outer_position()
+        .ok()
+        .and_then(|p| parent.scale_factor().ok().map(|s| (p.x as f64 / s, p.y as f64 / s)))
+    else {
+        return;
+    };
+    let mut reg = bubbles.lock().unwrap();
+    reg.offset_of.insert(label, (x - px, y - py));
 }
 
 /// Dynamically create a transparent, always-on-top pet overlay window for a
@@ -568,6 +719,117 @@ async fn close_pet_window(app: AppHandle, label: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Dynamically create a transparent bubble overlay window glued to a pet window.
+/// Loads `bubble.html`; the frontend reads its label (`bubble-self` /
+/// `bubble-<userId>`) to render that pet's message stack (and, for self, the
+/// compose stick). Becomes a native child of `parent_label` so the OS keeps it
+/// following the pet. Only the self bubble is promoted to a key-capable panel
+/// (`is_self`) because it hosts the compose textarea; remote bubbles stay plain
+/// so they can be destroyed safely when the member leaves.
+#[tauri::command]
+async fn spawn_bubble_window(
+    app: AppHandle,
+    bubbles: tauri::State<'_, Bubbles>,
+    label: String,
+    parent_label: String,
+    is_self: bool,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    if app.get_webview_window(&label).is_some() {
+        return Ok(());
+    }
+    let Some(parent) = app.get_webview_window(&parent_label) else {
+        return Err(format!("parent window {parent_label} not found"));
+    };
+
+    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("windows/bubble.html".into()))
+        .title("GoodPuppy")
+        .accept_first_mouse(true)
+        .inner_size(width, height)
+        .resizable(false)
+        .maximizable(false)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .shadow(false)
+        .focused(false)
+        .visible(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    // Record parent/offset so Windows can follow on `Moved` (macOS auto-follows).
+    let parent_origin = parent
+        .outer_position()
+        .ok()
+        .and_then(|p| parent.scale_factor().ok().map(|s| (p.x as f64 / s, p.y as f64 / s)))
+        .unwrap_or((x, y));
+    {
+        let mut reg = bubbles.lock().unwrap();
+        reg.parent_of.insert(label.clone(), parent_label.clone());
+        reg.children_of.entry(parent_label.clone()).or_default().push(label.clone());
+        reg.offset_of.insert(label.clone(), (x - parent_origin.0, y - parent_origin.1));
+    }
+
+    let win = window.clone();
+    let parent_for_main = parent.clone();
+    let is_self_flag = is_self;
+    window
+        .run_on_main_thread(move || {
+            configure_floating_overlay(&win);
+            if is_self_flag {
+                configure_self_panel(&win);
+            }
+            position_overlay_window(&win, x, y, width, height);
+            add_child_window(&parent_for_main, &win);
+            let _ = win.show();
+        })
+        .map_err(|e| e.to_string())?;
+
+    ensure_parent_follow_listener(&app, &parent_label, &bubbles);
+    Ok(())
+}
+
+/// Destroy a previously spawned bubble window and forget its follow bookkeeping.
+/// Remote bubbles are plain floating windows (not promoted panels), so this is
+/// the standard Tauri teardown path; the self bubble is a panel and is hidden,
+/// never destroyed, so it never reaches here.
+#[tauri::command]
+async fn close_bubble_window(
+    app: AppHandle,
+    bubbles: tauri::State<'_, Bubbles>,
+    label: String,
+) -> Result<(), String> {
+    {
+        let mut reg = bubbles.lock().unwrap();
+        if let Some(parent) = reg.parent_of.remove(&label) {
+            if let Some(children) = reg.children_of.get_mut(&parent) {
+                children.retain(|l| l != &label);
+            }
+        }
+        reg.offset_of.remove(&label);
+    }
+    if let Some(window) = app.get_webview_window(&label) {
+        let win = window.clone();
+        window
+            .run_on_main_thread(move || {
+                #[cfg(target_os = "macos")]
+                guard_appkit("destroy_bubble_window", || {
+                    let _ = win.destroy();
+                });
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let _ = win.destroy();
+                }
+            })
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Make the pet panel the key window so its HTML text inputs (the compose
 /// stick's textarea) can receive keyboard events. The panel is a nonactivating
 /// NSPanel, so this grabs key status WITHOUT activating the app (Spotlight
@@ -595,19 +857,28 @@ fn focus_pet_panel(window: WebviewWindow) -> bool {
 pub fn run() {
     let hit_shapes: HitShapes = Arc::new(std::sync::Mutex::new(HashMap::new()));
     let monitor_hit_shapes = hit_shapes.clone();
+    let bubbles: Bubbles = Arc::new(std::sync::Mutex::new(BubbleRegistry::default()));
     tauri::Builder::default()
         .manage(hit_shapes)
+        .manage(bubbles)
         .invoke_handler(tauri::generate_handler![
             set_window_bounds,
             focus_pet_panel,
             spawn_pet_window,
             close_pet_window,
+            spawn_bubble_window,
+            close_bubble_window,
             set_pet_hit_shape
         ])
         .setup(move |app| {
             configure_macos_app_activation_policy(app);
+            // `main` 不再承载记号棒 textarea（已搬进自己的气泡窗口 bubble-self），
+            // 因此无需提升为 key-capable 的 NSPanel：走普通浮动覆盖层即可。这让 `main`
+            // 配合 acceptFirstMouse 修复 first-mouse 拖动 bug（失焦后第一次左键直接派发
+            // 到 webview，不再被 panel 的 becomesKeyOnlyIfNeeded 语义吞掉）。见 ADR-0014。
+            // panel 提升改由 bubble-self 在 spawn 时按 is_self 承担。
             if let Some(window) = app.get_webview_window("main") {
-                configure_self_panel(&window);
+                configure_floating_overlay(&window);
             }
             spawn_cursor_monitor(app, monitor_hit_shapes);
 
@@ -738,6 +1009,22 @@ mod tests {
         assert!(!is_pet_window_label("lounge"));
         assert!(!is_pet_window_label("login"));
         assert!(!is_pet_window_label("petunia")); // must be the "pet-" prefix
+    }
+
+    #[test]
+    fn bubble_labels_are_recognized_and_served_as_overlays() {
+        assert!(is_bubble_window_label("bubble-self"));
+        assert!(is_bubble_window_label("bubble-abc-123"));
+        assert!(!is_bubble_window_label("pet-abc"));
+        assert!(!is_bubble_window_label("main"));
+
+        // The cursor monitor serves pets AND their bubbles, but not lounge/login.
+        assert!(is_overlay_window_label("main"));
+        assert!(is_overlay_window_label("pet-abc"));
+        assert!(is_overlay_window_label("bubble-self"));
+        assert!(is_overlay_window_label("bubble-abc"));
+        assert!(!is_overlay_window_label("lounge"));
+        assert!(!is_overlay_window_label("login"));
     }
 
     #[test]
