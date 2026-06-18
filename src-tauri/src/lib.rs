@@ -4,7 +4,7 @@ use std::sync::{
     Arc,
 };
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{
@@ -16,15 +16,17 @@ use tauri::{
 #[cfg(target_os = "macos")]
 use objc2::{define_class, ClassType};
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSPanel, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowStyleMask};
+use objc2_app_kit::{NSPanel, NSWindow, NSWindowAnimationBehavior, NSWindowStyleMask};
 
-// A borderless (decorationless) NSPanel returns NO from -canBecomeKeyWindow by
+// A borderless (decorationless) window returns NO from -canBecomeKeyWindow by
 // default, so makeKeyAndOrderFront cannot make it key and its HTML text inputs
 // never receive keystrokes. Subclass NSPanel and force -canBecomeKeyWindow to
-// YES. The subclass adds no ivars, so swapping an existing NSWindow instance to
-// it via object_setClass keeps the instance layout identical (same trick used
-// for the NSPanel class swap). Being a subclass of NSPanel, isKindOfClass:
-// [NSPanel class] still returns YES, preserving the fullscreen-Space behavior.
+// YES; promoting to a non-activating panel lets the window take key focus for the
+// compose textarea WITHOUT activating the whole app. The subclass adds no ivars,
+// so swapping an existing NSWindow instance to it via object_setClass keeps the
+// instance layout identical. Only the never-destroyed `main` window is promoted
+// (see configure_self_panel) — spawned pet windows stay plain so they can be
+// destroyed safely.
 #[cfg(target_os = "macos")]
 define_class!(
     #[unsafe(super(NSPanel))]
@@ -40,9 +42,9 @@ define_class!(
 );
 
 // NSPopUpMenuWindowLevel (101) — the same level Electron uses for always-on-top panel windows.
-// Appearing above fullscreen apps is determined by FullScreenAuxiliary collection behavior, not
-// by a high window level; using 1500 (CGAssistiveTechHighWindowLevel) caused the window manager
-// to treat the window as an accessibility overlay, breaking Space membership on some macOS versions.
+// A high but non-accessibility level: using 1500 (CGAssistiveTechHighWindowLevel) made the window
+// manager treat the window as an accessibility overlay, breaking Space membership on some macOS
+// versions. Floats above ordinary windows; it does not (and is not meant to) overlay fullscreen apps.
 #[cfg(target_os = "macos")]
 const NS_POPUP_MENU_WINDOW_LEVEL: objc2_app_kit::NSWindowLevel = 101;
 
@@ -55,8 +57,6 @@ fn is_pet_window_label(label: &str) -> bool {
 
 /// How often the native cursor monitor samples the cursor position.
 const CURSOR_POLL_INTERVAL: Duration = Duration::from_millis(16);
-/// Re-emit unchanged cursor positions so late frontend listeners still receive state.
-const CURSOR_HEARTBEAT_INTERVAL: Duration = Duration::from_millis(250);
 
 #[derive(Debug, PartialEq, Eq)]
 struct LoungeStartupBehavior {
@@ -112,20 +112,6 @@ fn guard_appkit<R>(op: &str, f: impl FnOnce() -> R) -> Option<R> {
             None
         }
     }
-}
-
-/// Return a dynamically-spawned overlay panel to a benign state just before it
-/// is destroyed, so AppKit's teardown doesn't raise an Objective-C exception
-/// (see `close_pet_window`). Order-out resigns key/IMK and ends any native drag
-/// tracking; clearing the collection behavior drops it from all Spaces.
-#[cfg(target_os = "macos")]
-fn neutralize_overlay_before_close<R: Runtime>(window: &WebviewWindow<R>) {
-    let Ok(ns_window_ptr) = window.ns_window() else {
-        return;
-    };
-    let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
-    ns_window.setCollectionBehavior(NSWindowCollectionBehavior::empty());
-    ns_window.orderOut(None);
 }
 
 #[cfg(target_os = "macos")]
@@ -199,56 +185,51 @@ fn left_mouse_button_down() -> Option<bool> {
     None
 }
 
-/// Returns the collection behavior needed for a persistent overlay window that appears above
-/// macOS fullscreen apps on every Space.
+/// Apply the floating desktop-pet overlay traits to a plain window:
+/// - float above ordinary windows (a high but non-accessibility level),
+/// - stay visible when another app is focused (`hidesOnDeactivate` off),
+/// - never get hidden by Hide Others (`canHide` off),
+/// - no Space-switch animation.
 ///
-/// Tao (Tauri's windowing layer) sets Managed and FullScreenPrimary by default, which conflict
-/// with FullScreenAuxiliary and Stationary. We clear the full set of conflicting flags before
-/// setting the overlay flags so the window correctly joins all Spaces.
+/// Deliberately NOT a panel and NOT joining all Spaces / fullscreen: GoodPuppy is
+/// a desktop pet that does not overlay fullscreen apps. This keeps the window a
+/// vanilla Tauri NSWindow, so dynamically spawned pet windows can be destroyed via
+/// the standard path without the NSPanel-teardown crash (see `close_pet_window`).
 #[cfg(target_os = "macos")]
-fn macos_overlay_collection_behavior(
-    existing: NSWindowCollectionBehavior,
-) -> NSWindowCollectionBehavior {
-    let clear = NSWindowCollectionBehavior::MoveToActiveSpace
-        | NSWindowCollectionBehavior::Managed
-        | NSWindowCollectionBehavior::Transient
-        | NSWindowCollectionBehavior::ParticipatesInCycle
-        | NSWindowCollectionBehavior::FullScreenPrimary
-        | NSWindowCollectionBehavior::FullScreenNone
-        | NSWindowCollectionBehavior::FullScreenAllowsTiling
-        | NSWindowCollectionBehavior::Primary
-        | NSWindowCollectionBehavior::Auxiliary
-        | NSWindowCollectionBehavior::CanJoinAllApplications;
-
-    let set = NSWindowCollectionBehavior::CanJoinAllSpaces
-        | NSWindowCollectionBehavior::Stationary
-        | NSWindowCollectionBehavior::FullScreenAuxiliary
-        | NSWindowCollectionBehavior::IgnoresCycle;
-
-    (existing & !clear) | set
+fn configure_floating_overlay<R: Runtime>(window: &WebviewWindow<R>) {
+    let Ok(ns_window_ptr) = window.ns_window() else {
+        return;
+    };
+    let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
+    ns_window.setLevel(NS_POPUP_MENU_WINDOW_LEVEL);
+    ns_window.setHidesOnDeactivate(false);
+    ns_window.setCanHide(false);
+    ns_window.setAnimationBehavior(NSWindowAnimationBehavior::None);
 }
 
+#[cfg(not(target_os = "macos"))]
+fn configure_floating_overlay<R: Runtime>(_window: &WebviewWindow<R>) {}
+
+/// Configure the self / coordinator window (`main`), which also hosts the compose
+/// textarea. A borderless NSWindow returns NO from -canBecomeKeyWindow, so its
+/// text input never receives keystrokes; promote it to a non-activating NSPanel
+/// (`GoodPuppyPanel` overrides -canBecomeKeyWindow → YES) so typing works without
+/// activating the whole app (Spotlight style).
+///
+/// Only `main` is promoted, and `main` lives for the entire session (it is hidden,
+/// never destroyed). Dynamically spawned pet windows stay plain (see
+/// `configure_floating_overlay`) precisely so they can be destroyed safely — the
+/// abort on leave-room came from tearing down a promoted panel.
 #[cfg(target_os = "macos")]
-fn configure_macos_overlay_level<R: Runtime>(window: &WebviewWindow<R>) {
+fn configure_self_panel<R: Runtime>(window: &WebviewWindow<R>) {
     let Ok(ns_window_ptr) = window.ns_window() else {
         return;
     };
     let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
 
-    // Promote the Tauri NSWindow instance to the NSPanel class at runtime.
-    //
-    // Why this is needed: macOS AppKit's Space/fullscreen management internally calls
-    // -[window isKindOfClass:[NSPanel class]]. An NSWindow with the same style mask and
-    // collection behavior flags still fails that check and does not join fullscreen Spaces.
-    // Setting NSWindowStyleMaskNonactivatingPanel alone (our previous attempt) is not enough.
-    //
-    // How: objc2::ffi::object_setClass swaps the isa pointer. NSPanel has no extra ivars
-    // versus NSWindow, so the instance layouts are identical — objc2's AnyObject::set_class
-    // asserts size equality in debug builds, giving us a compile-time safety net.
-    //
-    // This is the same technique Electron's ElectronNSPanel uses (they override styleMask to
-    // add NSWindowStyleMaskNonactivatingPanel on an NSWindow subclass), except we go one step
-    // further and make isKindOfClass:[NSPanel class] return YES.
+    // objc2::ffi::object_setClass swaps the isa pointer. NSPanel has no extra ivars
+    // versus NSWindow, so the instance layouts are identical (objc2 asserts size
+    // equality in debug builds). Same technique Electron's ElectronNSPanel uses.
     unsafe {
         let panel_class = GoodPuppyPanel::class();
         objc2::ffi::object_setClass(
@@ -257,24 +238,16 @@ fn configure_macos_overlay_level<R: Runtime>(window: &WebviewWindow<R>) {
         );
     }
 
-    // Now safe to call NSPanel-specific methods.
     let ns_panel: &NSPanel = unsafe { &*ns_window_ptr.cast() };
     ns_panel.setFloatingPanel(true);
     ns_panel.setBecomesKeyOnlyIfNeeded(true);
-
     ns_window.setStyleMask(ns_window.styleMask() | NSWindowStyleMask::NonactivatingPanel);
-    ns_window.setLevel(NS_POPUP_MENU_WINDOW_LEVEL);
-    ns_window.setHidesOnDeactivate(false);
-    ns_window.setCanHide(false);
-    ns_window.setAnimationBehavior(NSWindowAnimationBehavior::None);
-    ns_window.setCollectionBehavior(macos_overlay_collection_behavior(
-        ns_window.collectionBehavior(),
-    ));
+
+    configure_floating_overlay(window);
 }
 
-
 #[cfg(not(target_os = "macos"))]
-fn configure_macos_overlay_level<R: Runtime>(_window: &WebviewWindow<R>) {}
+fn configure_self_panel<R: Runtime>(_window: &WebviewWindow<R>) {}
 
 /// Switches the macOS Dock icon on or off at runtime.
 ///
@@ -301,13 +274,79 @@ fn configure_macos_app_activation_policy(app: &mut tauri::App) {
 #[cfg(not(target_os = "macos"))]
 fn configure_macos_app_activation_policy(_app: &mut tauri::App) {}
 
-/// Streams cursor positions relative to the pet webview's content area so the
-/// transparent overlay can perform pixel-perfect hit testing while ignoring mouse events.
-fn spawn_cursor_monitor(app: &tauri::App) {
+/// Per-window interactive hit shape, published by the webview in window-content
+/// CSS-logical pixels (same space the cursor monitor measures the cursor in).
+///
+/// The native cursor monitor owns mouse passthrough and decides it from this
+/// shape every poll tick — no per-move IPC round-trip. That removes the ~30–50ms
+/// "become interactive" latency that made the first click after entering the pet
+/// fail to grab it. The webview re-publishes the shape only when it changes
+/// (animation frame, scale, bubbles/compose, drag), not on every cursor move.
+#[derive(Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PetHitShape {
+    /// Pet silhouette alpha mask over `mask_rect`, row-major, 1 = opaque pixel.
+    mask: Vec<u8>,
+    mask_cols: u32,
+    mask_rows: u32,
+    /// Mask rect [x, y, w, h] in content-logical px.
+    mask_rect: [f64; 4],
+    /// Always-interactive rects (visible bubbles / compose stick), content px.
+    rects: Vec<[f64; 4]>,
+    /// While dragging, the whole window stays interactive regardless of shape.
+    force_interactive: bool,
+}
+
+/// label → latest published hit shape. Shared between the `set_pet_hit_shape`
+/// command (writer) and the cursor monitor (reader).
+type HitShapes = Arc<std::sync::Mutex<HashMap<String, PetHitShape>>>;
+
+fn point_in_rect(x: f64, y: f64, r: [f64; 4]) -> bool {
+    x >= r[0] && y >= r[1] && x <= r[0] + r[2] && y <= r[1] + r[3]
+}
+
+/// Whether a content-space point (CSS-logical px) is over interactive content:
+/// the pet silhouette (mask) or any interactive rect, or unconditionally while
+/// a drag forces the window interactive. Pure → unit-tested.
+fn shape_is_interactive(shape: &PetHitShape, x: f64, y: f64) -> bool {
+    if shape.force_interactive {
+        return true;
+    }
+    if shape.rects.iter().any(|r| point_in_rect(x, y, *r)) {
+        return true;
+    }
+    let [rx, ry, rw, rh] = shape.mask_rect;
+    if shape.mask_cols == 0 || shape.mask_rows == 0 || rw <= 0.0 || rh <= 0.0 {
+        return false;
+    }
+    if x < rx || y < ry || x > rx + rw || y > ry + rh {
+        return false;
+    }
+    let col = (((x - rx) / rw) * shape.mask_cols as f64) as i64;
+    let row = (((y - ry) / rh) * shape.mask_rows as f64) as i64;
+    let col = col.clamp(0, shape.mask_cols as i64 - 1) as usize;
+    let row = row.clamp(0, shape.mask_rows as i64 - 1) as usize;
+    let idx = row * shape.mask_cols as usize + col;
+    shape.mask.get(idx).copied().unwrap_or(0) != 0
+}
+
+/// Store the latest hit shape a pet window published. Cheap; called only when the
+/// window's interactive shape actually changes.
+#[tauri::command]
+fn set_pet_hit_shape(window: WebviewWindow, shapes: tauri::State<'_, HitShapes>, shape: PetHitShape) {
+    if let Ok(mut map) = shapes.lock() {
+        map.insert(window.label().to_string(), shape);
+    }
+}
+
+/// Polls the cursor and natively toggles each pet window's mouse passthrough from
+/// the shape it published (pixel-perfect, no per-move IPC). Also emits a drag-end
+/// signal on mouse release so drag-lift animations can settle.
+fn spawn_cursor_monitor(app: &tauri::App, hit_shapes: HitShapes) {
     let handle = app.handle().clone();
     thread::spawn(move || {
-        // Per-window dedup: label → (last rounded position, last emit time).
-        let last_emitted: Arc<std::sync::Mutex<HashMap<String, ((i64, i64), Instant)>>> =
+        // Per-window dedup: label → last applied `ignore_cursor_events` value.
+        let last_ignore: Arc<std::sync::Mutex<HashMap<String, bool>>> =
             Arc::new(std::sync::Mutex::new(HashMap::new()));
         let stop = Arc::new(AtomicBool::new(false));
         // Tracks the left mouse button so we can emit a drag-end signal on release.
@@ -320,8 +359,9 @@ fn spawn_cursor_monitor(app: &tauri::App) {
             thread::sleep(CURSOR_POLL_INTERVAL);
 
             let handle = handle.clone();
-            let last_emitted = last_emitted.clone();
+            let last_ignore = last_ignore.clone();
             let last_button_down = last_button_down.clone();
+            let hit_shapes = hit_shapes.clone();
             let stop = stop.clone();
             let posted = handle.clone().run_on_main_thread(move || {
                 if handle.get_webview_window("main").is_none() {
@@ -343,8 +383,8 @@ fn spawn_cursor_monitor(app: &tauri::App) {
                     }
                 }
 
-                let mut guard = last_emitted.lock().unwrap();
-                let now = Instant::now();
+                let mut guard = last_ignore.lock().unwrap();
+                let shapes = hit_shapes.lock().unwrap();
 
                 for (label, window) in handle.webview_windows() {
                     if !is_pet_window_label(&label) {
@@ -355,20 +395,17 @@ fn spawn_cursor_monitor(app: &tauri::App) {
                         continue;
                     };
 
-                    let rounded = (client_point.x.round() as i64, client_point.y.round() as i64);
-                    let should_emit = match guard.get(&label) {
-                        Some((last_pos, last_time)) => {
-                            *last_pos != rounded || last_time.elapsed() >= CURSOR_HEARTBEAT_INTERVAL
-                        }
-                        None => true,
-                    };
+                    // Native owns passthrough: interactive over the pet/bubbles,
+                    // ignore (click-through) elsewhere. No shape yet → ignore.
+                    let interactive = shapes
+                        .get(&label)
+                        .map(|s| shape_is_interactive(s, client_point.x, client_point.y))
+                        .unwrap_or(false);
+                    let ignore = !interactive;
 
-                    if should_emit {
-                        // 必须定向到该窗口：`emit` 会广播给所有 webview，而每个窗口的
-                        // cursor-moved 坐标是相对各自内容区算的。广播会让每个 pet 窗口
-                        // 收到 N 份「别的窗口的坐标」，导致穿透状态乱抖（拖不动 / 卡 / 不稳定）。
-                        let _ = window.emit_to(label.as_str(), "cursor-moved", client_point);
-                        guard.insert(label, (rounded, now));
+                    if guard.get(&label) != Some(&ignore) {
+                        guard.insert(label, ignore);
+                        let _ = window.set_ignore_cursor_events(ignore);
                     }
                 }
             });
@@ -486,10 +523,11 @@ async fn spawn_pet_window(
 
     // Configure overlay level + final geometry on the main thread BEFORE showing,
     // so the window never flashes at the wrong position or below other windows.
+    // Plain floating window (no panel promotion) so it can be destroyed safely.
     let win = window.clone();
     window
         .run_on_main_thread(move || {
-            configure_macos_overlay_level(&win);
+            configure_floating_overlay(&win);
             position_overlay_window(&win, x, y, width, height);
             let _ = win.show();
         })
@@ -499,36 +537,21 @@ async fn spawn_pet_window(
 
 /// Destroy a previously spawned pet overlay window (member went offline / left).
 ///
-/// The teardown MUST run on the main thread. Tauri commands may run on a worker
-/// thread; destroying an NSWindow/NSPanel off the main thread tears down its
-/// input-method context off-thread (`error messaging the mach port for
-/// IMKCFRunLoopWakeUpReliable`) and raises an Objective-C exception that unwinds
-/// through Rust — `fatal runtime error: Rust cannot catch foreign exceptions`.
-/// `spawn_pet_window` / `set_window_bounds` already marshal to the main thread
-/// for the same reason; this kept calling `destroy()` inline and crashed on leave.
+/// The teardown runs on the main thread (Tauri commands may run on a worker
+/// thread; window teardown must be on the main thread). These windows are plain
+/// floating NSWindows — NOT promoted panels — so destroying them is the standard
+/// Tauri path. (The earlier leave-room abort came from tearing down promoted,
+/// all-Spaces NSPanels; spawned pets are no longer promoted — see
+/// `configure_floating_overlay`.) The destroy is still wrapped so any residual
+/// AppKit teardown exception is logged rather than aborting the process.
 #[tauri::command]
 async fn close_pet_window(app: AppHandle, label: String) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(&label) {
         let win = window.clone();
         window
             .run_on_main_thread(move || {
-                // These overlay windows were promoted to a custom NSPanel
-                // (`GoodPuppyPanel`) with all-Spaces / FullScreenAuxiliary
-                // collection behavior. The old single-window design never
-                // destroyed such a window; the multi-window split does, and
-                // AppKit's teardown of a promoted, all-Spaces, possibly-key
-                // panel (removing it from every Space, resigning key/IMK,
-                // ending an in-flight native drag) raises an Objective-C
-                // exception that unwinds through Rust on a later runloop tick
-                // → `Rust cannot catch foreign exceptions` abort.
-                //
-                // Put the panel back into a benign state BEFORE destroying it:
-                // order it out (resigns key / ends drag tracking) and clear the
-                // collection behavior (drops it from all Spaces) so the deferred
-                // native teardown has nothing dangerous left to do.
                 #[cfg(target_os = "macos")]
                 guard_appkit("destroy_window", || {
-                    neutralize_overlay_before_close(&win);
                     let _ = win.destroy();
                 });
                 #[cfg(not(target_os = "macos"))]
@@ -566,19 +589,23 @@ fn focus_pet_panel(window: WebviewWindow) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let hit_shapes: HitShapes = Arc::new(std::sync::Mutex::new(HashMap::new()));
+    let monitor_hit_shapes = hit_shapes.clone();
     tauri::Builder::default()
+        .manage(hit_shapes)
         .invoke_handler(tauri::generate_handler![
             set_window_bounds,
             focus_pet_panel,
             spawn_pet_window,
-            close_pet_window
+            close_pet_window,
+            set_pet_hit_shape
         ])
-        .setup(|app| {
+        .setup(move |app| {
             configure_macos_app_activation_policy(app);
             if let Some(window) = app.get_webview_window("main") {
-                configure_macos_overlay_level(&window);
+                configure_self_panel(&window);
             }
-            spawn_cursor_monitor(app);
+            spawn_cursor_monitor(app, monitor_hit_shapes);
 
             let lounge_startup = lounge_startup_behavior();
 
@@ -743,33 +770,48 @@ mod tests {
         assert_eq!(point.y, 300.0);
     }
 
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn macos_overlay_collection_behavior_clears_conflicting_flags() {
-        let existing = NSWindowCollectionBehavior::Managed
-            | NSWindowCollectionBehavior::MoveToActiveSpace
-            | NSWindowCollectionBehavior::ParticipatesInCycle
-            | NSWindowCollectionBehavior::FullScreenPrimary;
-
-        let result = macos_overlay_collection_behavior(existing);
-
-        assert!(!result.contains(NSWindowCollectionBehavior::Managed));
-        assert!(!result.contains(NSWindowCollectionBehavior::MoveToActiveSpace));
-        assert!(!result.contains(NSWindowCollectionBehavior::ParticipatesInCycle));
-        assert!(!result.contains(NSWindowCollectionBehavior::FullScreenPrimary));
+    fn shape_with_mask(mask: Vec<u8>, cols: u32, rows: u32, rect: [f64; 4]) -> PetHitShape {
+        PetHitShape {
+            mask,
+            mask_cols: cols,
+            mask_rows: rows,
+            mask_rect: rect,
+            rects: Vec::new(),
+            force_interactive: false,
+        }
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
-    fn macos_overlay_collection_behavior_sets_all_required_overlay_flags() {
-        let existing = NSWindowCollectionBehavior::empty();
+    fn force_interactive_overrides_everything() {
+        let mut shape = PetHitShape::default();
+        shape.force_interactive = true;
+        // No mask, no rects, but a drag forces the whole window interactive.
+        assert!(shape_is_interactive(&shape, 9999.0, 9999.0));
+    }
 
-        let result = macos_overlay_collection_behavior(existing);
+    #[test]
+    fn interactive_rects_hit_inside_only() {
+        let mut shape = PetHitShape::default();
+        shape.rects = vec![[10.0, 20.0, 100.0, 40.0]];
+        assert!(shape_is_interactive(&shape, 10.0, 20.0)); // top-left corner
+        assert!(shape_is_interactive(&shape, 60.0, 40.0)); // inside
+        assert!(shape_is_interactive(&shape, 110.0, 60.0)); // bottom-right corner
+        assert!(!shape_is_interactive(&shape, 9.0, 40.0)); // left of rect
+        assert!(!shape_is_interactive(&shape, 60.0, 61.0)); // below rect
+    }
 
-        assert!(result.contains(NSWindowCollectionBehavior::CanJoinAllSpaces));
-        assert!(result.contains(NSWindowCollectionBehavior::Stationary));
-        assert!(result.contains(NSWindowCollectionBehavior::FullScreenAuxiliary));
-        assert!(result.contains(NSWindowCollectionBehavior::IgnoresCycle));
-        assert!(!result.contains(NSWindowCollectionBehavior::FullScreenDisallowsTiling));
+    #[test]
+    fn mask_opaque_cells_are_interactive_transparent_are_not() {
+        // 2x2 mask over a 20x20 rect at origin (10,10): only the bottom-right cell opaque.
+        let shape = shape_with_mask(vec![0, 0, 0, 1], 2, 2, [10.0, 10.0, 20.0, 20.0]);
+        assert!(!shape_is_interactive(&shape, 12.0, 12.0)); // top-left cell, transparent
+        assert!(shape_is_interactive(&shape, 25.0, 25.0)); // bottom-right cell, opaque
+        assert!(!shape_is_interactive(&shape, 5.0, 5.0)); // outside the mask rect
+    }
+
+    #[test]
+    fn empty_mask_is_not_interactive() {
+        let shape = shape_with_mask(Vec::new(), 0, 0, [0.0, 0.0, 0.0, 0.0]);
+        assert!(!shape_is_interactive(&shape, 0.0, 0.0));
     }
 }

@@ -1079,7 +1079,6 @@ export function openLoungePanel() {
   if (!p) return;
 
   p.hidden = false;
-  window.goodPuppy.setIgnoreMouseEvents(false);
 
   if (selfAuthId) {
     renderAuthState(true);

@@ -22,10 +22,21 @@ export interface WindowLayout {
   workArea: WindowPoint & WindowSize;
 }
 
-/** 原生侧推送的窗口 client 坐标（鼠标穿透判定用，见 bridge.onCursorMoved）。 */
-export interface CursorPoint {
-  x: number;
-  y: number;
+/**
+ * 本窗口的「可交互命中形状」，由 webview 下发给原生，供光标监视器原生侧判定鼠标穿透
+ * （像素级，免去逐帧 IPC 往返）。坐标均为窗口内容区 CSS 逻辑像素。见 bridge.publishHitShape。
+ */
+export interface PetHitShape {
+  /** pet 剪影 alpha 掩模，行优先，1 = 不透明像素。 */
+  mask: number[];
+  maskCols: number;
+  maskRows: number;
+  /** 掩模覆盖的矩形 [x, y, w, h]（内容区像素）。 */
+  maskRect: [number, number, number, number];
+  /** 始终可交互的矩形（可见气泡 / 输入条），[x, y, w, h]。 */
+  rects: [number, number, number, number][];
+  /** 拖动期间整窗强制可交互，不受命中形状限制。 */
+  forceInteractive: boolean;
 }
 
 /** bridge.ts 暴露的桥接 API，挂在 window.goodPuppy。 */
@@ -46,7 +57,8 @@ export interface GoodPuppyBridge {
   supportsNativeWindowDrag(): boolean;
   /** 把本次手势交给系统接管（fire-and-forget）。 */
   startWindowDrag(): void;
-  setIgnoreMouseEvents(shouldIgnore: boolean): void;
+  /** 下发本窗口的可交互命中形状给原生（原生据此判定鼠标穿透）。 */
+  publishHitShape(shape: PetHitShape): void;
   /** 当前 webview 窗口的 label（"main" = 自己/协调者，"pet-<userId>" = 远程呈现者）。 */
   getWindowLabel(): string;
   /** 协调者请求 Rust 动态创建一只远程成员的 pet 窗口（label `pet-<userId>`）。 */
@@ -57,8 +69,6 @@ export interface GoodPuppyBridge {
   emitToWindow(label: string, event: string, payload?: unknown): Promise<void>;
   /** 订阅本窗口收到的跨窗口事件（含定向到本窗口的事件）；返回取消订阅函数。 */
   onAppEvent<T = unknown>(event: string, callback: (payload: T) => void): () => void;
-  /** 订阅原生光标流；返回取消订阅函数。 */
-  onCursorMoved(callback: (point: CursorPoint | null) => void): () => void;
   /**
    * 订阅原生「鼠标左键松开」信号；返回取消订阅函数。
    * Windows 原生拖拽会吞掉 webview 的 pointerup，需要靠它判定拖拽结束。

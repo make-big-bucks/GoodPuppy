@@ -1,12 +1,15 @@
 // 单只 pet 的窗口呈现器（多窗口拆分后，每个 webview 只渲染一只 pet）。
 //
 // 由自己窗口（label "main"）与每个远程 pet 窗口（label "pet-<userId>"）共用：
-// 负责动画→图像、像素命中、鼠标穿透、气泡纵向布局/翻转、拖动（原生+手动）与拖起动画。
+// 负责动画→图像、像素命中、气泡纵向布局/翻转、拖动（原生+手动）与拖起动画。
 // 不碰 Supabase，也不知道「房间/成员」——数据由各自入口（self entry / 协调者事件）喂进来。
 //
-// 每个窗口是独立 document，故 messageBubble / 命中等「文档级」助手天然只作用于本窗口这一只 pet。
+// 鼠标穿透由原生侧独占：本呈现器只在「可交互形状变化时」把命中形状（pet 剪影掩模 +
+// 可见气泡/输入条矩形 + 拖动强制位）下发给原生（见 publishHitShape / Rust 光标监视器），
+// 原生每个轮询 tick 直接判定 setIgnoreCursorEvents——免去逐帧 IPC 往返与「进入 pet 才慢慢
+// 变可交互」的延迟（第一下点不动的根因）。
 import type { PetAnimator } from "./petState.js";
-import { isPointOpaqueInImage } from "./hitTesting.js";
+import { isPointOpaqueInImage, buildAlphaMask } from "./hitTesting.js";
 import { applyStateToImage } from "./renderImage.js";
 import { startNativeWindowDragWithLift } from "./petDrag.js";
 import {
@@ -33,6 +36,7 @@ type PointerPoint = { x: number; y: number };
 export type PetPresenter = {
   animator: PetAnimator;
   applyWindowLayout: (reason?: string) => Promise<void>;
+  /** 重新计算并下发本窗口的可交互命中形状（名字沿用历史语义：刷新穿透判定）。 */
   refreshPassthrough: () => void;
   setMessages: (messages: LocalMessage[]) => void;
   addMessage: (message: LocalMessage) => void;
@@ -59,6 +63,8 @@ export type PetPresenterOptions = {
 const BUBBLE_REGION_SELECTOR = ".bubble-stack:not([hidden]), .compose-stick:not([hidden])";
 const ALPHA_HIT_THRESHOLD = 16;
 const ALPHA_HIT_SLOP = 3;
+// 周期性重发命中形状：让掩模跟上 GIF 自播放的剪影变化（结构性变化另有即时触发）。
+const HIT_SHAPE_REFRESH_MS = 120;
 
 export function createPetPresenter(opts: PetPresenterOptions): PetPresenter {
   const { stage, area, petImage, animator } = opts;
@@ -71,10 +77,10 @@ export function createPetPresenter(opts: PetPresenterOptions): PetPresenter {
   let pointerStart: PointerPoint | null = null;
   let windowStart: WindowPoint | null = null;
   let isDragging = false;
-  let isIgnoringMouseEvents = false;
-  let lastPointerEvent: HoverEventLike | null = null;
   let dragLiftTimer: ReturnType<typeof setTimeout> | null = null;
   let isNativeDragging = false;
+  // 拖动期间整窗强制可交互：即便光标短暂滑出 pet 剪影也不被原生翻成穿透。
+  let forceInteractive = false;
 
   let currentLayout = { height: Math.round(PET_WINDOW_HEIGHT * opts.getScale()), belowWin: 0 };
   let layoutPending = false;
@@ -124,7 +130,7 @@ export function createPetPresenter(opts: PetPresenterOptions): PetPresenter {
     }
   }
 
-  // ── Hit testing & mouse passthrough ────────────────────────────────────
+  // ── Hit testing helpers ─────────────────────────────────────────────────
   function closestFromEvent<T extends Element>(event: { target: EventTarget | null }, selector: string) {
     const target = event.target instanceof Element ? event.target : null;
     return target?.closest(selector) as T | null;
@@ -159,44 +165,48 @@ export function createPetPresenter(opts: PetPresenterOptions): PetPresenter {
     );
   }
 
-  function isBubbleRegionAt(event: HoverEventLike) {
-    return [...document.querySelectorAll<HTMLElement>(BUBBLE_REGION_SELECTOR)].some((region) =>
-      isPointInsideElement(event, region),
-    );
+  // ── Native passthrough via published hit shape ──────────────────────────
+  function publishHitShape() {
+    const maskData = buildAlphaMask(petImage, petImage, hitContext, hitCanvas, {
+      respectObjectFit: true,
+      alphaThreshold: ALPHA_HIT_THRESHOLD,
+    });
+    const rects = [...document.querySelectorAll<HTMLElement>(BUBBLE_REGION_SELECTOR)].map((el) => {
+      const r = el.getBoundingClientRect();
+      return [r.left, r.top, r.width, r.height] as [number, number, number, number];
+    });
+    window.goodPuppy.publishHitShape({
+      mask: maskData?.mask ?? [],
+      maskCols: maskData?.maskCols ?? 0,
+      maskRows: maskData?.maskRows ?? 0,
+      maskRect: maskData?.maskRect ?? [0, 0, 0, 0],
+      rects,
+      forceInteractive,
+    });
   }
 
-  function isInteractiveAt(event: HoverEventLike) {
-    if (isBubbleRegionAt(event)) return true;
-    return isPetOpaqueAt(event);
+  // 合并一帧内的多次触发（布局 + 图片 load + 气泡显隐常同时发生）。
+  let publishScheduled = false;
+  function refreshPassthrough() {
+    if (publishScheduled) return;
+    publishScheduled = true;
+    window.requestAnimationFrame(() => {
+      publishScheduled = false;
+      publishHitShape();
+    });
   }
 
-  function setMousePassthrough(shouldPassThrough: boolean) {
-    if (isIgnoringMouseEvents === shouldPassThrough) return;
-    isIgnoringMouseEvents = shouldPassThrough;
-    window.goodPuppy.setIgnoreMouseEvents(shouldPassThrough);
+  function setForceInteractive(next: boolean) {
+    if (forceInteractive === next) return;
+    forceInteractive = next;
+    refreshPassthrough();
   }
 
+  // 气泡 hover 高亮（纯视觉，靠 DOM 事件；窗口可交互时才会收到）。
   function updateBubbleHover(event: HoverEventLike) {
     const stack = area.querySelector<HTMLElement>(".bubble-stack:not([hidden])");
     const hovered = Boolean(stack) && isPointInsideElement(event, stack!);
     area.classList.toggle("bubble-hovered", hovered);
-  }
-
-  function updateMousePassthrough(event: HoverEventLike) {
-    lastPointerEvent = event;
-    updateBubbleHover(event);
-    if (pointerStart) {
-      setMousePassthrough(false);
-      return;
-    }
-    setMousePassthrough(!isInteractiveAt(event));
-  }
-
-  function refreshPassthrough() {
-    if (lastPointerEvent) {
-      const event = lastPointerEvent;
-      window.requestAnimationFrame(() => updateMousePassthrough(event));
-    }
   }
 
   // ── Drag-lift ──────────────────────────────────────────────────────────
@@ -233,19 +243,10 @@ export function createPetPresenter(opts: PetPresenterOptions): PetPresenter {
   });
   mountStack(area);
 
-  document.addEventListener("mousemove", updateMousePassthrough);
-  document.addEventListener("mouseleave", () => {
-    if (!pointerStart) setMousePassthrough(true);
-  });
-
-  window.goodPuppy.onCursorMoved((point) => {
-    if (!point) return;
-    const target = document.elementFromPoint(point.x, point.y) || document.body;
-    updateMousePassthrough({ clientX: point.x, clientY: point.y, target });
-  });
+  document.addEventListener("mousemove", updateBubbleHover);
+  document.addEventListener("mouseleave", () => area.classList.remove("bubble-hovered"));
 
   stage.addEventListener("pointerdown", async (event: PointerEvent) => {
-    setMousePassthrough(false);
     if (event.button !== 0) return;
     if (
       targetElement(event.target)?.closest(".bubble-stack") ||
@@ -254,6 +255,9 @@ export function createPetPresenter(opts: PetPresenterOptions): PetPresenter {
       return;
     if (!isPetOpaqueAt(event)) return;
     if (!opts.isDraggable()) return;
+
+    // 拖动期间保持整窗可交互，避免光标滑出剪影时原生把窗口翻成穿透中断拖动。
+    setForceInteractive(true);
 
     if (supportsNativeWindowDrag) {
       startNativeWindowDragWithLift({
@@ -286,7 +290,7 @@ export function createPetPresenter(opts: PetPresenterOptions): PetPresenter {
   });
 
   stage.addEventListener("pointermove", (event: PointerEvent) => {
-    updateMousePassthrough(event);
+    updateBubbleHover(event);
     if (!pointerStart) return;
     const deltaX = event.screenX - pointerStart.x;
     const deltaY = event.screenY - pointerStart.y;
@@ -302,7 +306,9 @@ export function createPetPresenter(opts: PetPresenterOptions): PetPresenter {
     windowStart = null;
     isDragging = false;
     if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
-    updateMousePassthrough(event);
+    // 原生拖动由 onDragEnded 收尾（pointerup 可能被系统 modal loop 吞掉）。
+    if (!isNativeDragging) setForceInteractive(false);
+    updateBubbleHover(event);
     if (dragged) void reportDragEnded();
   });
 
@@ -310,6 +316,7 @@ export function createPetPresenter(opts: PetPresenterOptions): PetPresenter {
     pointerStart = null;
     windowStart = null;
     isDragging = false;
+    if (!isNativeDragging) setForceInteractive(false);
   });
 
   window.addEventListener("pointerup", stopDragLift);
@@ -319,6 +326,7 @@ export function createPetPresenter(opts: PetPresenterOptions): PetPresenter {
   window.goodPuppy.onDragEnded(() => {
     const wasNative = isNativeDragging;
     isNativeDragging = false;
+    setForceInteractive(false);
     stopDragLift();
     // 原生拖动结束：重排并上报新位置。手动拖动已在 pointerup 处理，避免重复上报。
     if (wasNative) void reportDragEnded();
@@ -327,6 +335,17 @@ export function createPetPresenter(opts: PetPresenterOptions): PetPresenter {
 
   petImage.addEventListener("load", refreshPassthrough);
   window.addEventListener("load", refreshPassthrough);
+  // After the native window resizes (bubble grow/flip), re-publish so the mask
+  // rect uses the new content-space coordinates.
+  window.addEventListener("resize", refreshPassthrough);
+
+  // 周期性重发掩模，跟上 GIF 自播放的剪影；隐藏时跳过以省电。
+  window.setInterval(() => {
+    if (document.visibilityState === "visible") refreshPassthrough();
+  }, HIT_SHAPE_REFRESH_MS);
+
+  // 首帧即下发一次，让 pet 一出现就可交互。
+  refreshPassthrough();
 
   return {
     animator,

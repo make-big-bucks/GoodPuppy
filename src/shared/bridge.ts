@@ -3,12 +3,10 @@ import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emitTo } from "@tauri-apps/api/event";
 import appConfig from "./appConfig.js";
-import { createIgnoreMouseEventsController } from "./cursorEventsController.js";
-import type { CursorPoint, GoodPuppyBridge, WindowPoint, WindowSize } from "../types";
+import type { GoodPuppyBridge, PetHitShape, WindowPoint, WindowSize } from "../types";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 const appWindow = inTauri ? getCurrentWindow() : null;
-const ignoreMouseEventsController = createIgnoreMouseEventsController(appWindow);
 
 const goodPuppy: GoodPuppyBridge = {
   async getWindowPosition() {
@@ -106,8 +104,11 @@ const goodPuppy: GoodPuppyBridge = {
       console.warn("Native window drag failed.", error);
     });
   },
-  setIgnoreMouseEvents(shouldIgnore: boolean) {
-    ignoreMouseEventsController.setIgnoreMouseEvents(shouldIgnore);
+  publishHitShape(shape: PetHitShape) {
+    if (!inTauri) return;
+    invoke("set_pet_hit_shape", { shape }).catch((error) =>
+      console.error("set_pet_hit_shape failed:", error),
+    );
   },
   getWindowLabel() {
     return appWindow?.label ?? "main";
@@ -140,14 +141,6 @@ const goodPuppy: GoodPuppyBridge = {
     if (!inTauri) return () => {};
     let unlisten = () => {};
     listen<T>(event, (e) => callback(e.payload)).then((fn) => {
-      unlisten = fn;
-    });
-    return () => unlisten();
-  },
-  onCursorMoved(callback: (point: CursorPoint | null) => void) {
-    if (!inTauri) return () => {};
-    let unlisten = () => {};
-    listen<CursorPoint | null>("cursor-moved", (event) => callback(event.payload)).then((fn) => {
       unlisten = fn;
     });
     return () => unlisten();
