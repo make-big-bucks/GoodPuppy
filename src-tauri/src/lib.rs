@@ -508,6 +508,10 @@ async fn spawn_pet_window(
 
     let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("windows/pet.html".into()))
         .title("GoodPuppy")
+        // macOS: 普通窗口默认不接受 first mouse —— 失焦后第一次左键只用于激活窗口、
+        // 不会派发到 webview，导致需要点两次才能拖动。静态 main/lounge 已在
+        // tauri.conf.json 设了 acceptFirstMouse；动态 pet 窗口在此对齐。
+        .accept_first_mouse(true)
         .inner_size(width, height)
         .resizable(false)
         .maximizable(false)
