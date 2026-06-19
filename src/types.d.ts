@@ -47,6 +47,9 @@ export interface GoodPuppyBridge {
   getWindowLayout(): Promise<WindowLayout>;
   /** 宠物窗口当前所在显示器的可用区域（逻辑像素），用于气泡边缘翻转判定。 */
   getMonitorWorkArea(): Promise<WindowPoint & WindowSize>;
+  /** 当前所有已连接显示器的整屏矩形（逻辑像素），用于校验存档窗口位置是否仍可见
+   * （外接屏断开后旧坐标可能整窗落在屏外）。 */
+  getMonitors(): Promise<Array<WindowPoint & WindowSize>>;
   setWindowPosition(position: WindowPoint): void;
   setWindowSize(size: WindowSize): void;
   /** 原子化设置窗口位置+尺寸（单次 IPC），避免增高/翻转时的闪烁跳动。 */

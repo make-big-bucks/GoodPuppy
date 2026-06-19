@@ -10,6 +10,7 @@ import {
   DEFAULT_PET_SCALE,
   BUBBLE_STACK_SPACE,
   computeBubbleWindowPosition,
+  isWindowPositionVisible,
 } from "./petLayout.js";
 
 describe("orderRemotePetIds", () => {
@@ -31,6 +32,39 @@ describe("getPetWindowSize", () => {
   it("clamps out-of-range scales before applying to the window", () => {
     expect(getPetWindowSize(99)).toEqual(getPetWindowSize(MAX_PET_SCALE));
     expect(getPetWindowSize(0)).toEqual(getPetWindowSize(DEFAULT_PET_SCALE));
+  });
+});
+
+describe("isWindowPositionVisible", () => {
+  const size = { width: 150, height: 120 };
+  const laptop = { x: 0, y: 0, width: 1512, height: 982 };
+  const external = { x: 1512, y: 0, width: 1920, height: 1080 };
+
+  it("accepts a position fully inside a screen", () => {
+    expect(isWindowPositionVisible({ x: 100, y: 100 }, size, [laptop])).toBe(true);
+  });
+
+  it("rejects a stored position on a now-disconnected external monitor", () => {
+    // 真实复现：存档 {x:1588} 来自外接屏，断开后只剩 1512 宽的主屏。
+    expect(isWindowPositionVisible({ x: 1588, y: 421 }, size, [laptop])).toBe(false);
+  });
+
+  it("accepts that same position when the external monitor is still connected", () => {
+    expect(isWindowPositionVisible({ x: 1588, y: 421 }, size, [laptop, external])).toBe(true);
+  });
+
+  it("accepts a position that still shows at least a 48px corner", () => {
+    // 窗口右侧大部分出屏，但左侧仍露出 60px 宽、120px 高。
+    expect(isWindowPositionVisible({ x: 1452, y: 100 }, size, [laptop])).toBe(true);
+  });
+
+  it("rejects a position showing only a sliver thinner than minVisible", () => {
+    // 仅露出 10px 宽。
+    expect(isWindowPositionVisible({ x: 1502, y: 100 }, size, [laptop])).toBe(false);
+  });
+
+  it("returns true when screen info is unavailable (never punish on missing data)", () => {
+    expect(isWindowPositionVisible({ x: 99999, y: 99999 }, size, [])).toBe(true);
   });
 });
 

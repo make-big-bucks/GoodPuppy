@@ -6,7 +6,8 @@
 import { PetAnimator } from "./petState.js";
 import * as presence from "./presence.js";
 import { loadPetManifest, DEFAULT_SKIN } from "./animationCatalog.js";
-import { clampPetScale, getPetWindowSize } from "./petLayout.js";
+import { clampPetScale, getPetWindowSize, isWindowPositionVisible } from "./petLayout.js";
+import { clearSelfPos } from "./petPositionStore.js";
 import {
   readStoredSkin,
   writeStoredSkin,
@@ -179,11 +180,15 @@ initRoomManager({
   onMessagesLoaded: coordinator.onMessagesLoaded,
   onNewMessage: coordinator.onNewMessage,
   onRoomReady: () => {
-    restoreSelfPosition();
-    // 自己的气泡窗口（panel，承载记号棒）：首次进房间时按需创建，之后随 main 跟随。
-    void coordinator.ensureSelfBubble();
-    presenter.refreshPassthrough();
-    _onRoomReadyCb?.();
+    void (async () => {
+      // 先校验/恢复自己窗口位置（可能清掉落在已断开屏幕上的坏存档），再让气泡窗口
+      // 按最终位置创建——否则 ensureSelfBubble 会读到坏存档、把气泡也摆到屏外。
+      await restoreSelfPosition();
+      // 自己的气泡窗口（panel，承载记号棒）：首次进房间时按需创建，之后随 main 跟随。
+      void coordinator.ensureSelfBubble();
+      presenter.refreshPassthrough();
+      _onRoomReadyCb?.();
+    })();
   },
   onEnterRoom: () => selfAnimator.playTransient("enter"),
   onClearRemotePets: coordinator.onClearRemotePets,
@@ -199,15 +204,21 @@ initRoomManager({
 });
 
 let selfPositionRestored = false;
-function restoreSelfPosition() {
+async function restoreSelfPosition() {
   if (selfPositionRestored) return;
   selfPositionRestored = true;
   // pet 窗口固定 pet 尺寸：进房间时按当前缩放对齐窗口尺寸（不再靠 applyWindowLayout）。
   const size = getPetWindowSize(petScale);
   const stored: WindowPoint | null = coordinator.storedSelfPos;
+  // 存档位置必须落在当前某块屏幕的可见区内才采用：外接显示器断开后，旧坐标
+  // （如 x=1588）会整窗落在屏外，pet 看不见也抓不回。此时清掉坏存档、回退默认摆位。
   if (stored) {
-    window.goodPuppy.setWindowBounds({ x: stored.x, y: stored.y, width: size.width, height: size.height });
-  } else {
-    window.goodPuppy.setWindowSize(size);
+    const monitors = await window.goodPuppy.getMonitors();
+    if (isWindowPositionVisible(stored, size, monitors)) {
+      window.goodPuppy.setWindowBounds({ x: stored.x, y: stored.y, width: size.width, height: size.height });
+      return;
+    }
+    clearSelfPos();
   }
+  window.goodPuppy.setWindowSize(size);
 }

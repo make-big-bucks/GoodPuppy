@@ -78,3 +78,26 @@ export function computeBubbleWindowPosition(opts: {
 
   return { x: Math.round(x), y: Math.round(y), placement };
 }
+
+/** 窗口左上角 `pos` + 尺寸 `size` 是否在任一当前屏幕内「足够可见」（纯函数）。
+ *
+ * 用于校验 localStorage 里的存档窗口位置：外接显示器断开后，旧坐标可能整窗落在屏外
+ * （例如存档 x=1588 而当前主屏只有 1512 宽），恢复后 pet 看不见也抓不到。
+ *
+ * 判据：窗口矩形与某块屏幕矩形的横向、纵向交叠都 ≥ `minVisible`（默认 48 逻辑像素，
+ * 但不超过窗口自身尺寸），即至少露出一角可被看到/拖回。拿不到屏幕信息（空 `screens`）
+ * 时返回 true，避免误伤（宁可放过坏位置，也不要在屏幕信息缺失时把好位置判死）。 */
+export function isWindowPositionVisible(
+  pos: { x: number; y: number },
+  size: { width: number; height: number },
+  screens: Array<{ x: number; y: number; width: number; height: number }>,
+  minVisible = 48,
+): boolean {
+  if (!screens.length) return true;
+  const need = Math.min(minVisible, size.width, size.height);
+  return screens.some((s) => {
+    const overlapW = Math.min(pos.x + size.width, s.x + s.width) - Math.max(pos.x, s.x);
+    const overlapH = Math.min(pos.y + size.height, s.y + s.height) - Math.max(pos.y, s.y);
+    return overlapW >= need && overlapH >= need;
+  });
+}

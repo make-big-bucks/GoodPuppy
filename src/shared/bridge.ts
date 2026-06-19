@@ -1,4 +1,4 @@
-import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
+import { getCurrentWindow, currentMonitor, availableMonitors } from "@tauri-apps/api/window";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emitTo } from "@tauri-apps/api/event";
@@ -50,6 +50,23 @@ const goodPuppy: GoodPuppyBridge = {
       width: Math.round(monitor.size.width / scale),
       height: Math.round(monitor.size.height / scale),
     };
+  },
+  async getMonitors() {
+    // 浏览器 fallback：只知道单块屏，用其可用区近似。
+    if (!appWindow) {
+      return [{ x: 0, y: 0, width: window.screen.availWidth, height: window.screen.availHeight }];
+    }
+    const monitors = await availableMonitors();
+    // Monitor.size / position 为物理像素；转成逻辑像素以与窗口坐标一致。
+    return monitors.map((m) => {
+      const scale = m.scaleFactor || 1;
+      return {
+        x: Math.round(m.position.x / scale),
+        y: Math.round(m.position.y / scale),
+        width: Math.round(m.size.width / scale),
+        height: Math.round(m.size.height / scale),
+      };
+    });
   },
   setWindowPosition(position: WindowPoint) {
     if (!appWindow) return;

@@ -47,8 +47,21 @@ function writePoint(key: string, point: WindowPoint, storage?: OptionalStorage) 
   }
 }
 
+function clearPoint(key: string, storage?: OptionalStorage) {
+  try {
+    safeStorage(storage)?.removeItem(key);
+  } catch {
+    // localStorage 不可用时无需清理。
+  }
+}
+
 export function readSelfPos(storage?: OptionalStorage): WindowPoint | null {
   return readPoint(SELF_KEY, storage);
+}
+
+/** 清除自己 pet 的存档位置（存档落在已断开屏幕、不再可见时回退默认）。 */
+export function clearSelfPos(storage?: OptionalStorage) {
+  clearPoint(SELF_KEY, storage);
 }
 
 export function writeSelfPos(point: WindowPoint, storage?: OptionalStorage) {
@@ -61,4 +74,9 @@ export function readRemotePos(roomId: string, userId: string, storage?: Optional
 
 export function writeRemotePos(roomId: string, userId: string, point: WindowPoint, storage?: OptionalStorage) {
   writePoint(remotePosKey(roomId, userId), point, storage);
+}
+
+/** 清除某远程成员的存档位置（存档落在已断开屏幕、不再可见时回退自动摆位）。 */
+export function clearRemotePos(roomId: string, userId: string, storage?: OptionalStorage) {
+  clearPoint(remotePosKey(roomId, userId), storage);
 }

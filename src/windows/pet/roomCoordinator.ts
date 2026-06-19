@@ -11,9 +11,10 @@ import {
   getPetWindowSize,
   getBubbleWindowSize,
   computeBubbleWindowPosition,
+  isWindowPositionVisible,
 } from "./petLayout.js";
 import { computeSemiFreeLayout } from "./petAutoLayout.js";
-import { readRemotePos, writeRemotePos, readSelfPos, writeSelfPos } from "./petPositionStore.js";
+import { readRemotePos, writeRemotePos, clearRemotePos, readSelfPos, writeSelfPos } from "./petPositionStore.js";
 import { readStoredMode, writeStoredMode, type PetMode } from "./preferences.js";
 import {
   petWindowLabel,
@@ -165,9 +166,18 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
       petWindowHeight: petSize.height,
     });
     if (mode === "semi") return auto;
+    // 完全自由：用存档位置，但存档必须仍落在某块已连接屏幕的可见区内——外接屏
+    // 断开后旧坐标会整窗落在屏外，pet 看不见。越界则清掉坏存档、退回自动槽位。
+    const monitors = await bridge.getMonitors();
     const result = new Map<string, WindowPoint>();
     for (const userId of orderedIds) {
-      result.set(userId, readRemotePos(roomId, userId) ?? auto.get(userId) ?? pos);
+      const stored = readRemotePos(roomId, userId);
+      if (stored && isWindowPositionVisible(stored, petSize, monitors)) {
+        result.set(userId, stored);
+      } else {
+        if (stored) clearRemotePos(roomId, userId);
+        result.set(userId, auto.get(userId) ?? pos);
+      }
     }
     return result;
   }
