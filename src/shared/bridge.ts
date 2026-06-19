@@ -1,7 +1,7 @@
 import { getCurrentWindow, currentMonitor, availableMonitors } from "@tauri-apps/api/window";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, emitTo } from "@tauri-apps/api/event";
+import { emitTo } from "@tauri-apps/api/event";
 import appConfig from "./appConfig.js";
 import type { GoodPuppyBridge, PetHitShape, WindowPoint, WindowSize } from "../types";
 
@@ -182,18 +182,22 @@ const goodPuppy: GoodPuppyBridge = {
       console.error(`emitTo(${label}, ${event}) failed:`, error);
     });
   },
+  // 监听当前窗口作用域的事件（而非全局 listen）：协调者用 emitTo(label, …) 定向投递，
+  // 全局 listen 不按目标窗口过滤，会让同代码的多个窗口（尤其两个气泡窗口）互相收到对方
+  // 的事件（placement / 消息 / 记号棒串扰）。appWindow.listen 只收发给本窗口的定向事件，
+  // 广播 emit 仍能收到。见官方 multiwindow 示例。
   onAppEvent<T = unknown>(event: string, callback: (payload: T) => void) {
-    if (!inTauri) return () => {};
+    if (!inTauri || !appWindow) return () => {};
     let unlisten = () => {};
-    listen<T>(event, (e) => callback(e.payload)).then((fn) => {
+    appWindow.listen<T>(event, (e) => callback(e.payload)).then((fn) => {
       unlisten = fn;
     });
     return () => unlisten();
   },
   onDragEnded(callback: () => void) {
-    if (!inTauri) return () => {};
+    if (!inTauri || !appWindow) return () => {};
     let unlisten = () => {};
-    listen("pet-drag-ended", () => callback()).then((fn) => {
+    appWindow.listen("pet-drag-ended", () => callback()).then((fn) => {
       unlisten = fn;
     });
     return () => unlisten();

@@ -71,9 +71,13 @@ fn is_overlay_window_label(label: &str) -> bool {
 }
 
 /// Tracks dynamically spawned bubble windows so they can follow their parent pet
-/// window. macOS auto-follows via `addChildWindow:` (this map is unused there),
-/// but Windows `set_parent` is owner-only and does NOT move the child, so we
-/// reposition it from the parent's `Moved` events using the stored offset.
+/// window. We reposition each child from the parent's `Moved` events using the
+/// stored offset. This is needed on BOTH platforms: Windows `set_parent` is
+/// owner-only and never moves the child, and on macOS `addChildWindow:` keeps the
+/// child attached + z-ordered but AppKit does NOT reposition it during a native
+/// drag's `performWindowDragWithEvent:` modal loop (verified: parent fires `Moved`
+/// live with the child attached, yet the child stays put until drag-end). So the
+/// `Moved` listener supplies the live drag positioning AppKit skips.
 #[derive(Default)]
 struct BubbleRegistry {
     /// bubble label → parent pet label.
@@ -83,8 +87,7 @@ struct BubbleRegistry {
     /// bubble label → (offset_x, offset_y) from parent top-left, logical px.
     offset_of: HashMap<String, (f64, f64)>,
     /// parent pet labels that already have a `Moved` follow listener attached.
-    /// Read only on Windows (macOS auto-follows), so unused elsewhere.
-    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    #[cfg_attr(not(any(target_os = "windows", target_os = "macos")), allow(dead_code))]
     listening_parents: std::collections::HashSet<String>,
 }
 
@@ -285,10 +288,13 @@ fn configure_self_panel<R: Runtime>(window: &WebviewWindow<R>) {
 #[cfg(not(target_os = "macos"))]
 fn configure_self_panel<R: Runtime>(_window: &WebviewWindow<R>) {}
 
-/// Make `child` a native macOS child window of `parent`, ordered above it. The OS
-/// then moves the child in lockstep with the parent — during programmatic
-/// `setFrame:` AND during a native drag's modal move loop — with zero latency.
-/// This is the whole reason bubbles are separate windows: free, native follow.
+/// Make `child` a native macOS child window of `parent`, ordered above it. This
+/// keeps the bubble z-ordered above its pet and stacked together across Spaces /
+/// window-server reordering, and moves it in lockstep during programmatic
+/// `setFrame:`. It does NOT, however, move the child during a native drag's
+/// `performWindowDragWithEvent:` modal loop (AppKit keeps the child attached but
+/// skips repositioning it until drag-end) — that live positioning is supplied by
+/// `ensure_parent_follow_listener` reacting to the parent's `Moved` events.
 #[cfg(target_os = "macos")]
 fn add_child_window<R: Runtime>(parent: &WebviewWindow<R>, child: &WebviewWindow<R>) {
     let (Ok(parent_ptr), Ok(child_ptr)) = (parent.ns_window(), child.ns_window()) else {
@@ -304,12 +310,13 @@ fn add_child_window<R: Runtime>(parent: &WebviewWindow<R>, child: &WebviewWindow
 #[cfg(not(target_os = "macos"))]
 fn add_child_window<R: Runtime>(_parent: &WebviewWindow<R>, _child: &WebviewWindow<R>) {}
 
-/// Windows-only: attach a `Moved` listener to the parent pet window that repositions
-/// every registered bubble child by its stored offset. macOS auto-follows via
-/// `addChildWindow`, so this is a no-op there. The offset is refreshed whenever the
+/// Attach a `Moved` listener to the parent pet window that repositions every
+/// registered bubble child by its stored offset. Active on Windows (`set_parent`
+/// never moves the child) AND macOS (`addChildWindow` doesn't reposition the child
+/// during the native drag's modal loop). The offset is refreshed whenever the
 /// coordinator repositions a bubble (see `set_window_bounds`), so above/below flips
 /// stay correct on the next parent move.
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn ensure_parent_follow_listener<R: Runtime>(
     app: &AppHandle<R>,
     parent_label: &str,
@@ -358,7 +365,7 @@ fn ensure_parent_follow_listener<R: Runtime>(
     });
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn ensure_parent_follow_listener<R: Runtime>(
     _app: &AppHandle<R>,
     _parent_label: &str,

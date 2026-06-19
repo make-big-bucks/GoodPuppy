@@ -126,9 +126,15 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
       width: b.width,
       height: b.height,
     });
-    // 气泡窗口 boot 后再补几何 + 朝向（重试几次防丢首帧）。
+    // bubble-self 在 onRoomReady 才创建，而房间历史在更早的 onMessagesLoaded 已投递过
+    // （那时窗口还不存在，首帧丢失）。窗口就绪后补投自己的缓存历史，否则重启/进房后
+    // 自己头顶的历史消息不显示（远程气泡有 pushStateAndHistory 重试兜底，自己原本没有）。
+    const selfId = deps.getSelfAuthId();
+    const selfHistory = selfId ? roomMessageCache.filter((m) => m.from === selfId) : [];
+    // 气泡窗口 boot 后再补几何 + 朝向 + 历史（重试几次防丢首帧）。
     for (let attempt = 0; attempt < 5; attempt++) {
       await emitToSelfBubble(BUBBLE_PLACEMENT, b);
+      await emitToSelfBubble(PET_HISTORY, { messages: selfHistory });
       await new Promise((r) => setTimeout(r, 120));
     }
   }
