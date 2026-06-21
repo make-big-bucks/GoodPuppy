@@ -20,6 +20,7 @@ import type {
 type LoungePanelOptions = {
   supabase: SupabaseClient;
   selfAuthId: string | null;
+  isAnonymous: boolean;
   getActiveRoomId: () => string | null;
   onEnterRoom: (roomId: string) => Promise<void>;
   onExitRoom: () => Promise<void>;
@@ -30,6 +31,7 @@ type LoungePanelOptions = {
 type UpdatePanelAuthOptions = {
   supabase: SupabaseClient;
   selfAuthId: string | null;
+  isAnonymous: boolean;
 };
 
 type InputModalOptions = {
@@ -80,6 +82,7 @@ function requiredQuery<T extends Element>(root: ParentNode, selector: string) {
 
 let supabaseClient: SupabaseClient | null = null;
 let selfAuthId: string | null = null;
+let currentUserIsAnonymous = false;
 let getActiveRoomId: (() => string | null) | null = null;
 let onEnterRoom: ((roomId: string) => Promise<void>) | null = null;
 let onExitRoom: (() => Promise<void>) | null = null;
@@ -189,7 +192,9 @@ function handleSkinChange(skin: string) {
 }
 
 function renderAuthState(isLoggedIn: boolean) {
-  document.querySelector<HTMLElement>(".profile-section")?.classList.toggle("is-unauth", !isLoggedIn);
+  const profileSection = document.querySelector<HTMLElement>(".profile-section");
+  profileSection?.classList.toggle("is-unauth", !isLoggedIn);
+  profileSection?.classList.toggle("is-anonymous", isLoggedIn && currentUserIsAnonymous);
 
   const sidebarActions = document.querySelector<HTMLElement>(".sidebar-actions");
   if (sidebarActions) sidebarActions.hidden = !isLoggedIn;
@@ -211,6 +216,11 @@ function renderAuthState(isLoggedIn: boolean) {
     } else {
       actionBtn.hidden = true;
     }
+  }
+
+  const bindBtn = document.querySelector<HTMLButtonElement>(".lounge-bind-account-btn");
+  if (bindBtn) {
+    bindBtn.hidden = !isLoggedIn || !currentUserIsAnonymous;
   }
 
   if (!isLoggedIn) {
@@ -250,6 +260,7 @@ function openLoginDialog() {
     <button class="lounge-auth-button lounge-auth-primary lounge-form-submit" type="submit">上线</button>
     <div class="lounge-login-divider">或</div>
     <button class="lounge-auth-button lounge-auth-secondary lounge-form-register" type="button">创建新账号</button>
+    <button class="lounge-auth-button lounge-quick-entry" type="button">快速进入</button>
   `;
 
   const emailInput = requiredQuery<HTMLInputElement>(form, "#login-email");
@@ -257,6 +268,7 @@ function openLoginDialog() {
   const passwordToggle = requiredQuery<HTMLButtonElement>(form, ".login-password-toggle");
   const registerBtn = requiredQuery<HTMLButtonElement>(form, ".lounge-form-register");
   const submitBtn = requiredQuery<HTMLButtonElement>(form, ".lounge-form-submit");
+  const quickEntryBtn = requiredQuery<HTMLButtonElement>(form, ".lounge-quick-entry");
 
   setModalMessage("");
   setModalBusy(false);
@@ -318,7 +330,24 @@ function openLoginDialog() {
     }
   }
 
+  async function doAnonymousSignIn() {
+    if (!supabaseClient) return;
+    setModalBusy(true);
+    setModalMessage("正在创建匿名账号...");
+    try {
+      const { error } = await supabaseClient.auth.signInAnonymously();
+      if (error) throw error;
+      closeModal();
+      onLoginSuccess?.();
+    } catch (error) {
+      setModalMessage(getErrorMessage(error, "匿名登录失败"));
+    } finally {
+      setModalBusy(false);
+    }
+  }
+
   registerBtn.addEventListener("click", () => { void doSignUp(); });
+  quickEntryBtn.addEventListener("click", () => { void doAnonymousSignIn(); });
   form.onsubmit = (event) => { event.preventDefault(); void doSignIn(); };
 }
 
@@ -327,10 +356,14 @@ function openLogoutConfirmDialog() {
   const form = modalForm();
   if (!backdrop || !form) return;
 
+  const confirmText = currentUserIsAnonymous
+    ? "当前是匿名账号。退出登录后，本机将不再保留这个匿名账号的信息；如果想保留账号，请先绑定邮箱。"
+    : "确认要退出登录吗？";
+
   form.classList.remove("lounge-login-modal");
   form.innerHTML = `
     <h2 class="modal-title">退出登录</h2>
-    <p class="lounge-confirm-text">确认要退出登录吗？</p>
+    <p class="lounge-confirm-text">${confirmText}</p>
     <div class="lounge-form-actions">
       <button class="small-btn lounge-form-cancel" type="button">取消</button>
       <button class="small-btn danger lounge-logout-confirm" type="button">退出登录</button>
@@ -352,6 +385,83 @@ function openLogoutConfirmDialog() {
     await supabaseClient?.auth.signOut();
     closeModal();
     onLogout?.();
+  };
+}
+
+function openBindAccountDialog() {
+  const backdrop = modalBackdrop();
+  const form = modalForm();
+  if (!backdrop || !form) return;
+
+  form.classList.add("lounge-login-modal");
+  form.innerHTML = `
+    <section class="lounge-login-brand">
+      <div class="lounge-login-logo">${dogLogoSvg}</div>
+      <h2 class="lounge-login-title">绑定账号</h2>
+      <p class="lounge-login-subtitle">绑定邮箱后，可以在其他设备继续使用这个账号</p>
+    </section>
+    <div class="lounge-login-field">
+      <label for="bind-email">邮箱</label>
+      <div class="lounge-login-input-box">
+        ${userInputSvg}
+        <input class="lounge-login-input" id="bind-email" name="email" type="email" autocomplete="email" placeholder="输入邮箱" required />
+      </div>
+    </div>
+    <div class="lounge-login-field">
+      <label for="bind-password">密码</label>
+      <div class="lounge-login-input-box login-password-wrap">
+        ${passwordInputSvg}
+        <input class="lounge-login-input login-password-input" id="bind-password" name="password" type="password" autocomplete="new-password" placeholder="设置密码" minlength="6" required />
+        <button class="login-password-toggle" type="button" aria-label="显示密码">${eyeSvg}</button>
+      </div>
+    </div>
+    <p class="lounge-form-message" role="status"></p>
+    <button class="lounge-auth-button lounge-auth-primary lounge-form-submit" type="submit">绑定账号</button>
+  `;
+
+  const emailInput = requiredQuery<HTMLInputElement>(form, "#bind-email");
+  const passwordInput = requiredQuery<HTMLInputElement>(form, ".login-password-input");
+  const passwordToggle = requiredQuery<HTMLButtonElement>(form, ".login-password-toggle");
+
+  setModalMessage("");
+  setModalBusy(false);
+  backdrop.hidden = false;
+  emailInput.focus();
+
+  passwordToggle.addEventListener("click", () => {
+    const shouldShow = passwordInput.type === "password";
+    passwordInput.type = shouldShow ? "text" : "password";
+    passwordToggle.innerHTML = shouldShow ? eyeOffSvg : eyeSvg;
+    passwordToggle.setAttribute("aria-label", shouldShow ? "隐藏密码" : "显示密码");
+    passwordInput.focus();
+  });
+
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    if (!supabaseClient) return;
+
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+    if (!email || !password) {
+      setModalMessage("请填写邮箱和密码");
+      return;
+    }
+
+    setModalBusy(true);
+    setModalMessage("正在绑定...");
+    try {
+      const { data, error } = await supabaseClient.auth.updateUser({ email, password });
+      if (error) throw error;
+
+      currentUserIsAnonymous = Boolean(data.user?.is_anonymous);
+      renderAuthState(Boolean(selfAuthId));
+      closeModal();
+      showToast(currentUserIsAnonymous ? "请检查邮箱完成绑定" : "账号已绑定");
+    } catch (error) {
+      setModalMessage(getErrorMessage(error, "绑定失败"));
+    } finally {
+      setModalBusy(false);
+    }
   };
 }
 
@@ -975,6 +1085,13 @@ function bindEvents() {
       return;
     }
 
+    if (btn.matches(".lounge-bind-account-btn")) {
+      if (selfAuthId && currentUserIsAnonymous) {
+        openBindAccountDialog();
+      }
+      return;
+    }
+
     if (btn.matches(".room-quick-action")) {
       const roomId = btn.dataset.roomId;
       if (!roomId || pendingTransition) return;
@@ -1051,6 +1168,7 @@ function bindEvents() {
 export function initLoungePanel({
   supabase,
   selfAuthId: nextSelfAuthId,
+  isAnonymous: nextIsAnonymous,
   getActiveRoomId: nextGetActiveRoomId,
   onEnterRoom: nextOnEnterRoom,
   onExitRoom: nextOnExitRoom,
@@ -1059,6 +1177,7 @@ export function initLoungePanel({
 }: LoungePanelOptions) {
   supabaseClient = supabase;
   selfAuthId = nextSelfAuthId;
+  currentUserIsAnonymous = Boolean(nextSelfAuthId && nextIsAnonymous);
   getActiveRoomId = nextGetActiveRoomId;
   onEnterRoom = nextOnEnterRoom;
   onExitRoom = nextOnExitRoom;
@@ -1073,12 +1192,13 @@ export function initLoungePanel({
   }
 }
 
-export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId }: UpdatePanelAuthOptions) {
+export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, isAnonymous: nextIsAnonymous }: UpdatePanelAuthOptions) {
   const wasLoggedIn = Boolean(selfAuthId);
   const isLoggedIn = Boolean(nextSelfAuthId);
 
   supabaseClient = supabase;
   selfAuthId = nextSelfAuthId;
+  currentUserIsAnonymous = Boolean(nextSelfAuthId && nextIsAnonymous);
 
   if (isLoggedIn) {
     subscribeToRequests();
