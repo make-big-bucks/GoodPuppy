@@ -153,6 +153,7 @@ CREATE TABLE public.messages (
 - `kind`：`'text'` 为普通文字消息；`'emote'` 为情感表达（触发对方 pet 动画），v1 暂未启用。
 - `content`：`kind = 'text'` 时是消息正文；`kind = 'emote'` 时是 emote 标识符。
 - 前端查询时通过 `room_id` 过滤，RLS 保证用户只能读写自己所在房间的消息。
+- `messages_select` 仅按 `room_id` 判断成员资格，不限制 `joined_at`：**成员可读房间内全部历史，包括其加入之前的消息**。会客厅「聊天记录」Dialog（`src/windows/lounge/chatHistory.ts`）即依赖此行为做时间线回看，按 `created_at` 游标向更早分页（每页 50），并通过 `profiles!messages_sender_id_fkey` 内嵌实时解析发送者当前 `display_name`（改名自动跟随；profile 缺失时前端用 `sender_id` 兜底标签区分已注销账号）。
 
 **前端调用示例：**
 

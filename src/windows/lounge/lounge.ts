@@ -4,6 +4,7 @@ import { renderRoomList, renderPendingRequests } from "./views/room-list.js";
 import type { PendingTransition } from "./views/room-list.js";
 import { renderRoomDetail } from "./views/room-detail.js";
 import { renderProfileCard } from "./views/profile-card.js";
+import { openChatHistory } from "./views/chat-history-dialog.js";
 import { showToast } from "./views/toast.js";
 import { initShowcase, openShowcase } from "./views/pet-showcase.js";
 import { buildMemberViewModels, mapPendingRoomInvitationRows, normalizeGpId } from "./loungeViewModels.js";
@@ -960,6 +961,13 @@ function bindEvents() {
       const room = getSelectedRoom();
       if (!room || !selfAuthId) return;
       openLeaveRoomPermanentDialog(room);
+      return;
+    }
+
+    if (btn.matches(".lounge-view-history")) {
+      const room = getSelectedRoom();
+      if (!room || !selfAuthId || !supabaseClient) return;
+      openChatHistory({ supabase: supabaseClient, selfAuthId, room });
     }
   });
 
