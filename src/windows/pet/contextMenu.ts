@@ -9,9 +9,7 @@ export type SelfMenuContext = {
   selfSkin: string;
   petScale: number;
   manifest: PetManifest | null | undefined;
-  hasMessages: boolean;
   petMode: PetMode;
-  onShowMessage: () => void;
   onWriteMessage: () => void;
   onSetStatus: (status: PetStatus) => void;
   onSetSkin: (skin: string) => void;
@@ -75,14 +73,6 @@ export async function showSelfContextMenu(ctx: SelfMenuContext) {
   const sizeMenu = await buildSizeSubmenu(ctx.petScale, ctx.onSetScale);
   const menu = await Menu.new({
     items: [
-      {
-        id: "show-message",
-        text: "查看对话",
-        action: () => {
-          if (ctx.hasMessages) ctx.onShowMessage();
-          else ctx.onWriteMessage();
-        },
-      },
       {
         id: "write-message",
         text: "写消息",

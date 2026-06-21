@@ -81,7 +81,8 @@ if (root && area) {
   area.dataset.user = isSelf ? "self" : "remote";
 
   initBubbleStacks({ onRefreshPassthrough: refreshHitShape, onVisibilityChange: refreshHitShape });
-  mountStack(area);
+  // 用气泡窗口 label（bubble-self / bubble-<userId>）作水位线持久化 key。
+  mountStack(area, bridge.getWindowLabel());
 
   bridge.onAppEvent<PetHistoryPayload>(PET_HISTORY, (payload) => setMessagesForArea(area, payload.messages));
   bridge.onAppEvent<PetMessagePayload>(PET_MESSAGE, (payload) => addMessageToArea(area, payload.message));

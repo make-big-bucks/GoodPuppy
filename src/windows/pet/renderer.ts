@@ -21,7 +21,6 @@ import {
   SELF_OPEN_COMPOSE,
   SELF_COMPOSE_SUBMIT,
   SELF_COMPOSE_RESULT,
-  BUBBLE_SHOW,
   type SelfComposeSubmitPayload,
 } from "./petWindowEvents.js";
 import { showSelfContextMenu } from "./contextMenu.js";
@@ -159,12 +158,8 @@ async function showPetContextMenu(event: MouseEvent) {
     selfSkin,
     petScale,
     manifest: selfAnimator.manifest,
-    // 消息已搬到 bubble-self，用协调者缓存判断有无对话。
-    hasMessages: coordinator.selfHasMessages(),
     petMode: coordinator.getMode(),
-    // 「查看对话」/「写消息」改为通知自己的气泡窗口；聚焦逻辑亦在那边处理
-    // （bubble-self 收到 SELF_OPEN_COMPOSE 后自行展开记号棒 + 取 key 聚焦）。
-    onShowMessage: () => void window.goodPuppy.emitToWindow(BUBBLE_SELF_LABEL, BUBBLE_SHOW),
+    // 「写消息」通知自己的气泡窗口展开记号棒（聚焦逻辑亦在那边处理）。
     onWriteMessage: () => void window.goodPuppy.emitToWindow(BUBBLE_SELF_LABEL, SELF_OPEN_COMPOSE),
     onSetStatus: setSelfStatus,
     onSetSkin: setSelfSkin,

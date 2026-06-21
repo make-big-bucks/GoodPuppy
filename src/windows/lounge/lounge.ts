@@ -116,6 +116,27 @@ function setModalMessage(text: string) {
   if (el) el.textContent = text || "";
 }
 
+// 提交/确认按钮的加载态：保留按钮文字，仅在文字前插入一个 spinner。
+// 记住原始 HTML，结束时还原（按钮若随 modal 关闭已隐藏，还原也无害）。
+function setButtonLoading(btn: HTMLButtonElement | null | undefined, loading: boolean) {
+  if (!btn) return;
+  if (loading) {
+    if (btn.dataset.loading === "true") return;
+    btn.dataset.loading = "true";
+    btn.dataset.originalHtml = btn.innerHTML;
+    const label = btn.textContent ?? "";
+    btn.innerHTML = `<span class="btn-spinner btn-spinner-inline"></span>`;
+    btn.append(label);
+  } else {
+    if (btn.dataset.loading !== "true") return;
+    btn.dataset.loading = "false";
+    if (btn.dataset.originalHtml !== undefined) {
+      btn.innerHTML = btn.dataset.originalHtml;
+      delete btn.dataset.originalHtml;
+    }
+  }
+}
+
 function setModalBusy(isBusy: boolean) {
   modalForm()?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLButtonElement>("input, textarea, button").forEach((el) => {
     el.disabled = isBusy;
@@ -235,6 +256,7 @@ function openLoginDialog() {
   const passwordInput = requiredQuery<HTMLInputElement>(form, ".login-password-input");
   const passwordToggle = requiredQuery<HTMLButtonElement>(form, ".login-password-toggle");
   const registerBtn = requiredQuery<HTMLButtonElement>(form, ".lounge-form-register");
+  const submitBtn = requiredQuery<HTMLButtonElement>(form, ".lounge-form-submit");
 
   setModalMessage("");
   setModalBusy(false);
@@ -255,6 +277,7 @@ function openLoginDialog() {
     const password = passwordInput.value;
     if (!email || !password) { setModalMessage("请填写邮箱和密码"); return; }
     setModalBusy(true);
+    setButtonLoading(submitBtn, true);
     setModalMessage("正在登录...");
     try {
       const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
@@ -264,6 +287,7 @@ function openLoginDialog() {
     } catch (error) {
       setModalMessage(getErrorMessage(error, "登录失败"));
     } finally {
+      setButtonLoading(submitBtn, false);
       setModalBusy(false);
     }
   }
@@ -274,6 +298,7 @@ function openLoginDialog() {
     const password = passwordInput.value;
     if (!email || !password) { setModalMessage("请填写邮箱和密码"); return; }
     setModalBusy(true);
+    setButtonLoading(registerBtn, true);
     setModalMessage("正在注册...");
     try {
       const { data, error } = await supabaseClient.auth.signUp({ email, password });
@@ -283,10 +308,12 @@ function openLoginDialog() {
         onLoginSuccess?.();
       } else {
         setModalMessage("注册成功，请检查邮箱确认账号");
+        setButtonLoading(registerBtn, false);
         setModalBusy(false);
       }
     } catch (error) {
       setModalMessage(getErrorMessage(error, "注册失败"));
+      setButtonLoading(registerBtn, false);
       setModalBusy(false);
     }
   }
@@ -318,6 +345,7 @@ function openLogoutConfirmDialog() {
   cancel.onclick = closeModal;
   logoutBtn.onclick = async () => {
     logoutBtn.disabled = true;
+    setButtonLoading(logoutBtn, true);
     if (onExitRoom) {
       try { await onExitRoom(); } catch { /* ignore */ }
     }
@@ -355,6 +383,7 @@ function openLeaveRoomPermanentDialog(room: LoungeRoom) {
   cancel.onclick = closeModal;
   confirmBtn.onclick = async () => {
     confirmBtn.disabled = true;
+    setButtonLoading(confirmBtn, true);
     try {
       if (getActiveRoomId?.() === room.id && onExitRoom) {
         try { await onExitRoom(); } catch { /* ignore */ }
@@ -526,12 +555,14 @@ function openInputModal({
     }
 
     setModalBusy(true);
+    setButtonLoading(submit, true);
     try {
       await onSubmit(value);
       closeModal();
     } catch (error) {
       setModalMessage(getErrorMessage(error, "操作失败"));
     } finally {
+      setButtonLoading(submit, false);
       setModalBusy(false);
     }
   };
@@ -689,6 +720,7 @@ function openRoomMetadataModal() {
   const roomNameInput = requiredQuery<HTMLInputElement>(form, ".lounge-room-name-input");
   const roomDescriptionInput = requiredQuery<HTMLTextAreaElement>(form, ".lounge-room-description-input");
   const cancel = requiredQuery<HTMLButtonElement>(form, ".lounge-form-cancel");
+  const submit = requiredQuery<HTMLButtonElement>(form, ".lounge-form-submit");
 
   roomNameInput.value = room.room_name || "";
   roomDescriptionInput.value = room.description || "";
@@ -701,6 +733,7 @@ function openRoomMetadataModal() {
   form.onsubmit = async (event) => {
     event.preventDefault();
     setModalBusy(true);
+    setButtonLoading(submit, true);
     try {
       await updateSelectedRoomMetadata({
         roomName: roomNameInput.value,
@@ -710,6 +743,7 @@ function openRoomMetadataModal() {
     } catch (error) {
       setModalMessage(getErrorMessage(error, "保存失败"));
     } finally {
+      setButtonLoading(submit, false);
       setModalBusy(false);
     }
   };
@@ -978,6 +1012,7 @@ function bindEvents() {
     const { action, id } = btn.dataset;
     if (!id) return;
     btn.disabled = true;
+    setButtonLoading(btn, true);
 
     try {
       if (action === "accept") await acceptRequest(id);
@@ -985,6 +1020,7 @@ function bindEvents() {
     } catch (error) {
       showToast(getErrorMessage(error, "操作失败"), "error");
     } finally {
+      setButtonLoading(btn, false);
       btn.disabled = false;
     }
   });
@@ -1080,6 +1116,25 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId }: 
 export function refreshLoungePanelActiveRoom() {
   renderAll();
   if (selfAuthId) void loadPanelData();
+}
+
+// 托盘「房间聊天记录」：打开当前所在房间的聊天记录（无则回退到选中/第一个房间）。
+// 数据可能尚未加载（托盘在 lounge 隐藏期间触发），先确保加载再打开。
+export async function openActiveRoomHistory() {
+  if (!supabaseClient || !selfAuthId) return;
+  if (rooms.length === 0) {
+    await loadPanelData();
+  }
+  const activeId = getActiveRoomId?.() || null;
+  const room =
+    (activeId ? rooms.find((r) => r.id === activeId) : null) ||
+    getSelectedRoom() ||
+    rooms[0] ||
+    null;
+  if (!room) return;
+  selectedRoomId = room.id;
+  renderAll();
+  openChatHistory({ supabase: supabaseClient, selfAuthId, room });
 }
 
 export function openLoungePanel() {

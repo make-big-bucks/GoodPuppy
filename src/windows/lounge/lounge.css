@@ -666,6 +666,17 @@ body.platform-windows .sidebar {
   font-weight: 760;
 }
 
+.section-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.section-heading-actions .icon-btn {
+  width: 34px;
+  height: 34px;
+}
+
 .members {
   min-height: 0;
   padding: 16px 0;
@@ -776,10 +787,6 @@ body.platform-windows .sidebar {
 
 .actions .btn {
   min-width: 152px;
-}
-
-.lounge-view-history {
-  margin-right: auto;
 }
 
 .svg-icon {
@@ -1329,16 +1336,25 @@ textarea.lounge-input {
   flex-shrink: 0;
 }
 
-/* room-quick-action loading */
+/* 提交按钮内联 spinner：与保留的文字并排 */
+.btn-spinner-inline {
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+
+/* room-quick-action loading：保持实色不透明（避免露出「人数」），只显示 spinner */
 .room-quick-action.is-pending {
   display: flex;
-  opacity: 0.65;
   cursor: not-allowed;
 }
 
-/* lounge-enter-room loading */
+/* 加载中隐藏「人数」，防止半透明/缝隙露出文字 */
+.room-item-row.is-pending-row .room-meta {
+  visibility: hidden;
+}
+
+/* lounge-enter-room loading：保留文字，仅图标变 spinner */
 .lounge-enter-room.is-pending {
-  opacity: 0.65;
   cursor: not-allowed;
   pointer-events: none;
 }

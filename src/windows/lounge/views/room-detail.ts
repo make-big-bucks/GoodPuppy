@@ -49,20 +49,21 @@ export function renderRoomDetail(
 
   if (actionButton) {
     const isPending = pendingTransition?.roomId === room.id;
+    const svgEl = actionButton.querySelector<SVGSVGElement>("svg");
+    const label = actionButton.querySelector<HTMLElement>(".lounge-enter-label");
+    let spinner = actionButton.querySelector<HTMLElement>(".btn-spinner");
 
     if (isPending) {
+      // 加载中：保留文字（按本次过渡方向），只把图标换成 spinner。
       actionButton.disabled = true;
       actionButton.classList.add("is-pending");
-      actionButton.classList.remove("is-exit");
-      actionButton.dataset.action = "";
-
-      const svgEl = actionButton.querySelector("svg");
-      if (svgEl) svgEl.innerHTML = "";
-
-      const label = actionButton.querySelector<HTMLElement>(".lounge-enter-label");
-      if (label) {
-        label.innerHTML = `<span class="btn-spinner" style="border-color:#fff;border-top-color:transparent;"></span>`;
+      if (svgEl) svgEl.style.display = "none";
+      if (!spinner) {
+        spinner = document.createElement("span");
+        spinner.className = "btn-spinner";
+        actionButton.insertBefore(spinner, label ?? null);
       }
+      if (label) label.textContent = pendingTransition?.type === "exit" ? "退出房间" : "进入房间";
     } else {
       const roomAction = getRoomAction(room.id, activeRoomId);
       const isExit = roomAction.action === "exit";
@@ -70,11 +71,11 @@ export function renderRoomDetail(
       actionButton.classList.remove("is-pending");
       actionButton.dataset.action = roomAction.action;
       actionButton.classList.toggle("is-exit", isExit);
-
-      const svgEl = actionButton.querySelector("svg");
-      if (svgEl) svgEl.innerHTML = isExit ? exitIconPaths : enterIconPaths;
-
-      const label = actionButton.querySelector<HTMLElement>(".lounge-enter-label");
+      if (spinner) spinner.remove();
+      if (svgEl) {
+        svgEl.style.display = "";
+        svgEl.innerHTML = isExit ? exitIconPaths : enterIconPaths;
+      }
       if (label) label.textContent = roomAction.label;
     }
   }

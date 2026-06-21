@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{
-    menu::{MenuBuilder, MenuItemBuilder},
-    tray::TrayIconBuilder,
+    menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Listener, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 
@@ -389,6 +389,16 @@ fn set_dock_visible(visible: bool) {
 
 #[cfg(not(target_os = "macos"))]
 fn set_dock_visible(_visible: bool) {}
+
+/// 显示并聚焦会客厅窗口（托盘左键 / 菜单共用）。
+fn open_lounge<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(w) = app.get_webview_window("lounge") {
+        let _ = w.show();
+        let _ = w.set_focus();
+        let _ = w.emit("lounge-refresh", ());
+        set_dock_visible(true);
+    }
+}
 
 #[cfg(target_os = "macos")]
 fn configure_macos_app_activation_policy(app: &mut tauri::App) {
@@ -960,22 +970,38 @@ pub fn run() {
                 });
             }
 
-            let manage = MenuItemBuilder::with_id("open-lounge", "\u{4f1a}\u{5ba2}\u{5385}").build(app)?;
-            let quit = MenuItemBuilder::with_id("quit", "\u{9000}\u{51fa}").build(app)?;
-            let menu = MenuBuilder::new(app).items(&[&manage, &quit]).build()?;
+            // 托盘菜单分两区：会客厅 / 房间聊天记录 ── 分隔线 ── 退出。
+            let manage = MenuItemBuilder::with_id("open-lounge", "会客厅").build(app)?;
+            let room_history =
+                MenuItemBuilder::with_id("room-history", "房间聊天记录").build(app)?;
+            let separator = PredefinedMenuItem::separator(app)?;
+            let quit = MenuItemBuilder::with_id("quit", "退出").build(app)?;
+            let menu = MenuBuilder::new(app)
+                .items(&[&manage, &room_history, &separator, &quit])
+                .build()?;
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("GoodPuppy")
                 .menu(&menu)
-                .show_menu_on_left_click(true)
+                // 左键直接打开会客厅；右键弹出菜单。
+                .show_menu_on_left_click(false)
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        open_lounge(tray.app_handle());
+                    }
+                })
                 .on_menu_event(|app, event| {
                     match event.id().as_ref() {
-                        "open-lounge" => {
+                        "open-lounge" => open_lounge(app),
+                        "room-history" => {
+                            open_lounge(app);
                             if let Some(w) = app.get_webview_window("lounge") {
-                                let _ = w.show();
-                                let _ = w.set_focus();
-                                let _ = w.emit("lounge-refresh", ());
-                                set_dock_visible(true);
+                                let _ = w.emit("open-room-history", ());
                             }
                         }
                         "quit" => {

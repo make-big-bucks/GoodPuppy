@@ -3,7 +3,7 @@ import "../../shared/styles.css";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
-import { initLoungePanel, openLoungePanel, refreshLoungePanelActiveRoom, updateLoungePanelAuth } from "./lounge.js";
+import { initLoungePanel, openActiveRoomHistory, openLoungePanel, refreshLoungePanelActiveRoom, updateLoungePanelAuth } from "./lounge.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 
 async function initWinTitlebar() {
@@ -142,6 +142,13 @@ async function init() {
   listen("lounge-refresh", () => {
     void emit("request-active-room");
     openLoungePanel();
+  });
+
+  // 托盘右键「房间聊天记录」：打开当前房间聊天记录。
+  listen("open-room-history", () => {
+    void emit("request-active-room");
+    openLoungePanel();
+    void openActiveRoomHistory();
   });
 
   listen<{ roomId?: string | null }>("active-room-changed", (event) => {
