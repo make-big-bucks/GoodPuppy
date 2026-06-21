@@ -9,7 +9,8 @@ export const PAGE_SIZE = 50;
 export interface ChatMessage {
   id: string;
   content: string;
-  senderId: string;
+  // 发送者账号被清理后（孤儿匿名账号定时删除）置空，详见 docs/adr/0017。
+  senderId: string | null;
   createdAt: string;
 }
 
@@ -17,7 +18,8 @@ export interface ChatMessage {
 export interface ChatMessageRow {
   id: string;
   content: string;
-  sender_id: string;
+  // ON DELETE SET NULL：发送者账号被清理后为 null，profile 内嵌也随之为空。
+  sender_id: string | null;
   created_at: string;
   // 内嵌 join：to-one 关系通常是对象，但部分版本会返回数组，两种都兼容。
   profiles?: LoungeProfile | LoungeProfile[] | null;
@@ -50,8 +52,12 @@ const SENDER_PALETTE = [
   "#8a4b6b",
 ];
 
-/** 由 sender_id 稳定哈希出一个颜色；同一账号每次结果一致。 */
-export function senderColor(senderId: string): string {
+/** 中性灰，用于发送者账号已被清理（sender_id 为 null）的场景。 */
+const DELETED_SENDER_COLOR = "#8a8a8a";
+
+/** 由 sender_id 稳定哈希出一个颜色；同一账号每次结果一致。sender_id 为 null（账号已清理）时返回中性灰。 */
+export function senderColor(senderId: string | null): string {
+  if (!senderId) return DELETED_SENDER_COLOR;
   let hash = 0;
   for (let i = 0; i < senderId.length; i += 1) {
     hash = (hash * 31 + senderId.charCodeAt(i)) >>> 0;
@@ -67,13 +73,17 @@ function firstProfile(profiles: ChatMessageRow["profiles"]): LoungeProfile | nul
 /**
  * 解析发送者身份：
  * - profile 存在 → 用当前 display_name（改名自动跟随）。
- * - profile 缺失（未来删号场景）→ 用 sender_id 末 4 位生成稳定标签，多个注销账号天然可区分。
- * 颜色始终由 sender_id 派生，保证同一人前后一致。
+ * - profile 缺失但 sender_id 仍在 → 用 sender_id 末 4 位生成稳定标签，多个注销账号天然可区分。
+ * - sender_id 为 null（账号已被定时清理，ON DELETE SET NULL）→ 通用「已注销用户」标签。
+ * 颜色由 sender_id 派生，保证同一人前后一致；sender_id 为空时用中性灰。
  */
-export function resolveSender(senderId: string, profile?: LoungeProfile | null): SenderIdentity {
+export function resolveSender(senderId: string | null, profile?: LoungeProfile | null): SenderIdentity {
   const color = senderColor(senderId);
   if (profile && (String(profile.display_name || "").trim() || profile.gp_id)) {
     return { name: getDisplayName(profile), color, isDeleted: false };
+  }
+  if (!senderId) {
+    return { name: "已注销用户", color, isDeleted: true };
   }
   const suffix = senderId.replace(/-/g, "").slice(-4) || senderId;
   return { name: `已注销用户·${suffix}`, color, isDeleted: true };

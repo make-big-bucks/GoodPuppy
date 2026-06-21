@@ -131,7 +131,8 @@ export interface InteractionPayload {
 export interface MessageRow {
   id: string;
   room_id: string;
-  sender_id: string;
+  // 发送者账号被清理后置 null（ON DELETE SET NULL），详见 docs/adr/0017。
+  sender_id: string | null;
   kind: string;
   content: string;
   created_at: string;
@@ -180,7 +181,8 @@ export interface LoungeRoom {
   room_name: string;
   description: string;
   invite_code: string;
-  created_by: string;
+  // 房间创建者账号被清理后置 null（ON DELETE SET NULL）。
+  created_by: string | null;
   members: MemberViewModel[];
 }
 

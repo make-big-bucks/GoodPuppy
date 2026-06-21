@@ -96,7 +96,7 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
   function cacheRowProfiles(rows: ChatMessageRow[]) {
     for (const row of rows) {
       const profile = rowProfile(row);
-      if (profile) profileCache.set(row.sender_id, profile);
+      if (profile && row.sender_id) profileCache.set(row.sender_id, profile);
     }
   }
 
@@ -118,7 +118,7 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
     col.className = "chat-col";
 
     if (!isSelf) {
-      const identity = resolveSender(message.senderId, profileCache.get(message.senderId));
+      const identity = resolveSender(message.senderId, message.senderId ? profileCache.get(message.senderId) : null);
       const sender = document.createElement("div");
       sender.className = `chat-sender${identity.isDeleted ? " is-deleted" : ""}`;
       sender.textContent = identity.name;
@@ -246,7 +246,7 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
             createdAt: next.created_at,
           };
           if (seenIds.has(message.id)) return;
-          if (profileCache.has(message.senderId) || message.senderId === selfAuthId) {
+          if (!message.senderId || profileCache.has(message.senderId) || message.senderId === selfAuthId) {
             appendMessage(message);
           } else {
             void resolveNewSender(message.senderId).then(() => {
