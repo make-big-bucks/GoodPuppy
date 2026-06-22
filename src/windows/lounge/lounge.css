@@ -1099,6 +1099,13 @@ textarea.lounge-input {
   transform: translateY(-1px);
 }
 
+.lounge-adopt-hint {
+  margin: 10px 0 0;
+  color: #9a9a9a;
+  font-size: 12px;
+  text-align: center;
+}
+
 .lounge-login-divider {
   margin: 14px 0;
   color: #aaa;

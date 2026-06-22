@@ -99,6 +99,7 @@ const eyeOffSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" s
 const dogLogoSvg = `<svg viewBox="0 0 64 64" fill="none" aria-hidden="true"><path d="M18 47V31C18 20 26 13 37 13C48 13 55 21 55 32C55 41 49 47 39 47H31" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 31C12 33 9 38 9 47" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><path d="M38 47V54" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><circle cx="43" cy="28" r="3" fill="currentColor"/></svg>`;
 const userInputSvg = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="2"/></svg>`;
 const passwordInputSvg = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+const pawInputSvg = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="6.5" cy="11" r="1.6" stroke="currentColor" stroke-width="1.6"/><circle cx="10" cy="7.5" r="1.6" stroke="currentColor" stroke-width="1.6"/><circle cx="14" cy="7.5" r="1.6" stroke="currentColor" stroke-width="1.6"/><circle cx="17.5" cy="11" r="1.6" stroke="currentColor" stroke-width="1.6"/><path d="M8.5 15.5c0-2 1.6-3.2 3.5-3.2s3.5 1.2 3.5 3.2c0 1.7-1.3 2.7-3.5 2.7s-3.5-1-3.5-2.7Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
 
 let rooms: LoungeRoom[] = [];
 let pendingRequests: ConnectionRequestRow[] = [];
@@ -225,18 +226,61 @@ function renderAuthState(isLoggedIn: boolean) {
   }
 }
 
+const loginBrandHtml = `
+    <section class="lounge-login-brand">
+      <div class="lounge-login-logo">${dogLogoSvg}</div>
+      <h2 class="lounge-login-title">GoodPuppy</h2>
+      <p class="lounge-login-subtitle">和朋友一起出现在彼此的桌面上</p>
+    </section>`;
+
 function openLoginDialog() {
   const backdrop = modalBackdrop();
   const form = modalForm();
   if (!backdrop || !form) return;
 
   form.classList.add("lounge-login-modal");
-  form.innerHTML = `
-    <section class="lounge-login-brand">
-      <div class="lounge-login-logo">${dogLogoSvg}</div>
-      <h2 class="lounge-login-title">GoodPuppy</h2>
-      <p class="lounge-login-subtitle">和朋友一起出现在彼此的桌面上</p>
-    </section>
+
+  // 领养首屏：匿名登录 + 给宠物取名（名字必填）。
+  function renderAdoptScreen() {
+    form!.innerHTML = `
+    ${loginBrandHtml}
+    <div class="lounge-login-field">
+      <label for="adopt-name">给你的宠物取个名字</label>
+      <div class="lounge-login-input-box">
+        ${pawInputSvg}
+        <input class="lounge-login-input" id="adopt-name" name="petName" type="text" autocomplete="off" maxlength="20" placeholder="比如：泡芙" required />
+      </div>
+    </div>
+    <p class="lounge-form-message" role="status"></p>
+    <button class="lounge-auth-button lounge-auth-primary lounge-form-submit" type="submit" disabled>领养并进入</button>
+    <p class="lounge-adopt-hint">无需注册账号，稍后可以绑定邮箱</p>
+    <div class="lounge-login-divider">或</div>
+    <button class="lounge-auth-button lounge-auth-secondary lounge-show-email" type="button">已有账号？用邮箱上线</button>
+  `;
+
+    const nameInput = requiredQuery<HTMLInputElement>(form!, "#adopt-name");
+    const submitBtn = requiredQuery<HTMLButtonElement>(form!, ".lounge-form-submit");
+    const showEmailBtn = requiredQuery<HTMLButtonElement>(form!, ".lounge-show-email");
+
+    setModalMessage("");
+    setModalBusy(false);
+    nameInput.focus();
+
+    const syncSubmitState = () => { submitBtn.disabled = nameInput.value.trim().length === 0; };
+    syncSubmitState();
+    nameInput.addEventListener("input", syncSubmitState);
+
+    showEmailBtn.addEventListener("click", () => { renderEmailScreen(); });
+    form!.onsubmit = (event) => {
+      event.preventDefault();
+      void doAdopt(nameInput.value.trim(), submitBtn);
+    };
+  }
+
+  // 邮箱登录屏：已有账号上线 / 创建新账号，可返回领养首屏。
+  function renderEmailScreen() {
+    form!.innerHTML = `
+    ${loginBrandHtml}
     <div class="lounge-login-field">
       <label for="login-email">账号</label>
       <div class="lounge-login-input-box">
@@ -256,95 +300,109 @@ function openLoginDialog() {
     <button class="lounge-auth-button lounge-auth-primary lounge-form-submit" type="submit">上线</button>
     <div class="lounge-login-divider">或</div>
     <button class="lounge-auth-button lounge-auth-secondary lounge-form-register" type="button">创建新账号</button>
-    <button class="lounge-auth-button lounge-quick-entry" type="button">快速进入</button>
+    <button class="lounge-auth-button lounge-quick-entry lounge-back-adopt" type="button">← 返回领养宠物</button>
   `;
 
-  const emailInput = requiredQuery<HTMLInputElement>(form, "#login-email");
-  const passwordInput = requiredQuery<HTMLInputElement>(form, ".login-password-input");
-  const passwordToggle = requiredQuery<HTMLButtonElement>(form, ".login-password-toggle");
-  const registerBtn = requiredQuery<HTMLButtonElement>(form, ".lounge-form-register");
-  const submitBtn = requiredQuery<HTMLButtonElement>(form, ".lounge-form-submit");
-  const quickEntryBtn = requiredQuery<HTMLButtonElement>(form, ".lounge-quick-entry");
+    const emailInput = requiredQuery<HTMLInputElement>(form!, "#login-email");
+    const passwordInput = requiredQuery<HTMLInputElement>(form!, ".login-password-input");
+    const passwordToggle = requiredQuery<HTMLButtonElement>(form!, ".login-password-toggle");
+    const registerBtn = requiredQuery<HTMLButtonElement>(form!, ".lounge-form-register");
+    const submitBtn = requiredQuery<HTMLButtonElement>(form!, ".lounge-form-submit");
+    const backBtn = requiredQuery<HTMLButtonElement>(form!, ".lounge-back-adopt");
 
-  setModalMessage("");
-  setModalBusy(false);
-  backdrop.hidden = false;
-  emailInput.focus();
+    setModalMessage("");
+    setModalBusy(false);
+    emailInput.focus();
 
-  passwordToggle.addEventListener("click", () => {
-    const shouldShow = passwordInput.type === "password";
-    passwordInput.type = shouldShow ? "text" : "password";
-    passwordToggle.innerHTML = shouldShow ? eyeOffSvg : eyeSvg;
-    passwordToggle.setAttribute("aria-label", shouldShow ? "隐藏密码" : "显示密码");
-    passwordInput.focus();
-  });
+    passwordToggle.addEventListener("click", () => {
+      const shouldShow = passwordInput.type === "password";
+      passwordInput.type = shouldShow ? "text" : "password";
+      passwordToggle.innerHTML = shouldShow ? eyeOffSvg : eyeSvg;
+      passwordToggle.setAttribute("aria-label", shouldShow ? "隐藏密码" : "显示密码");
+      passwordInput.focus();
+    });
 
-  async function doSignIn() {
+    async function doSignIn() {
+      if (!supabaseClient) return;
+      const email = emailInput.value.trim();
+      const password = passwordInput.value;
+      if (!email || !password) { setModalMessage("请填写邮箱和密码"); return; }
+      setModalBusy(true);
+      setButtonLoading(submitBtn, true);
+      setModalMessage("正在登录...");
+      try {
+        const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        closeModal();
+        onLoginSuccess?.();
+      } catch (error) {
+        setModalMessage(getErrorMessage(error, "登录失败"));
+      } finally {
+        setButtonLoading(submitBtn, false);
+        setModalBusy(false);
+      }
+    }
+
+    async function doSignUp() {
+      if (!supabaseClient) return;
+      const email = emailInput.value.trim();
+      const password = passwordInput.value;
+      if (!email || !password) { setModalMessage("请填写邮箱和密码"); return; }
+      setModalBusy(true);
+      setButtonLoading(registerBtn, true);
+      setModalMessage("正在注册...");
+      try {
+        const { data, error } = await supabaseClient.auth.signUp({ email, password });
+        if (error) throw error;
+        if (data.session) {
+          closeModal();
+          onLoginSuccess?.();
+        } else {
+          setModalMessage("注册成功，请检查邮箱确认账号");
+          setButtonLoading(registerBtn, false);
+          setModalBusy(false);
+        }
+      } catch (error) {
+        setModalMessage(getErrorMessage(error, "注册失败"));
+        setButtonLoading(registerBtn, false);
+        setModalBusy(false);
+      }
+    }
+
+    registerBtn.addEventListener("click", () => { void doSignUp(); });
+    backBtn.addEventListener("click", () => { renderAdoptScreen(); });
+    form!.onsubmit = (event) => { event.preventDefault(); void doSignIn(); };
+  }
+
+  // 匿名登录成功后立刻把宠物名写入 profiles（onConflict 更新，非 ignoreDuplicates），
+  // 预创建行，避开 loadPanelData 的空名兜底；对 pet 窗口 ignoreDuplicates upsert 无竞态影响。
+  async function doAdopt(name: string, submitBtn: HTMLButtonElement) {
     if (!supabaseClient) return;
-    const email = emailInput.value.trim();
-    const password = passwordInput.value;
-    if (!email || !password) { setModalMessage("请填写邮箱和密码"); return; }
+    if (!name) { setModalMessage("请先给宠物取个名字"); return; }
     setModalBusy(true);
     setButtonLoading(submitBtn, true);
-    setModalMessage("正在登录...");
+    setModalMessage("正在领养...");
     try {
-      const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabaseClient.auth.signInAnonymously();
       if (error) throw error;
+      const userId = data.user?.id;
+      if (userId) {
+        const { error: profileError } = await supabaseClient
+          .from("profiles")
+          .upsert({ id: userId, display_name: name, pet_id: "default" }, { onConflict: "id" });
+        if (profileError) throw profileError;
+      }
       closeModal();
       onLoginSuccess?.();
     } catch (error) {
-      setModalMessage(getErrorMessage(error, "登录失败"));
-    } finally {
+      setModalMessage(getErrorMessage(error, "领养失败"));
       setButtonLoading(submitBtn, false);
       setModalBusy(false);
     }
   }
 
-  async function doSignUp() {
-    if (!supabaseClient) return;
-    const email = emailInput.value.trim();
-    const password = passwordInput.value;
-    if (!email || !password) { setModalMessage("请填写邮箱和密码"); return; }
-    setModalBusy(true);
-    setButtonLoading(registerBtn, true);
-    setModalMessage("正在注册...");
-    try {
-      const { data, error } = await supabaseClient.auth.signUp({ email, password });
-      if (error) throw error;
-      if (data.session) {
-        closeModal();
-        onLoginSuccess?.();
-      } else {
-        setModalMessage("注册成功，请检查邮箱确认账号");
-        setButtonLoading(registerBtn, false);
-        setModalBusy(false);
-      }
-    } catch (error) {
-      setModalMessage(getErrorMessage(error, "注册失败"));
-      setButtonLoading(registerBtn, false);
-      setModalBusy(false);
-    }
-  }
-
-  async function doAnonymousSignIn() {
-    if (!supabaseClient) return;
-    setModalBusy(true);
-    setModalMessage("正在创建匿名账号...");
-    try {
-      const { error } = await supabaseClient.auth.signInAnonymously();
-      if (error) throw error;
-      closeModal();
-      onLoginSuccess?.();
-    } catch (error) {
-      setModalMessage(getErrorMessage(error, "匿名登录失败"));
-    } finally {
-      setModalBusy(false);
-    }
-  }
-
-  registerBtn.addEventListener("click", () => { void doSignUp(); });
-  quickEntryBtn.addEventListener("click", () => { void doAnonymousSignIn(); });
-  form.onsubmit = (event) => { event.preventDefault(); void doSignIn(); };
+  backdrop.hidden = false;
+  renderAdoptScreen();
 }
 
 function openSettingsView() {
