@@ -7,16 +7,9 @@
   </head>
   <body>
     <main class="pet-stage is-initializing" aria-label="Good Puppy desktop pet">
+      <!-- 多窗口 Phase A：气泡 / 记号棒已搬进独立气泡窗口（bubble.html）。
+           pet 窗口固定 pet 尺寸，只渲染单 pet 动画 + 拖动 + 像素命中。 -->
       <section class="dog-area" data-user="self" aria-label="My puppy">
-        <div class="bubble-stack" role="log" aria-live="polite" aria-label="Messages" data-user="self" hidden></div>
-        <form class="compose-stick" data-user="self" hidden>
-          <textarea class="compose-input" aria-label="Message text" rows="1"></textarea>
-          <div class="compose-actions">
-            <button class="compose-button compose-cancel" type="button" aria-label="Cancel">&times;</button>
-            <button class="compose-button compose-send" type="submit" aria-label="Send">&#10003;</button>
-          </div>
-          <div class="compose-status" role="status"></div>
-        </form>
         <img class="pet-image" data-user="self" src="/pets/shiba/idle.gif" alt="My puppy" draggable="false" />
       </section>
     </main>

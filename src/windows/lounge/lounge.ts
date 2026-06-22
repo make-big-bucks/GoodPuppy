@@ -4,8 +4,11 @@ import { renderRoomList, renderPendingRequests } from "./views/room-list.js";
 import type { PendingTransition } from "./views/room-list.js";
 import { renderRoomDetail } from "./views/room-detail.js";
 import { renderProfileCard } from "./views/profile-card.js";
+import { openChatHistory } from "./views/chat-history-dialog.js";
 import { showToast } from "./views/toast.js";
+import { showPanelSkeleton, showPanelError, hidePanelState, panelIsInError, isOfflineError } from "./views/panelState.js";
 import { initShowcase, openShowcase } from "./views/pet-showcase.js";
+import { openSettings, closeSettings } from "./views/settings.js";
 import { buildMemberViewModels, mapPendingRoomInvitationRows, normalizeGpId } from "./loungeViewModels.js";
 import type {
   ConnectionRequestRow,
@@ -19,16 +22,22 @@ import type {
 type LoungePanelOptions = {
   supabase: SupabaseClient;
   selfAuthId: string | null;
+  isAnonymous: boolean;
+  email: string | null;
   getActiveRoomId: () => string | null;
   onEnterRoom: (roomId: string) => Promise<void>;
   onExitRoom: () => Promise<void>;
   onLoginSuccess: () => void;
   onLogout: () => void;
+  // 换肤面板「保存」后，把皮肤同步给 pet 窗口（presence 通道 A）。
+  onSkinSaved: (skin: string) => void;
 };
 
 type UpdatePanelAuthOptions = {
   supabase: SupabaseClient;
   selfAuthId: string | null;
+  isAnonymous: boolean;
+  email: string | null;
 };
 
 type InputModalOptions = {
@@ -79,18 +88,22 @@ function requiredQuery<T extends Element>(root: ParentNode, selector: string) {
 
 let supabaseClient: SupabaseClient | null = null;
 let selfAuthId: string | null = null;
+let currentUserIsAnonymous = false;
+let currentUserEmail: string | null = null;
 let getActiveRoomId: (() => string | null) | null = null;
 let onEnterRoom: ((roomId: string) => Promise<void>) | null = null;
 let onExitRoom: (() => Promise<void>) | null = null;
 let onLoginSuccess: (() => void) | null = null;
 let onLogout: (() => void) | null = null;
+let onSkinSaved: ((skin: string) => void) | null = null;
 
-const logoutIconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`;
+const gearIconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`;
 const eyeSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>`;
 const eyeOffSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></svg>`;
 const dogLogoSvg = `<svg viewBox="0 0 64 64" fill="none" aria-hidden="true"><path d="M18 47V31C18 20 26 13 37 13C48 13 55 21 55 32C55 41 49 47 39 47H31" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 31C12 33 9 38 9 47" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><path d="M38 47V54" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><circle cx="43" cy="28" r="3" fill="currentColor"/></svg>`;
 const userInputSvg = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="2"/></svg>`;
 const passwordInputSvg = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+const pawInputSvg = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="6.5" cy="11" r="1.6" stroke="currentColor" stroke-width="1.6"/><circle cx="10" cy="7.5" r="1.6" stroke="currentColor" stroke-width="1.6"/><circle cx="14" cy="7.5" r="1.6" stroke="currentColor" stroke-width="1.6"/><circle cx="17.5" cy="11" r="1.6" stroke="currentColor" stroke-width="1.6"/><path d="M8.5 15.5c0-2 1.6-3.2 3.5-3.2s3.5 1.2 3.5 3.2c0 1.7-1.3 2.7-3.5 2.7s-3.5-1-3.5-2.7Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
 
 let rooms: LoungeRoom[] = [];
 let pendingRequests: ConnectionRequestRow[] = [];
@@ -99,8 +112,13 @@ let requestChannel: RealtimeChannel | null = null;
 let sentRequestChannel: RealtimeChannel | null = null;
 let presenceChannel: RealtimeChannel | null = null;
 let roomMembersChannel: RealtimeChannel | null = null;
+let profilesChannel: RealtimeChannel | null = null;
 let pendingTransition: PendingTransition | null = null;
 let currentProfile: LoungeProfile | null = null;
+// 冷启动判定：窗口内是否已成功加载过一次数据。仅首屏（false 时）走骨架屏/整屏报错。
+let hasLoadedOnce = false;
+// online 监听只注册一次。
+let onlineListenerBound = false;
 
 const panel = () => document.querySelector<HTMLElement>(".lounge-panel");
 const modalBackdrop = () => document.querySelector<HTMLElement>(".lounge-modal-backdrop");
@@ -113,6 +131,27 @@ function getSelectedRoom() {
 function setModalMessage(text: string) {
   const el = modalForm()?.querySelector<HTMLElement>(".lounge-form-message");
   if (el) el.textContent = text || "";
+}
+
+// 提交/确认按钮的加载态：保留按钮文字，仅在文字前插入一个 spinner。
+// 记住原始 HTML，结束时还原（按钮若随 modal 关闭已隐藏，还原也无害）。
+function setButtonLoading(btn: HTMLButtonElement | null | undefined, loading: boolean) {
+  if (!btn) return;
+  if (loading) {
+    if (btn.dataset.loading === "true") return;
+    btn.dataset.loading = "true";
+    btn.dataset.originalHtml = btn.innerHTML;
+    const label = btn.textContent ?? "";
+    btn.innerHTML = `<span class="btn-spinner btn-spinner-inline"></span>`;
+    btn.append(label);
+  } else {
+    if (btn.dataset.loading !== "true") return;
+    btn.dataset.loading = "false";
+    if (btn.dataset.originalHtml !== undefined) {
+      btn.innerHTML = btn.dataset.originalHtml;
+      delete btn.dataset.originalHtml;
+    }
+  }
 }
 
 function setModalBusy(isBusy: boolean) {
@@ -164,10 +203,13 @@ function handleSkinChange(skin: string) {
     }
   }
   renderAll();
+  // 通知 pet 窗口应用新皮肤（动画 + presence 广播给远程好友）。
+  onSkinSaved?.(skin);
 }
 
 function renderAuthState(isLoggedIn: boolean) {
-  document.querySelector<HTMLElement>(".profile-section")?.classList.toggle("is-unauth", !isLoggedIn);
+  const profileSection = document.querySelector<HTMLElement>(".profile-section");
+  profileSection?.classList.toggle("is-unauth", !isLoggedIn);
 
   const sidebarActions = document.querySelector<HTMLElement>(".sidebar-actions");
   if (sidebarActions) sidebarActions.hidden = !isLoggedIn;
@@ -180,22 +222,27 @@ function renderAuthState(isLoggedIn: boolean) {
     emptyDetail.textContent = isLoggedIn ? "选择一个房间查看成员" : "登录后即可查看你的房间和邀请";
   }
 
-  const actionBtn = document.querySelector<HTMLButtonElement>(".lounge-settings-btn");
-  if (actionBtn) {
-    if (isLoggedIn) {
-      actionBtn.hidden = false;
-      actionBtn.setAttribute("aria-label", "退出登录");
-      actionBtn.innerHTML = logoutIconSvg;
-    } else {
-      actionBtn.hidden = true;
-    }
+  // 齿轮 = 设置入口；未登录不提供入口（退出登录、绑定邮箱均已收进设置页）。
+  const settingsBtn = document.querySelector<HTMLButtonElement>(".lounge-settings-btn");
+  if (settingsBtn) {
+    settingsBtn.hidden = !isLoggedIn;
+    settingsBtn.setAttribute("aria-label", "设置");
+    settingsBtn.innerHTML = gearIconSvg;
   }
 
   if (!isLoggedIn) {
+    closeSettings();
     const roomDetail = document.querySelector<HTMLElement>(".lounge-room-detail");
     if (roomDetail) roomDetail.hidden = true;
   }
 }
+
+const loginBrandHtml = `
+    <section class="lounge-login-brand">
+      <div class="lounge-login-logo">${dogLogoSvg}</div>
+      <h2 class="lounge-login-title">GoodPuppy</h2>
+      <p class="lounge-login-subtitle">和朋友一起出现在彼此的桌面上</p>
+    </section>`;
 
 function openLoginDialog() {
   const backdrop = modalBackdrop();
@@ -203,12 +250,48 @@ function openLoginDialog() {
   if (!backdrop || !form) return;
 
   form.classList.add("lounge-login-modal");
-  form.innerHTML = `
-    <section class="lounge-login-brand">
-      <div class="lounge-login-logo">${dogLogoSvg}</div>
-      <h2 class="lounge-login-title">GoodPuppy</h2>
-      <p class="lounge-login-subtitle">和朋友一起出现在彼此的桌面上</p>
-    </section>
+
+  // 领养首屏：匿名登录 + 给宠物取名（名字必填）。
+  function renderAdoptScreen() {
+    form!.innerHTML = `
+    ${loginBrandHtml}
+    <div class="lounge-login-field">
+      <label for="adopt-name">给你的宠物取个名字</label>
+      <div class="lounge-login-input-box">
+        ${pawInputSvg}
+        <input class="lounge-login-input" id="adopt-name" name="petName" type="text" autocomplete="off" maxlength="20" placeholder="比如：泡芙" required />
+      </div>
+    </div>
+    <p class="lounge-form-message" role="status"></p>
+    <button class="lounge-auth-button lounge-auth-primary lounge-form-submit" type="submit" disabled>领养并进入</button>
+    <p class="lounge-adopt-hint">无需注册账号，稍后可以绑定邮箱</p>
+    <div class="lounge-login-divider">或</div>
+    <button class="lounge-auth-button lounge-auth-secondary lounge-show-email" type="button">已有账号？用邮箱上线</button>
+  `;
+
+    const nameInput = requiredQuery<HTMLInputElement>(form!, "#adopt-name");
+    const submitBtn = requiredQuery<HTMLButtonElement>(form!, ".lounge-form-submit");
+    const showEmailBtn = requiredQuery<HTMLButtonElement>(form!, ".lounge-show-email");
+
+    setModalMessage("");
+    setModalBusy(false);
+    nameInput.focus();
+
+    const syncSubmitState = () => { submitBtn.disabled = nameInput.value.trim().length === 0; };
+    syncSubmitState();
+    nameInput.addEventListener("input", syncSubmitState);
+
+    showEmailBtn.addEventListener("click", () => { renderEmailScreen(); });
+    form!.onsubmit = (event) => {
+      event.preventDefault();
+      void doAdopt(nameInput.value.trim(), submitBtn);
+    };
+  }
+
+  // 邮箱登录屏：已有账号上线 / 创建新账号，可返回领养首屏。
+  function renderEmailScreen() {
+    form!.innerHTML = `
+    ${loginBrandHtml}
     <div class="lounge-login-field">
       <label for="login-email">账号</label>
       <div class="lounge-login-input-box">
@@ -228,70 +311,124 @@ function openLoginDialog() {
     <button class="lounge-auth-button lounge-auth-primary lounge-form-submit" type="submit">上线</button>
     <div class="lounge-login-divider">或</div>
     <button class="lounge-auth-button lounge-auth-secondary lounge-form-register" type="button">创建新账号</button>
+    <button class="lounge-auth-button lounge-quick-entry lounge-back-adopt" type="button">← 返回领养宠物</button>
   `;
 
-  const emailInput = requiredQuery<HTMLInputElement>(form, "#login-email");
-  const passwordInput = requiredQuery<HTMLInputElement>(form, ".login-password-input");
-  const passwordToggle = requiredQuery<HTMLButtonElement>(form, ".login-password-toggle");
-  const registerBtn = requiredQuery<HTMLButtonElement>(form, ".lounge-form-register");
+    const emailInput = requiredQuery<HTMLInputElement>(form!, "#login-email");
+    const passwordInput = requiredQuery<HTMLInputElement>(form!, ".login-password-input");
+    const passwordToggle = requiredQuery<HTMLButtonElement>(form!, ".login-password-toggle");
+    const registerBtn = requiredQuery<HTMLButtonElement>(form!, ".lounge-form-register");
+    const submitBtn = requiredQuery<HTMLButtonElement>(form!, ".lounge-form-submit");
+    const backBtn = requiredQuery<HTMLButtonElement>(form!, ".lounge-back-adopt");
 
-  setModalMessage("");
-  setModalBusy(false);
-  backdrop.hidden = false;
-  emailInput.focus();
+    setModalMessage("");
+    setModalBusy(false);
+    emailInput.focus();
 
-  passwordToggle.addEventListener("click", () => {
-    const shouldShow = passwordInput.type === "password";
-    passwordInput.type = shouldShow ? "text" : "password";
-    passwordToggle.innerHTML = shouldShow ? eyeOffSvg : eyeSvg;
-    passwordToggle.setAttribute("aria-label", shouldShow ? "隐藏密码" : "显示密码");
-    passwordInput.focus();
-  });
+    passwordToggle.addEventListener("click", () => {
+      const shouldShow = passwordInput.type === "password";
+      passwordInput.type = shouldShow ? "text" : "password";
+      passwordToggle.innerHTML = shouldShow ? eyeOffSvg : eyeSvg;
+      passwordToggle.setAttribute("aria-label", shouldShow ? "隐藏密码" : "显示密码");
+      passwordInput.focus();
+    });
 
-  async function doSignIn() {
+    async function doSignIn() {
+      if (!supabaseClient) return;
+      const email = emailInput.value.trim();
+      const password = passwordInput.value;
+      if (!email || !password) { setModalMessage("请填写邮箱和密码"); return; }
+      setModalBusy(true);
+      setButtonLoading(submitBtn, true);
+      setModalMessage("正在登录...");
+      try {
+        const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        closeModal();
+        onLoginSuccess?.();
+      } catch (error) {
+        setModalMessage(getErrorMessage(error, "登录失败"));
+      } finally {
+        setButtonLoading(submitBtn, false);
+        setModalBusy(false);
+      }
+    }
+
+    async function doSignUp() {
+      if (!supabaseClient) return;
+      const email = emailInput.value.trim();
+      const password = passwordInput.value;
+      if (!email || !password) { setModalMessage("请填写邮箱和密码"); return; }
+      setModalBusy(true);
+      setButtonLoading(registerBtn, true);
+      setModalMessage("正在注册...");
+      try {
+        const { data, error } = await supabaseClient.auth.signUp({ email, password });
+        if (error) throw error;
+        if (data.session) {
+          closeModal();
+          onLoginSuccess?.();
+        } else {
+          setModalMessage("注册成功，请检查邮箱确认账号");
+          setButtonLoading(registerBtn, false);
+          setModalBusy(false);
+        }
+      } catch (error) {
+        setModalMessage(getErrorMessage(error, "注册失败"));
+        setButtonLoading(registerBtn, false);
+        setModalBusy(false);
+      }
+    }
+
+    registerBtn.addEventListener("click", () => { void doSignUp(); });
+    backBtn.addEventListener("click", () => { renderAdoptScreen(); });
+    form!.onsubmit = (event) => { event.preventDefault(); void doSignIn(); };
+  }
+
+  // 匿名登录成功后立刻把宠物名写入 profiles（onConflict 更新，非 ignoreDuplicates），
+  // 预创建行，避开 loadPanelData 的空名兜底；对 pet 窗口 ignoreDuplicates upsert 无竞态影响。
+  async function doAdopt(name: string, submitBtn: HTMLButtonElement) {
     if (!supabaseClient) return;
-    const email = emailInput.value.trim();
-    const password = passwordInput.value;
-    if (!email || !password) { setModalMessage("请填写邮箱和密码"); return; }
+    if (!name) { setModalMessage("请先给宠物取个名字"); return; }
     setModalBusy(true);
-    setModalMessage("正在登录...");
+    setButtonLoading(submitBtn, true);
+    setModalMessage("正在领养...");
     try {
-      const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabaseClient.auth.signInAnonymously();
       if (error) throw error;
+      const userId = data.user?.id;
+      if (userId) {
+        const { error: profileError } = await supabaseClient
+          .from("profiles")
+          .upsert({ id: userId, display_name: name, pet_id: "default" }, { onConflict: "id" });
+        if (profileError) throw profileError;
+      }
       closeModal();
       onLoginSuccess?.();
     } catch (error) {
-      setModalMessage(getErrorMessage(error, "登录失败"));
-    } finally {
+      setModalMessage(getErrorMessage(error, "领养失败"));
+      setButtonLoading(submitBtn, false);
       setModalBusy(false);
     }
   }
 
-  async function doSignUp() {
-    if (!supabaseClient) return;
-    const email = emailInput.value.trim();
-    const password = passwordInput.value;
-    if (!email || !password) { setModalMessage("请填写邮箱和密码"); return; }
-    setModalBusy(true);
-    setModalMessage("正在注册...");
-    try {
-      const { data, error } = await supabaseClient.auth.signUp({ email, password });
-      if (error) throw error;
-      if (data.session) {
-        closeModal();
-        onLoginSuccess?.();
-      } else {
-        setModalMessage("注册成功，请检查邮箱确认账号");
-        setModalBusy(false);
-      }
-    } catch (error) {
-      setModalMessage(getErrorMessage(error, "注册失败"));
-      setModalBusy(false);
-    }
-  }
+  backdrop.hidden = false;
+  renderAdoptScreen();
+}
 
-  registerBtn.addEventListener("click", () => { void doSignUp(); });
-  form.onsubmit = (event) => { event.preventDefault(); void doSignIn(); };
+function openSettingsView() {
+  // 邮箱来自启动时 getSession() 拿到的会话（onAuthStateChange 持续同步），这里无需再发
+  // getUser() 网络请求，直接同步打开设置页，点齿轮即开、不卡顿。
+  openSettings({
+    getAccount: () => ({
+      isLoggedIn: Boolean(selfAuthId),
+      isAnonymous: currentUserIsAnonymous,
+      email: currentUserEmail,
+    }),
+    onBindAccount: () => openBindAccountDialog(),
+    onLogout: () => openLogoutConfirmDialog(),
+    onClose: () => closeSettings(),
+  });
 }
 
 function openLogoutConfirmDialog() {
@@ -299,10 +436,14 @@ function openLogoutConfirmDialog() {
   const form = modalForm();
   if (!backdrop || !form) return;
 
+  const confirmText = currentUserIsAnonymous
+    ? "当前是匿名账号。退出登录后，本机将不再保留这个匿名账号的信息；如果想保留账号，请先绑定邮箱。"
+    : "确认要退出登录吗？";
+
   form.classList.remove("lounge-login-modal");
   form.innerHTML = `
     <h2 class="modal-title">退出登录</h2>
-    <p class="lounge-confirm-text">确认要退出登录吗？</p>
+    <p class="lounge-confirm-text">${confirmText}</p>
     <div class="lounge-form-actions">
       <button class="small-btn lounge-form-cancel" type="button">取消</button>
       <button class="small-btn danger lounge-logout-confirm" type="button">退出登录</button>
@@ -317,12 +458,92 @@ function openLogoutConfirmDialog() {
   cancel.onclick = closeModal;
   logoutBtn.onclick = async () => {
     logoutBtn.disabled = true;
+    setButtonLoading(logoutBtn, true);
     if (onExitRoom) {
       try { await onExitRoom(); } catch { /* ignore */ }
     }
     await supabaseClient?.auth.signOut();
     closeModal();
+    closeSettings();
     onLogout?.();
+  };
+}
+
+function openBindAccountDialog() {
+  const backdrop = modalBackdrop();
+  const form = modalForm();
+  if (!backdrop || !form) return;
+
+  form.classList.add("lounge-login-modal");
+  form.innerHTML = `
+    <section class="lounge-login-brand">
+      <div class="lounge-login-logo">${dogLogoSvg}</div>
+      <h2 class="lounge-login-title">绑定账号</h2>
+      <p class="lounge-login-subtitle">绑定邮箱后，可以在其他设备继续使用这个账号</p>
+    </section>
+    <div class="lounge-login-field">
+      <label for="bind-email">邮箱</label>
+      <div class="lounge-login-input-box">
+        ${userInputSvg}
+        <input class="lounge-login-input" id="bind-email" name="email" type="email" autocomplete="email" placeholder="输入邮箱" required />
+      </div>
+    </div>
+    <div class="lounge-login-field">
+      <label for="bind-password">密码</label>
+      <div class="lounge-login-input-box login-password-wrap">
+        ${passwordInputSvg}
+        <input class="lounge-login-input login-password-input" id="bind-password" name="password" type="password" autocomplete="new-password" placeholder="设置密码" minlength="6" required />
+        <button class="login-password-toggle" type="button" aria-label="显示密码">${eyeSvg}</button>
+      </div>
+    </div>
+    <p class="lounge-form-message" role="status"></p>
+    <button class="lounge-auth-button lounge-auth-primary lounge-form-submit" type="submit">绑定账号</button>
+  `;
+
+  const emailInput = requiredQuery<HTMLInputElement>(form, "#bind-email");
+  const passwordInput = requiredQuery<HTMLInputElement>(form, ".login-password-input");
+  const passwordToggle = requiredQuery<HTMLButtonElement>(form, ".login-password-toggle");
+
+  setModalMessage("");
+  setModalBusy(false);
+  backdrop.hidden = false;
+  emailInput.focus();
+
+  passwordToggle.addEventListener("click", () => {
+    const shouldShow = passwordInput.type === "password";
+    passwordInput.type = shouldShow ? "text" : "password";
+    passwordToggle.innerHTML = shouldShow ? eyeOffSvg : eyeSvg;
+    passwordToggle.setAttribute("aria-label", shouldShow ? "隐藏密码" : "显示密码");
+    passwordInput.focus();
+  });
+
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    if (!supabaseClient) return;
+
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+    if (!email || !password) {
+      setModalMessage("请填写邮箱和密码");
+      return;
+    }
+
+    setModalBusy(true);
+    setModalMessage("正在绑定...");
+    try {
+      const { data, error } = await supabaseClient.auth.updateUser({ email, password });
+      if (error) throw error;
+
+      currentUserIsAnonymous = Boolean(data.user?.is_anonymous);
+      currentUserEmail = data.user?.email ?? currentUserEmail;
+      renderAuthState(Boolean(selfAuthId));
+      closeModal();
+      showToast(currentUserIsAnonymous ? "请检查邮箱完成绑定" : "账号已绑定");
+    } catch (error) {
+      setModalMessage(getErrorMessage(error, "绑定失败"));
+    } finally {
+      setModalBusy(false);
+    }
   };
 }
 
@@ -354,6 +575,7 @@ function openLeaveRoomPermanentDialog(room: LoungeRoom) {
   cancel.onclick = closeModal;
   confirmBtn.onclick = async () => {
     confirmBtn.disabled = true;
+    setButtonLoading(confirmBtn, true);
     try {
       if (getActiveRoomId?.() === room.id && onExitRoom) {
         try { await onExitRoom(); } catch { /* ignore */ }
@@ -384,6 +606,10 @@ function renderAll() {
 
 async function loadPanelData() {
   if (!supabaseClient || !selfAuthId) return;
+
+  // 冷启动（窗口内还没有任何数据）才显示骨架屏；后续刷新静默更新，避免每次操作后闪屏。
+  const coldStart = !hasLoadedOnce;
+  if (coldStart) showPanelSkeleton();
 
   try {
     const [profileResult, myRoomsResult, requestsResult] = await Promise.all([
@@ -467,8 +693,14 @@ async function loadPanelData() {
     }
 
     renderAll();
+    hasLoadedOnce = true;
+    if (coldStart) hidePanelState();
   } catch (error) {
-    showToast(getErrorMessage(error, "加载失败"), "error");
+    if (coldStart) {
+      showPanelError({ offline: isOfflineError(error), onRetry: () => void loadPanelData() });
+    } else {
+      showToast(getErrorMessage(error, "加载失败"), "error");
+    }
   }
 }
 
@@ -525,12 +757,14 @@ function openInputModal({
     }
 
     setModalBusy(true);
+    setButtonLoading(submit, true);
     try {
       await onSubmit(value);
       closeModal();
     } catch (error) {
       setModalMessage(getErrorMessage(error, "操作失败"));
     } finally {
+      setButtonLoading(submit, false);
       setModalBusy(false);
     }
   };
@@ -688,6 +922,7 @@ function openRoomMetadataModal() {
   const roomNameInput = requiredQuery<HTMLInputElement>(form, ".lounge-room-name-input");
   const roomDescriptionInput = requiredQuery<HTMLTextAreaElement>(form, ".lounge-room-description-input");
   const cancel = requiredQuery<HTMLButtonElement>(form, ".lounge-form-cancel");
+  const submit = requiredQuery<HTMLButtonElement>(form, ".lounge-form-submit");
 
   roomNameInput.value = room.room_name || "";
   roomDescriptionInput.value = room.description || "";
@@ -700,6 +935,7 @@ function openRoomMetadataModal() {
   form.onsubmit = async (event) => {
     event.preventDefault();
     setModalBusy(true);
+    setButtonLoading(submit, true);
     try {
       await updateSelectedRoomMetadata({
         roomName: roomNameInput.value,
@@ -709,6 +945,7 @@ function openRoomMetadataModal() {
     } catch (error) {
       setModalMessage(getErrorMessage(error, "保存失败"));
     } finally {
+      setButtonLoading(submit, false);
       setModalBusy(false);
     }
   };
@@ -832,6 +1069,46 @@ function subscribeToRoomMembers() {
     .subscribe();
 }
 
+// 当前可见房间里的所有成员 user_id（含自己），用于过滤 profiles 变更——
+// profiles 的 SELECT RLS 为 true，订阅会收到全站任意用户的变更，必须客户端按成员过滤，
+// 否则任意陌生用户改名都会触发一次 loadPanelData。
+function knownMemberIds(): Set<string> {
+  const ids = new Set<string>();
+  if (selfAuthId) ids.add(selfAuthId);
+  for (const room of rooms) {
+    for (const member of room.members) ids.add(member.userId);
+  }
+  return ids;
+}
+
+function subscribeToProfilesChanges() {
+  if (!supabaseClient || !selfAuthId) return;
+
+  if (profilesChannel) {
+    void supabaseClient.removeChannel(profilesChannel);
+    profilesChannel = null;
+  }
+
+  // 监听 profiles 变更，实时反映成员改名/换肤（含远程好友）。仅当变更者是已知房间成员时刷新。
+  profilesChannel = supabaseClient
+    .channel(`lounge-profiles-${selfAuthId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "profiles",
+      },
+      (payload) => {
+        const changedId = (payload.new as { id?: string } | null)?.id;
+        if (changedId && knownMemberIds().has(changedId)) {
+          void loadPanelData();
+        }
+      },
+    )
+    .subscribe();
+}
+
 function subscribeToPresenceChanges() {
   if (!supabaseClient || !selfAuthId) return;
 
@@ -935,7 +1212,7 @@ function bindEvents() {
 
     if (btn.matches(".lounge-settings-btn")) {
       if (selfAuthId) {
-        openLogoutConfirmDialog();
+        void openSettingsView();
       }
       return;
     }
@@ -960,6 +1237,13 @@ function bindEvents() {
       const room = getSelectedRoom();
       if (!room || !selfAuthId) return;
       openLeaveRoomPermanentDialog(room);
+      return;
+    }
+
+    if (btn.matches(".lounge-view-history")) {
+      const room = getSelectedRoom();
+      if (!room || !selfAuthId || !supabaseClient) return;
+      openChatHistory({ supabase: supabaseClient, selfAuthId, room });
     }
   });
 
@@ -970,6 +1254,7 @@ function bindEvents() {
     const { action, id } = btn.dataset;
     if (!id) return;
     btn.disabled = true;
+    setButtonLoading(btn, true);
 
     try {
       if (action === "accept") await acceptRequest(id);
@@ -977,6 +1262,7 @@ function bindEvents() {
     } catch (error) {
       showToast(getErrorMessage(error, "操作失败"), "error");
     } finally {
+      setButtonLoading(btn, false);
       btn.disabled = false;
     }
   });
@@ -989,7 +1275,10 @@ function bindEvents() {
 
   p.addEventListener("pointerdown", (event) => {
     const target = targetElement(event.target);
-    if (target?.closest(".sidebar-drag-region, .main-drag-region")) {
+    if (
+      target?.closest(".sidebar-drag-region, .main-drag-region, .settings-header") &&
+      !target?.closest(".settings-back")
+    ) {
       window.goodPuppy.startWindowDrag();
     }
   });
@@ -1007,39 +1296,56 @@ function bindEvents() {
 export function initLoungePanel({
   supabase,
   selfAuthId: nextSelfAuthId,
+  isAnonymous: nextIsAnonymous,
+  email: nextEmail,
   getActiveRoomId: nextGetActiveRoomId,
   onEnterRoom: nextOnEnterRoom,
   onExitRoom: nextOnExitRoom,
   onLoginSuccess: nextOnLoginSuccess,
   onLogout: nextOnLogout,
+  onSkinSaved: nextOnSkinSaved,
 }: LoungePanelOptions) {
   supabaseClient = supabase;
   selfAuthId = nextSelfAuthId;
+  currentUserIsAnonymous = Boolean(nextSelfAuthId && nextIsAnonymous);
+  currentUserEmail = nextSelfAuthId ? nextEmail : null;
   getActiveRoomId = nextGetActiveRoomId;
   onEnterRoom = nextOnEnterRoom;
   onExitRoom = nextOnExitRoom;
   onLoginSuccess = nextOnLoginSuccess;
   onLogout = nextOnLogout;
+  onSkinSaved = nextOnSkinSaved;
 
   bindEvents();
+  if (!onlineListenerBound) {
+    onlineListenerBound = true;
+    // 断网恢复时，若当前正停在冷启动报错态，自动重新加载（手动「重试」按钮作兜底）。
+    window.addEventListener("online", () => {
+      if (selfAuthId && panelIsInError()) void loadPanelData();
+    });
+  }
   if (selfAuthId) {
     subscribeToRequests();
     subscribeToPresenceChanges();
     subscribeToRoomMembers();
+    subscribeToProfilesChanges();
   }
 }
 
-export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId }: UpdatePanelAuthOptions) {
+export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, isAnonymous: nextIsAnonymous, email: nextEmail }: UpdatePanelAuthOptions) {
   const wasLoggedIn = Boolean(selfAuthId);
   const isLoggedIn = Boolean(nextSelfAuthId);
 
   supabaseClient = supabase;
   selfAuthId = nextSelfAuthId;
+  currentUserIsAnonymous = Boolean(nextSelfAuthId && nextIsAnonymous);
+  currentUserEmail = nextSelfAuthId ? nextEmail : null;
 
   if (isLoggedIn) {
     subscribeToRequests();
     subscribeToPresenceChanges();
     subscribeToRoomMembers();
+    subscribeToProfilesChanges();
     renderAuthState(true);
     void loadPanelData();
   } else if (wasLoggedIn) {
@@ -1059,10 +1365,16 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId }: 
       void supabaseClient.removeChannel(roomMembersChannel);
       roomMembersChannel = null;
     }
+    if (profilesChannel && supabaseClient) {
+      void supabaseClient.removeChannel(profilesChannel);
+      profilesChannel = null;
+    }
     rooms = [];
     pendingRequests = [];
     selectedRoomId = null;
     pendingTransition = null;
+    hasLoadedOnce = false; // 登出后重置，下次登录重新走首屏骨架
+    hidePanelState();
     renderAuthState(false);
     renderProfile(null);
     renderAll();
@@ -1074,12 +1386,30 @@ export function refreshLoungePanelActiveRoom() {
   if (selfAuthId) void loadPanelData();
 }
 
+// 托盘「房间聊天记录」：打开当前所在房间的聊天记录（无则回退到选中/第一个房间）。
+// 数据可能尚未加载（托盘在 lounge 隐藏期间触发），先确保加载再打开。
+export async function openActiveRoomHistory() {
+  if (!supabaseClient || !selfAuthId) return;
+  if (rooms.length === 0) {
+    await loadPanelData();
+  }
+  const activeId = getActiveRoomId?.() || null;
+  const room =
+    (activeId ? rooms.find((r) => r.id === activeId) : null) ||
+    getSelectedRoom() ||
+    rooms[0] ||
+    null;
+  if (!room) return;
+  selectedRoomId = room.id;
+  renderAll();
+  openChatHistory({ supabase: supabaseClient, selfAuthId, room });
+}
+
 export function openLoungePanel() {
   const p = panel();
   if (!p) return;
 
   p.hidden = false;
-  window.goodPuppy.setIgnoreMouseEvents(false);
 
   if (selfAuthId) {
     renderAuthState(true);

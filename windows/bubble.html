@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Good Puppy</title>
+  </head>
+  <body>
+    <!-- 独立气泡窗口（多窗口 Phase A）：作为某只 pet 窗口的原生子窗口跟随移动，
+         只渲染该 pet 的消息堆叠；自己的气泡窗口额外承载写消息记号棒。
+         data-placement = above | below，决定堆叠贴宠物上方还是下方。 -->
+    <main class="bubble-window is-initializing" data-placement="above" aria-label="Good Puppy messages">
+      <section class="dog-area" data-user="remote">
+        <div class="bubble-stack" role="log" aria-live="polite" aria-label="Messages" hidden></div>
+        <form class="compose-stick" hidden>
+          <textarea class="compose-input" aria-label="Message text" rows="1"></textarea>
+          <div class="compose-actions">
+            <button class="compose-button compose-cancel" type="button" aria-label="Cancel">&times;</button>
+            <button class="compose-button compose-send" type="submit" aria-label="Send">&#10003;</button>
+          </div>
+          <div class="compose-status" role="status"></div>
+        </form>
+      </section>
+    </main>
+
+    <script type="module" src="/src/windows/pet/bubbleMain.ts"></script>
+  </body>
+</html>

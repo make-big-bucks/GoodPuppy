@@ -122,12 +122,23 @@ body.platform-windows .sidebar {
   padding-top: 16px;
 }
 
+.lounge-panel {
+  position: relative;
+}
+
 .lounge-panel[hidden] {
   display: none;
 }
 
 .layout {
   display: contents;
+}
+
+/* `display: contents` 是作者样式，会盖过 UA 的 `[hidden] { display: none }`，
+   导致 layout.hidden = true 失效（设置页与房间布局在同一网格单元里重叠）。
+   这里显式声明，保证整窗切换到设置页时房间布局真正隐藏。 */
+.layout[hidden] {
+  display: none;
 }
 
 .sidebar-drag-region {
@@ -666,6 +677,17 @@ body.platform-windows .sidebar {
   font-weight: 760;
 }
 
+.section-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.section-heading-actions .icon-btn {
+  width: 34px;
+  height: 34px;
+}
+
 .members {
   min-height: 0;
   padding: 16px 0;
@@ -1081,6 +1103,13 @@ textarea.lounge-input {
   transform: translateY(-1px);
 }
 
+.lounge-adopt-hint {
+  margin: 10px 0 0;
+  color: #9a9a9a;
+  font-size: 12px;
+  text-align: center;
+}
+
 .lounge-login-divider {
   margin: 14px 0;
   color: #aaa;
@@ -1110,6 +1139,19 @@ textarea.lounge-input {
 
 .lounge-auth-secondary:hover:not(:disabled) {
   background: #f7f7f7;
+}
+
+.lounge-quick-entry {
+  margin-top: 13px;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font-size: 14px;
+  font-weight: 680;
+}
+
+.lounge-quick-entry:hover:not(:disabled) {
+  text-decoration: underline;
 }
 
 .lounge-enter-room.is-exit {
@@ -1297,6 +1339,15 @@ textarea.lounge-input {
   transform: scale(1.18);
 }
 
+.showcase-save {
+  align-self: stretch;
+}
+
+.showcase-save:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .lounge-profile-card:not(.is-unauth) .pet-avatar {
   cursor: pointer;
   border-radius: 8px;
@@ -1325,16 +1376,627 @@ textarea.lounge-input {
   flex-shrink: 0;
 }
 
-/* room-quick-action loading */
+/* 提交按钮内联 spinner：与保留的文字并排 */
+.btn-spinner-inline {
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+
+/* room-quick-action loading：保持实色不透明（避免露出「人数」），只显示 spinner */
 .room-quick-action.is-pending {
   display: flex;
-  opacity: 0.65;
   cursor: not-allowed;
 }
 
-/* lounge-enter-room loading */
+/* 加载中隐藏「人数」，防止半透明/缝隙露出文字 */
+.room-item-row.is-pending-row .room-meta {
+  visibility: hidden;
+}
+
+/* lounge-enter-room loading：保留文字，仅图标变 spinner */
 .lounge-enter-room.is-pending {
-  opacity: 0.65;
   cursor: not-allowed;
   pointer-events: none;
+}
+
+/* ---- chat history ---- */
+.chat-history-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: rgba(31, 31, 31, 0.22);
+}
+
+.chat-history-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(480px, calc(100vw - 56px));
+  height: min(640px, calc(100vh - 80px));
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.chat-history-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.chat-history-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.chat-history-title {
+  font-size: 15px;
+  font-weight: 760;
+  color: var(--text);
+}
+
+.chat-history-room {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-history-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.14s, color 0.14s;
+}
+
+.chat-history-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.chat-log {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-history-status,
+.chat-history-empty {
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 8px 0;
+}
+
+.chat-history-empty {
+  margin: auto 0;
+}
+
+.chat-day {
+  display: flex;
+  justify-content: center;
+  margin: 6px 0;
+}
+
+.chat-day span {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--hover);
+  padding: 2px 10px;
+  border-radius: 10px;
+}
+
+.chat-row {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.chat-row.is-self {
+  justify-content: flex-end;
+}
+
+.chat-col {
+  display: flex;
+  flex-direction: column;
+  max-width: 76%;
+  gap: 2px;
+}
+
+.chat-row.is-self .chat-col {
+  align-items: flex-end;
+}
+
+.chat-sender {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 0 2px;
+}
+
+.chat-sender.is-deleted {
+  font-style: italic;
+  opacity: 0.85;
+}
+
+.chat-bubble {
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--hover);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+.chat-row.is-self .chat-bubble {
+  background: var(--active);
+  color: var(--green);
+}
+
+.chat-time {
+  font-size: 10px;
+  color: var(--muted);
+  padding: 0 2px;
+}
+
+.chat-jump-btn {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
+
+.chat-jump-btn[hidden] {
+  display: none;
+}
+
+/* ── 设置页（方案 A：整窗内切换，跨满 app-window 网格） ───────────────── */
+.settings-view {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--window);
+  overflow: hidden;
+  /* 整窗切换到设置页时的进入动画，让跳转更丝滑（淡入 + 轻微上移）。 */
+  animation: settings-view-in 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@keyframes settings-view-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-view {
+    animation: none;
+  }
+}
+
+.settings-view[hidden] {
+  display: none;
+}
+
+.settings-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 28px;
+  /* 顶部留出红绿灯系统按钮的空间，返回按钮整体下移，避免贴住 macOS 交通灯。 */
+  padding-top: 20px;
+  height: 84px;
+  border-bottom: 1px solid var(--line);
+  /* 拖拽由 lounge.ts 的 pointerdown → startWindowDrag() 接管（同 .main-drag-region）。 */
+}
+
+/* Windows 自绘标题栏已独占顶部，无需再为系统按钮预留空间。 */
+body.platform-windows .settings-header {
+  padding-top: 0;
+  height: 64px;
+}
+
+.settings-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 760;
+}
+
+.settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 28px 40px;
+}
+
+.settings-group {
+  max-width: 680px;
+  margin: 0 auto 28px;
+}
+
+.settings-group-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
+}
+
+.settings-row-text {
+  min-width: 0;
+}
+
+.settings-row-label {
+  font-size: 14px;
+  font-weight: 640;
+  color: var(--text);
+}
+
+.settings-row-desc {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.settings-account-email {
+  user-select: text;
+}
+
+/* 分段控件（朋友摆放模式） */
+.settings-segmented {
+  flex: 0 0 auto;
+  display: inline-flex;
+  padding: 3px;
+  background: var(--hover);
+  border-radius: var(--radius-md);
+}
+
+.settings-seg-btn {
+  border: none;
+  background: transparent;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 640;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.settings-seg-btn[aria-pressed="true"] {
+  background: var(--window);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* 大小滑块 */
+.settings-slider-wrap {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-scale-slider {
+  width: 180px;
+  accent-color: var(--black);
+  cursor: pointer;
+}
+
+.settings-scale-value {
+  min-width: 42px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 640;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 开关 */
+.settings-toggle {
+  flex: 0 0 auto;
+  position: relative;
+  width: 44px;
+  height: 26px;
+  border: none;
+  border-radius: 999px;
+  background: #d4cfc6;
+  cursor: pointer;
+  transition: background 0.16s ease;
+  padding: 0;
+}
+
+.settings-toggle.is-on {
+  background: var(--green);
+}
+
+.settings-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.settings-toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.16s ease;
+}
+
+.settings-toggle.is-on .settings-toggle-knob {
+  transform: translateX(18px);
+}
+
+/* ── 冷启动状态层：骨架屏 + 整屏报错态 ───────────────────────────── */
+
+/* 通用 shimmer 占位块，主面板与聊天记录弹窗共用。 */
+.gp-skeleton {
+  display: block;
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    100deg,
+    rgba(0, 0, 0, 0.05) 30%,
+    rgba(0, 0, 0, 0.1) 50%,
+    rgba(0, 0, 0, 0.05) 70%
+  );
+  background-size: 200% 100%;
+  animation: gp-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes gp-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gp-skeleton {
+    animation: none;
+  }
+}
+
+/* 覆盖整窗的状态层，盖住底下尚未填充的空 DOM。 */
+.lounge-panel-status {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: var(--sidebar);
+}
+
+.lounge-panel-status.is-loading {
+  display: grid;
+  grid-template-columns: var(--sidebar-w, 340px) 1fr;
+}
+
+/* 顶部拖拽条：状态层盖住了 .layout 的拖拽区，这里补回可拖动区域。 */
+.lounge-status-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  z-index: 1;
+  cursor: default;
+}
+
+.lounge-skel-sidebar {
+  padding: 56px 18px 18px;
+  border-right: 1px solid var(--line);
+  background: var(--sidebar);
+}
+
+.lounge-skel-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.lounge-skel-profile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.lounge-skel-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.lounge-skel-line {
+  height: 12px;
+  width: 70%;
+}
+
+.lounge-skel-line.short {
+  width: 45%;
+}
+
+.lounge-skel-heading {
+  height: 12px;
+  width: 96px;
+  margin: 0 0 16px 4px;
+}
+
+.lounge-skel-rooms {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lounge-skel-room {
+  height: 44px;
+  border-radius: var(--radius-lg);
+}
+
+.lounge-skel-main {
+  padding: 64px 40px 40px;
+}
+
+.lounge-skel-main .lounge-skel-heading {
+  width: 120px;
+  height: 16px;
+  margin-bottom: 24px;
+}
+
+.lounge-skel-members {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.lounge-skel-member {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lounge-skel-member-name {
+  height: 12px;
+  flex: 1;
+  max-width: 110px;
+}
+
+/* 报错态：居中。 */
+.lounge-panel-status.is-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lounge-status-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  max-width: 280px;
+  padding: 0 24px;
+}
+
+.lounge-status-icon {
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.lounge-status-icon svg {
+  width: 48px;
+  height: 48px;
+}
+
+.lounge-status-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.lounge-status-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.lounge-status-retry {
+  margin-top: 14px;
+}
+
+/* 聊天记录弹窗的首屏骨架 + 报错。 */
+.chat-history-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 4px;
+}
+
+.chat-skel-row {
+  display: flex;
+}
+
+.chat-skel-row.is-self {
+  justify-content: flex-end;
+}
+
+.chat-skel-bubble {
+  height: 38px;
+  border-radius: 12px;
+}
+
+.chat-history-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.chat-history-error .lounge-status-retry {
+  margin-top: 4px;
 }

@@ -1,6 +1,6 @@
 # GoodPuppy 数据库文档
 
-> 最后更新：2026-06-14
+> 最后更新：2026-06-21
 > Supabase 项目：`mrvdeeiiwnegaqjwpsgk`（ap-southeast-2，Postgres 17）
 > 适用版本：MVP Slice 2 + Slice 3 数据层
 
@@ -74,7 +74,7 @@ CREATE TABLE public.profiles (
 CREATE TABLE public.rooms (
   id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   invite_code   text        UNIQUE NOT NULL,  -- 由触发器自动生成，8 位随机字符
-  created_by    uuid        NOT NULL REFERENCES public.profiles(id),
+  created_by    uuid        REFERENCES public.profiles(id) ON DELETE SET NULL,  -- 创建者账号被清理后置 NULL，房间保留
   room_name     text,
   description   text        NOT NULL DEFAULT '',
   created_at    timestamptz NOT NULL DEFAULT now()
@@ -115,8 +115,8 @@ CREATE TABLE public.room_members (
 ```sql
 CREATE TABLE public.connection_requests (
   id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-  from_id    uuid        NOT NULL REFERENCES public.profiles(id),
-  to_id      uuid        NOT NULL REFERENCES public.profiles(id),
+  from_id    uuid        NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  to_id      uuid        NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   status     text        NOT NULL DEFAULT 'pending'
                          CHECK (status IN ('pending', 'accepted', 'declined')),
   room_id    uuid        REFERENCES public.rooms(id) ON DELETE SET NULL,  -- 非空时表示邀请加入指定房间
@@ -142,7 +142,7 @@ CREATE TABLE public.connection_requests (
 CREATE TABLE public.messages (
   id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   room_id    uuid        NOT NULL REFERENCES public.rooms(id) ON DELETE CASCADE,
-  sender_id  uuid        NOT NULL REFERENCES public.profiles(id),
+  sender_id  uuid        REFERENCES public.profiles(id) ON DELETE SET NULL,  -- 发送者账号被清理后置 NULL，消息保留
   kind       text        NOT NULL DEFAULT 'text' CHECK (kind IN ('text', 'emote')),
   content    text        NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
@@ -153,6 +153,8 @@ CREATE TABLE public.messages (
 - `kind`：`'text'` 为普通文字消息；`'emote'` 为情感表达（触发对方 pet 动画），v1 暂未启用。
 - `content`：`kind = 'text'` 时是消息正文；`kind = 'emote'` 时是 emote 标识符。
 - 前端查询时通过 `room_id` 过滤，RLS 保证用户只能读写自己所在房间的消息。
+- `messages_select` 仅按 `room_id` 判断成员资格，不限制 `joined_at`：**成员可读房间内全部历史，包括其加入之前的消息**。会客厅「聊天记录」Dialog（`src/windows/lounge/chatHistory.ts`）即依赖此行为做时间线回看，按 `created_at` 游标向更早分页（每页 50），并通过 `profiles!messages_sender_id_fkey` 内嵌实时解析发送者当前 `display_name`（改名自动跟随；profile 缺失时前端用 `sender_id` 兜底标签区分已注销账号；`sender_id` 为 NULL 时表示账号已被定时清理，渲染为通用「已注销用户」）。
+- `sender_id` 为 `ON DELETE SET NULL`：发送者账号被清理（见下文「孤儿匿名账号清理」）时置 NULL，消息正文保留。由于前端内嵌依赖该外键，约束本身保留（不可删除），故采用 SET NULL 而非脱钩。
 
 **前端调用示例：**
 
@@ -604,6 +606,9 @@ CREATE POLICY "presence_update" ON public.presence
 | `presence` | 实时感知对方上下线 |
 | `connection_requests` | 实时收到好友请求通知 |
 | `room_members` | 实时感知房间成员加入/退出 |
+| `profiles` | 实时反映成员改名/换肤（含远程好友），会客厅成员列表据此刷新 |
+
+> **`profiles` 订阅注意：** `profiles_select` 的 RLS 为 `true`，订阅会收到**全站任意用户**的变更。会客厅（`src/windows/lounge/lounge.ts` 的 `subscribeToProfilesChanges`）只监听 `UPDATE`，并在回调里按当前房间成员 `user_id` 做客户端过滤，仅当变更者是已知成员时才 `loadPanelData()`，避免陌生用户改名触发无谓刷新。
 
 **前端订阅示例（messages）：**
 
@@ -682,3 +687,52 @@ supabase
 
 **6. `invite_code` 的安全性**
 邀请码是"知道即可加入"的设计，适合亲密小圈子分享。不适合公开发布。v1 没有邀请码撤销机制，这是已知限制。
+
+---
+
+## 孤儿匿名账号清理
+
+匿名「快速进入」会在 `auth.users` 创建真实用户（`is_anonymous = true`），session 持久化在客户端 localStorage。未绑定邮箱的匿名账号一旦退出登录或长期不再使用，本机 token 失效后再也无法登回该 `auth.uid()`，其数据成为不可达的「僵尸数据」。详见 [ADR-0017](adr/0017-清理孤儿匿名账号.md)。
+
+### 清理函数
+
+```sql
+public.cleanup_orphaned_anonymous_users(p_grace_days integer DEFAULT 1) RETURNS integer
+```
+
+- `SECURITY DEFINER`，删除满足以下条件的匿名账号，返回删除数量：
+  - `is_anonymous = true`
+  - `created_at` 早于 `now() - p_grace_days`（新账号宽限，默认 1 天）
+  - 在 `auth.sessions` 中**没有任何 session**（`NOT EXISTS`）。
+- **判定只看「该账号还有没有 session」，不看活跃时间**：
+  - 退出登录（supabase-js `signOut()` 默认 global scope）会删除服务器端 session 行 → 零 session → 超过宽限期后被清理。
+  - **仍持有 session 的休眠匿名账号永不清理**：电脑长期关机 / 长期没开 app 但没退出登录的用户，session 行仍在（Supabase 默认不设刷新令牌失活超时），不会被误删。
+  - ⚠️ 若日后在 Supabase Auth 开启「refresh token inactivity timeout」，休眠 session 会被服务器回收，这些账号将在宽限期后被本函数清理——需要时再权衡。
+- 已 `REVOKE` 所有客户端（`anon` / `authenticated`）执行权限，仅供后台调用。
+
+### 删账号的级联行为（保留内容、匿名化）
+
+删除 `auth.users` 一行后：
+
+| 关联数据 | 外键删除规则 | 结果 |
+|----------|--------------|------|
+| `profiles`（`id`） | `ON DELETE CASCADE` | 删除该用户 profile |
+| `presence`（`user_id`） | `ON DELETE CASCADE` | 删除其在线状态行 |
+| `room_members`（`user_id`） | `ON DELETE CASCADE` | 退出其所在房间（房间本身保留） |
+| `messages`（`sender_id`） | `ON DELETE SET NULL` | **消息保留**，发送者置 NULL，前端渲染「已注销用户」 |
+| `rooms`（`created_by`） | `ON DELETE SET NULL` | **房间保留**，创建者置 NULL |
+| `connection_requests`（`from_id` / `to_id`） | `ON DELETE CASCADE` | 删除涉及该用户的临时请求 |
+
+### 定时任务
+
+通过 `pg_cron` 每天 03:00 UTC 执行一次：
+
+```sql
+SELECT cron.schedule(
+  'cleanup-orphaned-anonymous-users',
+  '0 3 * * *',
+  $$ SELECT public.cleanup_orphaned_anonymous_users(1); $$
+);
+```
+
+调整宽限天数：修改 cron 命令里的实参或重新 `cron.schedule` 同名任务（按 jobname 幂等覆盖）。

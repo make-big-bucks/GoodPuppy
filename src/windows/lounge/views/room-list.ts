@@ -64,6 +64,10 @@ export function renderRoomList(
     quickAction.dataset.roomId = room.id;
 
     if (isPending) {
+      // 加载中：保留 data-action 以维持实色背景（不透明，避免露出「人数」），
+      // 仅把图标换成 spinner；同时标记行隐藏「人数」文字。
+      row.classList.add("is-pending-row");
+      quickAction.dataset.action = isActive ? "exit" : "enter";
       quickAction.classList.add("is-pending");
       quickAction.disabled = true;
       quickAction.setAttribute("aria-label", "处理中");

@@ -19,6 +19,49 @@ let cbs: StackCallbacks = {
 // 每个 dog-area 对应的消息列表（按时间升序）。
 const messagesByArea = new WeakMap<HTMLElement, LocalMessage[]>();
 
+// ── 关闭水位线 ──────────────────────────────────────────────────────────────
+// 关闭气泡时记下「当时最新消息的时间戳」作为水位线：之后只显示晚于水位线的消息
+// （即关闭后到达的新消息），历史不再自动重新弹出。水位线按 pet 标识持久化到
+// localStorage，跨应用重启保持「关了就别再自动弹历史」。水位线 0 = 不过滤（显示全部）。
+const WATERMARK_PREFIX = "gp.bubble.dismissWatermark.";
+const watermarkByArea = new WeakMap<HTMLElement, number>();
+
+function watermarkStorageKey(area: HTMLElement): string | null {
+  const key = area.dataset.watermarkKey;
+  return key ? WATERMARK_PREFIX + key : null;
+}
+
+function loadWatermark(area: HTMLElement): number {
+  const cached = watermarkByArea.get(area);
+  if (cached !== undefined) return cached;
+  let value = 0;
+  const sk = watermarkStorageKey(area);
+  if (sk) {
+    const raw = localStorage.getItem(sk);
+    const n = raw ? Number(raw) : 0;
+    if (Number.isFinite(n) && n > 0) value = n;
+  }
+  watermarkByArea.set(area, value);
+  return value;
+}
+
+function saveWatermark(area: HTMLElement, value: number) {
+  watermarkByArea.set(area, value);
+  const sk = watermarkStorageKey(area);
+  if (!sk) return;
+  try {
+    if (value > 0) localStorage.setItem(sk, String(value));
+    else localStorage.removeItem(sk);
+  } catch {
+    /* localStorage 不可用时退化为仅内存 */
+  }
+}
+
+function messageTime(message: LocalMessage): number {
+  const t = new Date(message.created_at).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
 export function initBubbleStacks(callbacks: StackCallbacks) {
   cbs = callbacks;
 }
@@ -29,9 +72,10 @@ function getStackEl(area: HTMLElement): HTMLElement | null {
 
 /** 绑定某只宠物气泡堆叠的关闭按钮（hover 才浮现，点击仅隐藏不删消息）。
  * 关闭按钮随气泡每次重建挂到最新气泡上，故用事件委托绑定一次。 */
-export function mountStack(area: HTMLElement) {
+export function mountStack(area: HTMLElement, storageKey?: string) {
   const stack = getStackEl(area);
   if (!stack) return;
+  if (storageKey) area.dataset.watermarkKey = storageKey;
   if (!messagesByArea.has(area)) messagesByArea.set(area, []);
   stack.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
@@ -49,15 +93,18 @@ function renderArea(area: HTMLElement) {
   // 清掉旧气泡，保留关闭按钮。
   stack.querySelectorAll(".bubble").forEach((el) => el.remove());
 
-  const dismissed = area.classList.contains("bubbles-dismissed");
-  if (messages.length === 0 || dismissed) {
+  // 只显示晚于水位线的消息（关闭后到达的新消息）；水位线为 0 时显示全部。
+  const watermark = loadWatermark(area);
+  const visible = watermark > 0 ? messages.filter((m) => messageTime(m) > watermark) : messages;
+
+  if (visible.length === 0) {
     stack.hidden = true;
     cbs.onVisibilityChange();
     cbs.onRefreshPassthrough();
     return;
   }
 
-  for (const message of messages) {
+  for (const message of visible) {
     const bubble = document.createElement("div");
     bubble.className = "bubble";
     bubble.textContent = message.info;
@@ -84,8 +131,8 @@ export function setMessagesForArea(
   area: HTMLElement,
   messages: Array<Partial<LocalMessage> | null | undefined>,
 ) {
+  // 历史重放：替换消息列表但保留水位线，水位线以下的旧历史不会重新弹出。
   messagesByArea.set(area, trimMessages(buildMessageList(messages)));
-  area.classList.remove("bubbles-dismissed");
   renderArea(area);
 }
 
@@ -94,20 +141,21 @@ export function addMessageToArea(area: HTMLElement, message: Partial<LocalMessag
   const { messages, normalized } = insertMessage(history, message);
   if (!normalized) return;
   messagesByArea.set(area, trimMessages(messages));
-  // 新消息到达：撤销「已关闭」状态，重新展开全部堆叠。
-  area.classList.remove("bubbles-dismissed");
+  // 不清水位线：关闭后只有「晚于水位线」的新消息会显示，历史不再重新弹出。
   renderArea(area);
 }
 
-/** 隐藏该宠物堆叠（消息保留在内存，下一条新消息会重新展开）。 */
+/** 关闭该宠物堆叠：记下当前最新消息时间为水位线（持久化），之后只显示更晚的新消息。 */
 export function dismissArea(area: HTMLElement) {
-  area.classList.add("bubbles-dismissed");
+  const messages = messagesByArea.get(area) ?? [];
+  const latest = messages.reduce((max, m) => Math.max(max, messageTime(m)), 0);
+  saveWatermark(area, latest || Date.now());
   renderArea(area);
 }
 
-/** 重新展开该宠物堆叠（撤销已关闭状态）。无消息时无可见效果。 */
+/** 显式重新展开全部堆叠（远程「查看状态」触发），清掉水位线。无消息时无可见效果。 */
 export function showArea(area: HTMLElement) {
-  area.classList.remove("bubbles-dismissed");
+  saveWatermark(area, 0);
   renderArea(area);
 }
 

@@ -20,6 +20,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         pet: resolve(__dirname, "windows/pet.html"),
+        bubble: resolve(__dirname, "windows/bubble.html"),
         login: resolve(__dirname, "windows/login.html"),
         lounge: resolve(__dirname, "windows/lounge.html"),
       },

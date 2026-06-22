@@ -68,7 +68,14 @@
           <section class="section member-section">
             <div class="section-heading">
               <h2 class="section-title">房间成员</h2>
-              <button class="small-btn lounge-invite-member" type="button">邀请成员 ＋</button>
+              <div class="section-heading-actions">
+                <button class="icon-btn lounge-view-history" type="button" aria-label="聊天记录" title="聊天记录">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                </button>
+                <button class="icon-btn lounge-invite-member" type="button" aria-label="邀请成员" title="邀请成员">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+                </button>
+              </div>
             </div>
             <div class="members lounge-member-list"></div>
           </section>
@@ -89,6 +96,8 @@
         </section>
       </section>
     </section>
+
+    <section class="settings-view" hidden></section>
   </main>
 
   <div class="modal-backdrop lounge-modal-backdrop" hidden>
@@ -108,6 +117,7 @@
       <img class="showcase-gif" alt="动画预览" />
       <div class="showcase-states"></div>
       <div class="showcase-skins"></div>
+      <button class="small-btn primary showcase-save" type="button" disabled>保存</button>
     </div>
   </div>
 

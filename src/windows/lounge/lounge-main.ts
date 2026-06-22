@@ -3,7 +3,7 @@ import "../../shared/styles.css";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
-import { initLoungePanel, openLoungePanel, refreshLoungePanelActiveRoom, updateLoungePanelAuth } from "./lounge.js";
+import { initLoungePanel, openActiveRoomHistory, openLoungePanel, refreshLoungePanelActiveRoom, updateLoungePanelAuth } from "./lounge.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 
 async function initWinTitlebar() {
@@ -100,6 +100,10 @@ function initResizeHandle() {
 const supabase = createAppSupabaseClient();
 let activeRoomId: string | null = null;
 
+function sessionIsAnonymous(session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"]) {
+  return Boolean(session?.user?.is_anonymous);
+}
+
 // Deferred resolvers for room transition promises
 let pendingEnterResolve: (() => void) | null = null;
 let pendingExitResolve: (() => void) | null = null;
@@ -111,6 +115,8 @@ async function init() {
   initLoungePanel({
     supabase,
     selfAuthId,
+    isAnonymous: sessionIsAnonymous(data.session),
+    email: data.session?.user?.email ?? null,
     getActiveRoomId: () => activeRoomId,
     onEnterRoom: (roomId: string) => {
       void emit("switch-room", { roomId });
@@ -131,17 +137,32 @@ async function init() {
       void emit("auth-cleared");
       activeRoomId = null;
     },
+    onSkinSaved: (skin: string) => {
+      void emit("set-skin", { skin });
+    },
   });
 
   // 认证状态变化时同步更新会客厅（跳过初次 INITIAL_SESSION，已由 getSession 处理）
   supabase.auth.onAuthStateChange((event, session) => {
     if (event === "INITIAL_SESSION") return;
-    updateLoungePanelAuth({ supabase, selfAuthId: session?.user?.id || null });
+    updateLoungePanelAuth({
+      supabase,
+      selfAuthId: session?.user?.id || null,
+      isAnonymous: sessionIsAnonymous(session),
+      email: session?.user?.email ?? null,
+    });
   });
 
   listen("lounge-refresh", () => {
     void emit("request-active-room");
     openLoungePanel();
+  });
+
+  // 托盘右键「房间聊天记录」：打开当前房间聊天记录。
+  listen("open-room-history", () => {
+    void emit("request-active-room");
+    openLoungePanel();
+    void openActiveRoomHistory();
   });
 
   listen<{ roomId?: string | null }>("active-room-changed", (event) => {

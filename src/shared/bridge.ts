@@ -1,14 +1,12 @@
-import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
+import { getCurrentWindow, currentMonitor, availableMonitors } from "@tauri-apps/api/window";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emitTo } from "@tauri-apps/api/event";
 import appConfig from "./appConfig.js";
-import { createIgnoreMouseEventsController } from "./cursorEventsController.js";
-import type { CursorPoint, GoodPuppyBridge, WindowPoint, WindowSize } from "../types";
+import type { GoodPuppyBridge, PetHitShape, WindowPoint, WindowSize } from "../types";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 const appWindow = inTauri ? getCurrentWindow() : null;
-const ignoreMouseEventsController = createIgnoreMouseEventsController(appWindow);
 
 const goodPuppy: GoodPuppyBridge = {
   async getWindowPosition() {
@@ -17,6 +15,13 @@ const goodPuppy: GoodPuppyBridge = {
     const physical = await appWindow.outerPosition();
     const logical = physical.toLogical(scale);
     return { x: logical.x, y: logical.y };
+  },
+  async getWindowSize() {
+    if (!appWindow) return { width: 150, height: 120 };
+    const scale = await appWindow.scaleFactor();
+    const physical = await appWindow.outerSize();
+    const logical = physical.toLogical(scale);
+    return { width: logical.width, height: logical.height };
   },
   async getWindowLayout() {
     const pos = await this.getWindowPosition();
@@ -45,6 +50,23 @@ const goodPuppy: GoodPuppyBridge = {
       width: Math.round(monitor.size.width / scale),
       height: Math.round(monitor.size.height / scale),
     };
+  },
+  async getMonitors() {
+    // 浏览器 fallback：只知道单块屏，用其可用区近似。
+    if (!appWindow) {
+      return [{ x: 0, y: 0, width: window.screen.availWidth, height: window.screen.availHeight }];
+    }
+    const monitors = await availableMonitors();
+    // Monitor.size / position 为物理像素；转成逻辑像素以与窗口坐标一致。
+    return monitors.map((m) => {
+      const scale = m.scaleFactor || 1;
+      return {
+        x: Math.round(m.position.x / scale),
+        y: Math.round(m.position.y / scale),
+        width: Math.round(m.size.width / scale),
+        height: Math.round(m.size.height / scale),
+      };
+    });
   },
   setWindowPosition(position: WindowPoint) {
     if (!appWindow) return;
@@ -99,24 +121,108 @@ const goodPuppy: GoodPuppyBridge = {
       console.warn("Native window drag failed.", error);
     });
   },
-  setIgnoreMouseEvents(shouldIgnore: boolean) {
-    ignoreMouseEventsController.setIgnoreMouseEvents(shouldIgnore);
+  publishHitShape(shape: PetHitShape) {
+    if (!inTauri) return;
+    invoke("set_pet_hit_shape", { shape }).catch((error) =>
+      console.error("set_pet_hit_shape failed:", error),
+    );
   },
-  onCursorMoved(callback: (point: CursorPoint | null) => void) {
-    if (!inTauri) return () => {};
+  getWindowLabel() {
+    return appWindow?.label ?? "main";
+  },
+  spawnPetWindow(opts: { label: string; x: number; y: number; width: number; height: number }) {
+    if (!inTauri) return Promise.resolve();
+    return invoke<void>("spawn_pet_window", {
+      label: opts.label,
+      x: Math.round(opts.x),
+      y: Math.round(opts.y),
+      width: Math.round(opts.width),
+      height: Math.round(opts.height),
+    }).catch((error) => {
+      console.error("spawn_pet_window failed:", error);
+    });
+  },
+  closePetWindow(label: string) {
+    if (!inTauri) return Promise.resolve();
+    return invoke<void>("close_pet_window", { label }).catch((error) => {
+      console.error("close_pet_window failed:", error);
+    });
+  },
+  spawnBubbleWindow(opts: {
+    label: string;
+    parentLabel: string;
+    isSelf: boolean;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) {
+    if (!inTauri) return Promise.resolve();
+    return invoke<void>("spawn_bubble_window", {
+      label: opts.label,
+      parentLabel: opts.parentLabel,
+      isSelf: opts.isSelf,
+      x: Math.round(opts.x),
+      y: Math.round(opts.y),
+      width: Math.round(opts.width),
+      height: Math.round(opts.height),
+    }).catch((error) => {
+      console.error("spawn_bubble_window failed:", error);
+    });
+  },
+  closeBubbleWindow(label: string) {
+    if (!inTauri) return Promise.resolve();
+    return invoke<void>("close_bubble_window", { label }).catch((error) => {
+      console.error("close_bubble_window failed:", error);
+    });
+  },
+  emitToWindow(label: string, event: string, payload?: unknown) {
+    if (!inTauri) return Promise.resolve();
+    return emitTo(label, event, payload).catch((error) => {
+      console.error(`emitTo(${label}, ${event}) failed:`, error);
+    });
+  },
+  // 监听当前窗口作用域的事件（而非全局 listen）：协调者用 emitTo(label, …) 定向投递，
+  // 全局 listen 不按目标窗口过滤，会让同代码的多个窗口（尤其两个气泡窗口）互相收到对方
+  // 的事件（placement / 消息 / 记号棒串扰）。appWindow.listen 只收发给本窗口的定向事件，
+  // 广播 emit 仍能收到。见官方 multiwindow 示例。
+  onAppEvent<T = unknown>(event: string, callback: (payload: T) => void) {
+    if (!inTauri || !appWindow) return () => {};
     let unlisten = () => {};
-    listen<CursorPoint | null>("cursor-moved", (event) => callback(event.payload)).then((fn) => {
+    appWindow.listen<T>(event, (e) => callback(e.payload)).then((fn) => {
       unlisten = fn;
     });
     return () => unlisten();
   },
   onDragEnded(callback: () => void) {
-    if (!inTauri) return () => {};
+    if (!inTauri || !appWindow) return () => {};
     let unlisten = () => {};
-    listen("pet-drag-ended", () => callback()).then((fn) => {
+    appWindow.listen("pet-drag-ended", () => callback()).then((fn) => {
       unlisten = fn;
     });
     return () => unlisten();
+  },
+  async isAutostartEnabled() {
+    if (!inTauri) return false;
+    try {
+      const { isEnabled } = await import("@tauri-apps/plugin-autostart");
+      return await isEnabled();
+    } catch (error) {
+      console.error("autostart isEnabled failed:", error);
+      return false;
+    }
+  },
+  async setAutostart(enabled: boolean) {
+    if (!inTauri) return false;
+    try {
+      const { enable, disable, isEnabled } = await import("@tauri-apps/plugin-autostart");
+      if (enabled) await enable();
+      else await disable();
+      return await isEnabled();
+    } catch (error) {
+      console.error("autostart set failed:", error);
+      return false;
+    }
   },
   getAppConfig() {
     return appConfig;

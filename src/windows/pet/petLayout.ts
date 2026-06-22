@@ -1,14 +1,21 @@
-// 仅容纳宠物动画本身的窗口高度：pet-image 占 dog-area 底部 14..114px，
-// 再留 6px 顶部余量。气泡 / 记号棒所需的纵向空间在有内容时由 getBubbleWindowLayout
-// 额外增高承接（见本文件与 renderer.ts）。
+// pet 窗口固定 pet 尺寸：pet-image 占 dog-area 底部 14..114px，再留 6px 顶部余量。
+// 多窗口 Phase A 后气泡 / 记号棒住在独立气泡窗口，不再在 pet 窗口内增高承接。
 export const PET_WINDOW_HEIGHT = 120;
 export const BASE_PET_WINDOW_WIDTH = 150;
-export const PET_SLOT_WIDTH = 120;
-export const PET_STAGE_PADDING_X = 15;
 
-/** 气泡堆叠在宠物上方/下方预留的纵向空间（CSS px，会随 --pet-scale 缩放）。
-   约等于 3 条气泡高度，再多靠滚动。见 docs/superpowers/specs/2026-06-15-...。 */
+/** 独立气泡窗口为堆叠预留的纵向空间（CSS px，会随 --pet-scale 缩放）。
+   约等于 3 条气泡高度，再多靠滚动。 */
 export const BUBBLE_STACK_SPACE = 180;
+
+/** 独立气泡窗口的基础尺寸（多窗口 Phase A）。宽度对齐 pet 窗口以居中于宠物头顶，
+ * 高度容纳约 3 条气泡堆叠（再多靠滚动）。随 --pet-scale 缩放。 */
+export function getBubbleWindowSize(scale = DEFAULT_PET_SCALE) {
+  const s = clampPetScale(scale);
+  return {
+    width: Math.round(BASE_PET_WINDOW_WIDTH * s),
+    height: Math.round(BUBBLE_STACK_SPACE * s),
+  };
+}
 
 export const DEFAULT_PET_SCALE = 1;
 export const MIN_PET_SCALE = 0.6;
@@ -30,82 +37,67 @@ export function stepPetScale(scale: number | string | null | undefined, directio
   return clampPetScale(clampPetScale(scale) + Math.sign(direction) * PET_SCALE_STEP);
 }
 
-export function getPetWindowLayout(remotePetCount: number, scale = DEFAULT_PET_SCALE) {
-  const count = Math.max(0, Number(remotePetCount) || 0);
+/** 单只 pet 窗口的基础尺寸（无气泡时），随 --pet-scale 缩放。
+ * 多窗口拆分后，每个窗口只容纳一只 pet，不再随成员数横向撑宽。 */
+export function getPetWindowSize(scale = DEFAULT_PET_SCALE) {
   const s = clampPetScale(scale);
-  const baseWidth = Math.max(
-    BASE_PET_WINDOW_WIDTH,
-    PET_STAGE_PADDING_X * 2 + (count + 1) * PET_SLOT_WIDTH,
-  );
   return {
-    width: Math.round(baseWidth * s),
+    width: Math.round(BASE_PET_WINDOW_WIDTH * s),
     height: Math.round(PET_WINDOW_HEIGHT * s),
   };
 }
 
-export type BubbleWindowLayout = {
-  width: number;
-  height: number;
-  /** 宠物下方为翻转堆叠预留的窗口空间（window px）。宠物 dog-area 以此为 bottom 偏移。 */
-  belowWin: number;
-  /** 宠物上方为正常堆叠预留的窗口空间（window px）。 */
-  aboveWin: number;
-};
+export type BubblePlacement = "above" | "below";
+
+type Rect = { x: number; y: number; width: number; height: number };
 
 /**
- * 计算宠物窗口尺寸 + 纵向气泡空间。
- * - 无可见气泡时窗口仅容纳宠物本身（与旧行为一致）。
- * - 有气泡时在宠物上方（默认）或下方（翻转）增高一段堆叠空间。
- */
-export function getBubbleWindowLayout(opts: {
-  remotePetCount: number;
-  scale?: number;
-  hasBubbles: boolean;
-  flipped: boolean;
-}): BubbleWindowLayout {
-  const { remotePetCount, hasBubbles, flipped } = opts;
-  const s = clampPetScale(opts.scale ?? DEFAULT_PET_SCALE);
-  const base = getPetWindowLayout(remotePetCount, s);
-  const stack = hasBubbles ? Math.round(BUBBLE_STACK_SPACE * s) : 0;
-  const belowWin = hasBubbles && flipped ? stack : 0;
-  const aboveWin = stack - belowWin;
-  return {
-    width: base.width,
-    height: base.height + stack,
-    belowWin,
-    aboveWin,
-  };
-}
-
-/**
- * 给定宠物锚点（dog-area 底边的固定屏幕 Y）和新窗口布局，算出窗口左上角应放置的 Y，
- * 使宠物视觉位置在增高/缩回/翻转时保持不变。
+ * 计算独立气泡窗口的左上角位置与上/下朝向（多窗口 Phase A，纯函数）。
  *
- * 窗口底边 = top + height；dog-area 底边 = 窗口底边 - belowWin = 锚点。
- * => top = anchorBottomY - height + belowWin。
+ * - 默认摆在 pet 窗口正上方（气泡底边贴 pet 顶边）；上方空间不足（会越过可用区顶部，
+ *   如 macOS 菜单栏）时翻到下方（气泡顶边贴 pet 底边）。
+ * - 水平方向气泡与 pet 居中对齐，并夹在可用区内，避免飞出屏幕边缘。
+ *
+ * 退役了 Phase B「撑高窗口 + 反锚点补偿」那套（`getBubbleWindowLayout` /
+ * `computeWindowTop` / `shouldFlipStack`）——气泡是独立窗口，只需算它自己的位置。
  */
-export function computeWindowTop(anchorBottomY: number, layout: BubbleWindowLayout): number {
-  return Math.round(anchorBottomY - layout.height + layout.belowWin);
+export function computeBubbleWindowPosition(opts: {
+  pet: Rect;
+  bubble: { width: number; height: number };
+  workArea: Rect;
+}): { x: number; y: number; placement: BubblePlacement } {
+  const { pet, bubble, workArea } = opts;
+  const aboveY = pet.y - bubble.height;
+  const placement: BubblePlacement = aboveY >= workArea.y ? "above" : "below";
+  const y = placement === "above" ? aboveY : pet.y + pet.height;
+
+  const centeredX = pet.x + (pet.width - bubble.width) / 2;
+  const minX = workArea.x;
+  const maxX = workArea.x + workArea.width - bubble.width;
+  const x = Math.min(Math.max(centeredX, minX), Math.max(minX, maxX));
+
+  return { x: Math.round(x), y: Math.round(y), placement };
 }
 
-/**
- * 由当前真实窗口位置与上一次应用的布局，反推宠物锚点（dog-area 底边屏幕 Y）。
- * 锚点 = 当前窗口顶 + 当前窗口高 - 当前 belowWin。
- */
-export function petAnchorBottomY(windowTopY: number, currentLayout: { height: number; belowWin: number }): number {
-  return windowTopY + currentLayout.height - currentLayout.belowWin;
-}
-
-/**
- * 顶部空间不足时是否应把堆叠翻到宠物下方。
- * 不翻转时窗口顶 = 锚点 - (宠物高 + 堆叠空间) * scale；若其低于可用区顶部则翻转。
- */
-export function shouldFlipStack(opts: {
-  anchorBottomY: number;
-  scale?: number;
-  workAreaTop: number;
-}): boolean {
-  const s = clampPetScale(opts.scale ?? DEFAULT_PET_SCALE);
-  const notFlippedTop = opts.anchorBottomY - (PET_WINDOW_HEIGHT + BUBBLE_STACK_SPACE) * s;
-  return notFlippedTop < opts.workAreaTop;
+/** 窗口左上角 `pos` + 尺寸 `size` 是否在任一当前屏幕内「足够可见」（纯函数）。
+ *
+ * 用于校验 localStorage 里的存档窗口位置：外接显示器断开后，旧坐标可能整窗落在屏外
+ * （例如存档 x=1588 而当前主屏只有 1512 宽），恢复后 pet 看不见也抓不到。
+ *
+ * 判据：窗口矩形与某块屏幕矩形的横向、纵向交叠都 ≥ `minVisible`（默认 48 逻辑像素，
+ * 但不超过窗口自身尺寸），即至少露出一角可被看到/拖回。拿不到屏幕信息（空 `screens`）
+ * 时返回 true，避免误伤（宁可放过坏位置，也不要在屏幕信息缺失时把好位置判死）。 */
+export function isWindowPositionVisible(
+  pos: { x: number; y: number },
+  size: { width: number; height: number },
+  screens: Array<{ x: number; y: number; width: number; height: number }>,
+  minVisible = 48,
+): boolean {
+  if (!screens.length) return true;
+  const need = Math.min(minVisible, size.width, size.height);
+  return screens.some((s) => {
+    const overlapW = Math.min(pos.x + size.width, s.x + s.width) - Math.max(pos.x, s.x);
+    const overlapH = Math.min(pos.y + size.height, s.y + s.height) - Math.max(pos.y, s.y);
+    return overlapW >= need && overlapH >= need;
+  });
 }

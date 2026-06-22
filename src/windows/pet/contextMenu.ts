@@ -1,18 +1,15 @@
-import { INTERACTIONS, STATUS_OPTIONS, DEFAULT_SKIN } from "./animationCatalog.js";
-import { Menu, Submenu, MenuItem, CheckMenuItem } from "@tauri-apps/api/menu";
-import { stepPetScale, DEFAULT_PET_SCALE, MIN_PET_SCALE, MAX_PET_SCALE } from "./petLayout.js";
-import type { PetManifest, PetStatus } from "../../types";
+import { INTERACTIONS, STATUS_OPTIONS } from "./animationCatalog.js";
+import { Menu, PredefinedMenuItem } from "@tauri-apps/api/menu";
+import type { PetStatus } from "../../types";
 
+// 「桌宠大小」「朋友摆放模式」已迁至会客厅设置页统一管理；「换肤」已迁至会客厅资料卡头像，
+// 二者均不再出现在右键菜单。
 export type SelfMenuContext = {
-  selfSkin: string;
-  petScale: number;
-  manifest: PetManifest | null | undefined;
-  hasMessages: boolean;
-  onShowMessage: () => void;
+  // 是否在房间内：决定是否展示「退出房间」。
+  inRoom: boolean;
   onWriteMessage: () => void;
   onSetStatus: (status: PetStatus) => void;
-  onSetSkin: (skin: string) => void;
-  onSetScale: (scale: number) => void;
+  onLeaveRoom: () => void;
 };
 
 export type RemoteMenuContext = {
@@ -21,64 +18,19 @@ export type RemoteMenuContext = {
   onInteract: (action: keyof typeof INTERACTIONS, targetId: string) => void;
 };
 
-async function buildSkinSubmenu(
-  selfSkin: string,
-  manifest: PetManifest | null | undefined,
-  onSetSkin: (skin: string) => void,
-) {
-  const skins = manifest?.skins || [];
-  if (skins.length === 0) return null;
-  const options = [{ id: DEFAULT_SKIN, label: "原色" }, ...skins];
-  const items = await Promise.all(
-    options.map((opt) =>
-      CheckMenuItem.new({
-        id: `skin-${opt.id}`,
-        text: opt.label,
-        checked: selfSkin === opt.id,
-        action: () => onSetSkin(opt.id),
-      }),
-    ),
-  );
-  return Submenu.new({ text: "换肤", items });
-}
-
-async function buildSizeSubmenu(petScale: number, onSetScale: (scale: number) => void) {
-  const items = await Promise.all([
-    MenuItem.new({
-      id: "size-up",
-      text: "放大",
-      enabled: petScale < MAX_PET_SCALE,
-      action: () => onSetScale(stepPetScale(petScale, 1)),
-    }),
-    MenuItem.new({
-      id: "size-down",
-      text: "缩小",
-      enabled: petScale > MIN_PET_SCALE,
-      action: () => onSetScale(stepPetScale(petScale, -1)),
-    }),
-    MenuItem.new({
-      id: "size-reset",
-      text: "恢复默认大小",
-      enabled: petScale !== DEFAULT_PET_SCALE,
-      action: () => onSetScale(DEFAULT_PET_SCALE),
-    }),
-  ]);
-  return Submenu.new({ text: "大小", items });
-}
-
 export async function showSelfContextMenu(ctx: SelfMenuContext) {
-  const skinMenu = await buildSkinSubmenu(ctx.selfSkin, ctx.manifest, ctx.onSetSkin);
-  const sizeMenu = await buildSizeSubmenu(ctx.petScale, ctx.onSetScale);
+  const leaveItems = ctx.inRoom
+    ? [
+        await PredefinedMenuItem.new({ item: "Separator" }),
+        {
+          id: "leave-room",
+          text: "退出房间",
+          action: () => ctx.onLeaveRoom(),
+        },
+      ]
+    : [];
   const menu = await Menu.new({
     items: [
-      {
-        id: "show-message",
-        text: "查看对话",
-        action: () => {
-          if (ctx.hasMessages) ctx.onShowMessage();
-          else ctx.onWriteMessage();
-        },
-      },
       {
         id: "write-message",
         text: "写消息",
@@ -94,8 +46,7 @@ export async function showSelfContextMenu(ctx: SelfMenuContext) {
         text: "恢复正常",
         action: () => ctx.onSetStatus(null),
       },
-      ...(skinMenu ? [skinMenu] : []),
-      sizeMenu,
+      ...leaveItems,
     ],
   });
   await menu.popup();

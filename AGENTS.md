@@ -83,7 +83,7 @@ npm run tauri build
 
 - 行为、架构或数据模型变化需要更新对应文档。
 - 重大技术决策新增 ADR，格式参考 `docs/adr/README.md`。
-- 用户可见行为变化同步更新 `README.md` 或 `docs/user-doc.md`。
+- 用户可见行为变化同步更新 `README.md`。
 - 保持中文文档术语一致，避免中英文混用造成概念漂移。
 
 ## Git 与协作

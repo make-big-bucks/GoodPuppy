@@ -22,18 +22,34 @@ export interface WindowLayout {
   workArea: WindowPoint & WindowSize;
 }
 
-/** 原生侧推送的窗口 client 坐标（鼠标穿透判定用，见 bridge.onCursorMoved）。 */
-export interface CursorPoint {
-  x: number;
-  y: number;
+/**
+ * 本窗口的「可交互命中形状」，由 webview 下发给原生，供光标监视器原生侧判定鼠标穿透
+ * （像素级，免去逐帧 IPC 往返）。坐标均为窗口内容区 CSS 逻辑像素。见 bridge.publishHitShape。
+ */
+export interface PetHitShape {
+  /** pet 剪影 alpha 掩模，行优先，1 = 不透明像素。 */
+  mask: number[];
+  maskCols: number;
+  maskRows: number;
+  /** 掩模覆盖的矩形 [x, y, w, h]（内容区像素）。 */
+  maskRect: [number, number, number, number];
+  /** 始终可交互的矩形（可见气泡 / 输入条），[x, y, w, h]。 */
+  rects: [number, number, number, number][];
+  /** 拖动期间整窗强制可交互，不受命中形状限制。 */
+  forceInteractive: boolean;
 }
 
 /** bridge.ts 暴露的桥接 API，挂在 window.goodPuppy。 */
 export interface GoodPuppyBridge {
   getWindowPosition(): Promise<WindowPoint>;
+  /** 当前窗口外尺寸（逻辑像素）。 */
+  getWindowSize(): Promise<WindowSize>;
   getWindowLayout(): Promise<WindowLayout>;
   /** 宠物窗口当前所在显示器的可用区域（逻辑像素），用于气泡边缘翻转判定。 */
   getMonitorWorkArea(): Promise<WindowPoint & WindowSize>;
+  /** 当前所有已连接显示器的整屏矩形（逻辑像素），用于校验存档窗口位置是否仍可见
+   * （外接屏断开后旧坐标可能整窗落在屏外）。 */
+  getMonitors(): Promise<Array<WindowPoint & WindowSize>>;
   setWindowPosition(position: WindowPoint): void;
   setWindowSize(size: WindowSize): void;
   /** 原子化设置窗口位置+尺寸（单次 IPC），避免增高/翻转时的闪烁跳动。 */
@@ -44,9 +60,35 @@ export interface GoodPuppyBridge {
   supportsNativeWindowDrag(): boolean;
   /** 把本次手势交给系统接管（fire-and-forget）。 */
   startWindowDrag(): void;
-  setIgnoreMouseEvents(shouldIgnore: boolean): void;
-  /** 订阅原生光标流；返回取消订阅函数。 */
-  onCursorMoved(callback: (point: CursorPoint | null) => void): () => void;
+  /** 下发本窗口的可交互命中形状给原生（原生据此判定鼠标穿透）。 */
+  publishHitShape(shape: PetHitShape): void;
+  /** 当前 webview 窗口的 label（"main" = 自己/协调者，"pet-<userId>" = 远程呈现者）。 */
+  getWindowLabel(): string;
+  /** 开机自启动当前是否开启（非 Tauri / 不支持时恒为 false）。 */
+  isAutostartEnabled(): Promise<boolean>;
+  /** 设置开机自启动，返回设置后最终状态；非 Tauri / 不支持时为 no-op 返回 false。 */
+  setAutostart(enabled: boolean): Promise<boolean>;
+  /** 协调者请求 Rust 动态创建一只远程成员的 pet 窗口（label `pet-<userId>`）。 */
+  spawnPetWindow(opts: { label: string; x: number; y: number; width: number; height: number }): Promise<void>;
+  /** 协调者请求销毁某只远程 pet 窗口。 */
+  closePetWindow(label: string): Promise<void>;
+  /** 协调者请求创建一只 pet 的气泡子窗口（label `bubble-self` / `bubble-<userId>`），
+   * 作为 parentLabel（pet 窗口）的原生子窗口跟随移动；isSelf 时提升为可输入 panel。 */
+  spawnBubbleWindow(opts: {
+    label: string;
+    parentLabel: string;
+    isSelf: boolean;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): Promise<void>;
+  /** 协调者请求销毁某只远程气泡窗口（自己的气泡窗口整会话只隐藏不销毁）。 */
+  closeBubbleWindow(label: string): Promise<void>;
+  /** 向指定窗口定向发送一个跨窗口事件（协调者 → 呈现者，或呈现者 → 协调者）。 */
+  emitToWindow(label: string, event: string, payload?: unknown): Promise<void>;
+  /** 订阅本窗口收到的跨窗口事件（含定向到本窗口的事件）；返回取消订阅函数。 */
+  onAppEvent<T = unknown>(event: string, callback: (payload: T) => void): () => void;
   /**
    * 订阅原生「鼠标左键松开」信号；返回取消订阅函数。
    * Windows 原生拖拽会吞掉 webview 的 pointerup，需要靠它判定拖拽结束。
@@ -93,7 +135,8 @@ export interface InteractionPayload {
 export interface MessageRow {
   id: string;
   room_id: string;
-  sender_id: string;
+  // 发送者账号被清理后置 null（ON DELETE SET NULL），详见 docs/adr/0017。
+  sender_id: string | null;
   kind: string;
   content: string;
   created_at: string;
@@ -142,7 +185,8 @@ export interface LoungeRoom {
   room_name: string;
   description: string;
   invite_code: string;
-  created_by: string;
+  // 房间创建者账号被清理后置 null（ON DELETE SET NULL）。
+  created_by: string | null;
   members: MemberViewModel[];
 }
 
