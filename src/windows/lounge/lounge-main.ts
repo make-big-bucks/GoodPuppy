@@ -137,6 +137,9 @@ async function init() {
       void emit("auth-cleared");
       activeRoomId = null;
     },
+    onSkinSaved: (skin: string) => {
+      void emit("set-skin", { skin });
+    },
   });
 
   // 认证状态变化时同步更新会客厅（跳过初次 INITIAL_SESSION，已由 getSession 处理）

@@ -29,6 +29,8 @@ type LoungePanelOptions = {
   onExitRoom: () => Promise<void>;
   onLoginSuccess: () => void;
   onLogout: () => void;
+  // 换肤面板「保存」后，把皮肤同步给 pet 窗口（presence 通道 A）。
+  onSkinSaved: (skin: string) => void;
 };
 
 type UpdatePanelAuthOptions = {
@@ -93,6 +95,7 @@ let onEnterRoom: ((roomId: string) => Promise<void>) | null = null;
 let onExitRoom: (() => Promise<void>) | null = null;
 let onLoginSuccess: (() => void) | null = null;
 let onLogout: (() => void) | null = null;
+let onSkinSaved: ((skin: string) => void) | null = null;
 
 const gearIconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`;
 const eyeSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>`;
@@ -109,6 +112,7 @@ let requestChannel: RealtimeChannel | null = null;
 let sentRequestChannel: RealtimeChannel | null = null;
 let presenceChannel: RealtimeChannel | null = null;
 let roomMembersChannel: RealtimeChannel | null = null;
+let profilesChannel: RealtimeChannel | null = null;
 let pendingTransition: PendingTransition | null = null;
 let currentProfile: LoungeProfile | null = null;
 // 冷启动判定：窗口内是否已成功加载过一次数据。仅首屏（false 时）走骨架屏/整屏报错。
@@ -199,6 +203,8 @@ function handleSkinChange(skin: string) {
     }
   }
   renderAll();
+  // 通知 pet 窗口应用新皮肤（动画 + presence 广播给远程好友）。
+  onSkinSaved?.(skin);
 }
 
 function renderAuthState(isLoggedIn: boolean) {
@@ -1063,6 +1069,46 @@ function subscribeToRoomMembers() {
     .subscribe();
 }
 
+// 当前可见房间里的所有成员 user_id（含自己），用于过滤 profiles 变更——
+// profiles 的 SELECT RLS 为 true，订阅会收到全站任意用户的变更，必须客户端按成员过滤，
+// 否则任意陌生用户改名都会触发一次 loadPanelData。
+function knownMemberIds(): Set<string> {
+  const ids = new Set<string>();
+  if (selfAuthId) ids.add(selfAuthId);
+  for (const room of rooms) {
+    for (const member of room.members) ids.add(member.userId);
+  }
+  return ids;
+}
+
+function subscribeToProfilesChanges() {
+  if (!supabaseClient || !selfAuthId) return;
+
+  if (profilesChannel) {
+    void supabaseClient.removeChannel(profilesChannel);
+    profilesChannel = null;
+  }
+
+  // 监听 profiles 变更，实时反映成员改名/换肤（含远程好友）。仅当变更者是已知房间成员时刷新。
+  profilesChannel = supabaseClient
+    .channel(`lounge-profiles-${selfAuthId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "profiles",
+      },
+      (payload) => {
+        const changedId = (payload.new as { id?: string } | null)?.id;
+        if (changedId && knownMemberIds().has(changedId)) {
+          void loadPanelData();
+        }
+      },
+    )
+    .subscribe();
+}
+
 function subscribeToPresenceChanges() {
   if (!supabaseClient || !selfAuthId) return;
 
@@ -1257,6 +1303,7 @@ export function initLoungePanel({
   onExitRoom: nextOnExitRoom,
   onLoginSuccess: nextOnLoginSuccess,
   onLogout: nextOnLogout,
+  onSkinSaved: nextOnSkinSaved,
 }: LoungePanelOptions) {
   supabaseClient = supabase;
   selfAuthId = nextSelfAuthId;
@@ -1267,6 +1314,7 @@ export function initLoungePanel({
   onExitRoom = nextOnExitRoom;
   onLoginSuccess = nextOnLoginSuccess;
   onLogout = nextOnLogout;
+  onSkinSaved = nextOnSkinSaved;
 
   bindEvents();
   if (!onlineListenerBound) {
@@ -1280,6 +1328,7 @@ export function initLoungePanel({
     subscribeToRequests();
     subscribeToPresenceChanges();
     subscribeToRoomMembers();
+    subscribeToProfilesChanges();
   }
 }
 
@@ -1296,6 +1345,7 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, is
     subscribeToRequests();
     subscribeToPresenceChanges();
     subscribeToRoomMembers();
+    subscribeToProfilesChanges();
     renderAuthState(true);
     void loadPanelData();
   } else if (wasLoggedIn) {
@@ -1314,6 +1364,10 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, is
     if (roomMembersChannel && supabaseClient) {
       void supabaseClient.removeChannel(roomMembersChannel);
       roomMembersChannel = null;
+    }
+    if (profilesChannel && supabaseClient) {
+      void supabaseClient.removeChannel(profilesChannel);
+      profilesChannel = null;
     }
     rooms = [];
     pendingRequests = [];

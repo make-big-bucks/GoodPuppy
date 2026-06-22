@@ -1339,6 +1339,15 @@ textarea.lounge-input {
   transform: scale(1.18);
 }
 
+.showcase-save {
+  align-self: stretch;
+}
+
+.showcase-save:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .lounge-profile-card:not(.is-unauth) .pet-avatar {
   cursor: pointer;
   border-radius: 8px;

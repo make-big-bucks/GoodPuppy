@@ -1,14 +1,15 @@
-import { INTERACTIONS, STATUS_OPTIONS, DEFAULT_SKIN } from "./animationCatalog.js";
-import { Menu, Submenu, CheckMenuItem } from "@tauri-apps/api/menu";
-import type { PetManifest, PetStatus } from "../../types";
+import { INTERACTIONS, STATUS_OPTIONS } from "./animationCatalog.js";
+import { Menu, PredefinedMenuItem } from "@tauri-apps/api/menu";
+import type { PetStatus } from "../../types";
 
-// 「桌宠大小」「朋友摆放模式」已迁至会客厅设置页统一管理，不再出现在右键菜单。
+// 「桌宠大小」「朋友摆放模式」已迁至会客厅设置页统一管理；「换肤」已迁至会客厅资料卡头像，
+// 二者均不再出现在右键菜单。
 export type SelfMenuContext = {
-  selfSkin: string;
-  manifest: PetManifest | null | undefined;
+  // 是否在房间内：决定是否展示「退出房间」。
+  inRoom: boolean;
   onWriteMessage: () => void;
   onSetStatus: (status: PetStatus) => void;
-  onSetSkin: (skin: string) => void;
+  onLeaveRoom: () => void;
 };
 
 export type RemoteMenuContext = {
@@ -17,29 +18,17 @@ export type RemoteMenuContext = {
   onInteract: (action: keyof typeof INTERACTIONS, targetId: string) => void;
 };
 
-async function buildSkinSubmenu(
-  selfSkin: string,
-  manifest: PetManifest | null | undefined,
-  onSetSkin: (skin: string) => void,
-) {
-  const skins = manifest?.skins || [];
-  if (skins.length === 0) return null;
-  const options = [{ id: DEFAULT_SKIN, label: "原色" }, ...skins];
-  const items = await Promise.all(
-    options.map((opt) =>
-      CheckMenuItem.new({
-        id: `skin-${opt.id}`,
-        text: opt.label,
-        checked: selfSkin === opt.id,
-        action: () => onSetSkin(opt.id),
-      }),
-    ),
-  );
-  return Submenu.new({ text: "换肤", items });
-}
-
 export async function showSelfContextMenu(ctx: SelfMenuContext) {
-  const skinMenu = await buildSkinSubmenu(ctx.selfSkin, ctx.manifest, ctx.onSetSkin);
+  const leaveItems = ctx.inRoom
+    ? [
+        await PredefinedMenuItem.new({ item: "Separator" }),
+        {
+          id: "leave-room",
+          text: "退出房间",
+          action: () => ctx.onLeaveRoom(),
+        },
+      ]
+    : [];
   const menu = await Menu.new({
     items: [
       {
@@ -57,7 +46,7 @@ export async function showSelfContextMenu(ctx: SelfMenuContext) {
         text: "恢复正常",
         action: () => ctx.onSetStatus(null),
       },
-      ...(skinMenu ? [skinMenu] : []),
+      ...leaveItems,
     ],
   });
   await menu.popup();

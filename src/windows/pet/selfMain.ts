@@ -2,7 +2,7 @@
 // 退出握手等控制事件接到 renderer（自己 pet 呈现 + 房间协调者）。
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { exitCurrentRoom, getCurrentRoomId, startPetApp, switchRoom, setOnRoomReadyCallback } from "./renderer.js";
+import { exitCurrentRoom, getCurrentRoomId, startPetApp, switchRoom, setOnRoomReadyCallback, setSelfSkin } from "./renderer.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
@@ -48,6 +48,11 @@ if (inTauri) {
     await exitCurrentRoom();
     void getCurrentWindow().hide();
     emit("active-room-changed", { roomId: getCurrentRoomId() });
+  });
+
+  // 会客厅资料卡换肤面板「保存」后广播：应用到自己 pet（动画 + presence 通道 A）。
+  listen<{ skin?: string | null }>("set-skin", (event) => {
+    setSelfSkin(event.payload?.skin);
   });
 
   // 退出前清理 presence，完成后通知 Rust 可以 exit（握手）。

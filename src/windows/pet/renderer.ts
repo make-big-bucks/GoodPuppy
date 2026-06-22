@@ -27,6 +27,7 @@ import {
   type PetPrefModePayload,
   type PetPrefScalePayload,
 } from "./petWindowEvents.js";
+import { emit } from "@tauri-apps/api/event";
 import { showSelfContextMenu } from "./contextMenu.js";
 import {
   initRoomManager,
@@ -40,6 +41,12 @@ import {
 import type { PetStatus, WindowPoint } from "../../types";
 
 export { startPetApp, switchRoom, getCurrentRoomId, exitCurrentRoom };
+
+// 右键菜单「退出房间」：发 "exit-room" 给本窗口（selfMain 统一处理：退出 → 隐藏 →
+// 通知会客厅刷新），与会客厅退出按钮走完全相同的链路，避免行为分叉。
+function leaveCurrentRoomFromMenu() {
+  return emit("exit-room");
+}
 
 let _onRoomReadyCb: (() => void) | null = null;
 export function setOnRoomReadyCallback(fn: () => void) {
@@ -98,7 +105,9 @@ function setSelfStatus(status: PetStatus) {
   presence.updateLocalPresence({ status }).catch(console.error);
 }
 
-function setSelfSkin(skin: string | null | undefined) {
+// 由会客厅资料卡换肤面板「保存」后跨窗口调用（见 selfMain 的 "set-skin" 监听）：
+// 更新本窗口动画 + 缓存 + presence 广播（通道 A，远程宠物窗口随之实时换肤）。
+export function setSelfSkin(skin: string | null | undefined) {
   const next = skin || DEFAULT_SKIN;
   if (next === selfSkin) return;
   selfSkin = next;
@@ -168,12 +177,11 @@ window.goodPuppy.onAppEvent<PetPrefScalePayload>(PET_PREF_SCALE, ({ scale }) => 
 async function showPetContextMenu(event: MouseEvent) {
   void event;
   await showSelfContextMenu({
-    selfSkin,
-    manifest: selfAnimator.manifest,
+    inRoom: Boolean(getCurrentRoomId()),
     // 「写消息」通知自己的气泡窗口展开记号棒（聚焦逻辑亦在那边处理）。
     onWriteMessage: () => void window.goodPuppy.emitToWindow(BUBBLE_SELF_LABEL, SELF_OPEN_COMPOSE),
     onSetStatus: setSelfStatus,
-    onSetSkin: setSelfSkin,
+    onLeaveRoom: () => void leaveCurrentRoomFromMenu(),
   });
 }
 

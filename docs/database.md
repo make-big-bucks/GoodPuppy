@@ -606,6 +606,9 @@ CREATE POLICY "presence_update" ON public.presence
 | `presence` | 实时感知对方上下线 |
 | `connection_requests` | 实时收到好友请求通知 |
 | `room_members` | 实时感知房间成员加入/退出 |
+| `profiles` | 实时反映成员改名/换肤（含远程好友），会客厅成员列表据此刷新 |
+
+> **`profiles` 订阅注意：** `profiles_select` 的 RLS 为 `true`，订阅会收到**全站任意用户**的变更。会客厅（`src/windows/lounge/lounge.ts` 的 `subscribeToProfilesChanges`）只监听 `UPDATE`，并在回调里按当前房间成员 `user_id` 做客户端过滤，仅当变更者是已知成员时才 `loadPanelData()`，避免陌生用户改名触发无谓刷新。
 
 **前端订阅示例（messages）：**
 
