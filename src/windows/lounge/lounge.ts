@@ -6,6 +6,7 @@ import { renderRoomDetail } from "./views/room-detail.js";
 import { renderProfileCard } from "./views/profile-card.js";
 import { openChatHistory } from "./views/chat-history-dialog.js";
 import { showToast } from "./views/toast.js";
+import { showPanelSkeleton, showPanelError, hidePanelState, panelIsInError, isOfflineError } from "./views/panelState.js";
 import { initShowcase, openShowcase } from "./views/pet-showcase.js";
 import { openSettings, closeSettings } from "./views/settings.js";
 import { buildMemberViewModels, mapPendingRoomInvitationRows, normalizeGpId } from "./loungeViewModels.js";
@@ -110,6 +111,10 @@ let presenceChannel: RealtimeChannel | null = null;
 let roomMembersChannel: RealtimeChannel | null = null;
 let pendingTransition: PendingTransition | null = null;
 let currentProfile: LoungeProfile | null = null;
+// 冷启动判定：窗口内是否已成功加载过一次数据。仅首屏（false 时）走骨架屏/整屏报错。
+let hasLoadedOnce = false;
+// online 监听只注册一次。
+let onlineListenerBound = false;
 
 const panel = () => document.querySelector<HTMLElement>(".lounge-panel");
 const modalBackdrop = () => document.querySelector<HTMLElement>(".lounge-modal-backdrop");
@@ -596,6 +601,10 @@ function renderAll() {
 async function loadPanelData() {
   if (!supabaseClient || !selfAuthId) return;
 
+  // 冷启动（窗口内还没有任何数据）才显示骨架屏；后续刷新静默更新，避免每次操作后闪屏。
+  const coldStart = !hasLoadedOnce;
+  if (coldStart) showPanelSkeleton();
+
   try {
     const [profileResult, myRoomsResult, requestsResult] = await Promise.all([
       supabaseClient
@@ -678,8 +687,14 @@ async function loadPanelData() {
     }
 
     renderAll();
+    hasLoadedOnce = true;
+    if (coldStart) hidePanelState();
   } catch (error) {
-    showToast(getErrorMessage(error, "加载失败"), "error");
+    if (coldStart) {
+      showPanelError({ offline: isOfflineError(error), onRetry: () => void loadPanelData() });
+    } else {
+      showToast(getErrorMessage(error, "加载失败"), "error");
+    }
   }
 }
 
@@ -1254,6 +1269,13 @@ export function initLoungePanel({
   onLogout = nextOnLogout;
 
   bindEvents();
+  if (!onlineListenerBound) {
+    onlineListenerBound = true;
+    // 断网恢复时，若当前正停在冷启动报错态，自动重新加载（手动「重试」按钮作兜底）。
+    window.addEventListener("online", () => {
+      if (selfAuthId && panelIsInError()) void loadPanelData();
+    });
+  }
   if (selfAuthId) {
     subscribeToRequests();
     subscribeToPresenceChanges();
@@ -1297,6 +1319,8 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, is
     pendingRequests = [];
     selectedRoomId = null;
     pendingTransition = null;
+    hasLoadedOnce = false; // 登出后重置，下次登录重新走首屏骨架
+    hidePanelState();
     renderAuthState(false);
     renderProfile(null);
     renderAll();

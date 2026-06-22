@@ -122,6 +122,10 @@ body.platform-windows .sidebar {
   padding-top: 16px;
 }
 
+.lounge-panel {
+  position: relative;
+}
+
 .lounge-panel[hidden] {
   display: none;
 }
@@ -1770,4 +1774,220 @@ body.platform-windows .settings-header {
 
 .settings-toggle.is-on .settings-toggle-knob {
   transform: translateX(18px);
+}
+
+/* ── 冷启动状态层：骨架屏 + 整屏报错态 ───────────────────────────── */
+
+/* 通用 shimmer 占位块，主面板与聊天记录弹窗共用。 */
+.gp-skeleton {
+  display: block;
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    100deg,
+    rgba(0, 0, 0, 0.05) 30%,
+    rgba(0, 0, 0, 0.1) 50%,
+    rgba(0, 0, 0, 0.05) 70%
+  );
+  background-size: 200% 100%;
+  animation: gp-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes gp-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gp-skeleton {
+    animation: none;
+  }
+}
+
+/* 覆盖整窗的状态层，盖住底下尚未填充的空 DOM。 */
+.lounge-panel-status {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: var(--sidebar);
+}
+
+.lounge-panel-status.is-loading {
+  display: grid;
+  grid-template-columns: var(--sidebar-w, 340px) 1fr;
+}
+
+/* 顶部拖拽条：状态层盖住了 .layout 的拖拽区，这里补回可拖动区域。 */
+.lounge-status-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  z-index: 1;
+  cursor: default;
+}
+
+.lounge-skel-sidebar {
+  padding: 56px 18px 18px;
+  border-right: 1px solid var(--line);
+  background: var(--sidebar);
+}
+
+.lounge-skel-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.lounge-skel-profile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.lounge-skel-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.lounge-skel-line {
+  height: 12px;
+  width: 70%;
+}
+
+.lounge-skel-line.short {
+  width: 45%;
+}
+
+.lounge-skel-heading {
+  height: 12px;
+  width: 96px;
+  margin: 0 0 16px 4px;
+}
+
+.lounge-skel-rooms {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lounge-skel-room {
+  height: 44px;
+  border-radius: var(--radius-lg);
+}
+
+.lounge-skel-main {
+  padding: 64px 40px 40px;
+}
+
+.lounge-skel-main .lounge-skel-heading {
+  width: 120px;
+  height: 16px;
+  margin-bottom: 24px;
+}
+
+.lounge-skel-members {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.lounge-skel-member {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lounge-skel-member-name {
+  height: 12px;
+  flex: 1;
+  max-width: 110px;
+}
+
+/* 报错态：居中。 */
+.lounge-panel-status.is-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lounge-status-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  max-width: 280px;
+  padding: 0 24px;
+}
+
+.lounge-status-icon {
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.lounge-status-icon svg {
+  width: 48px;
+  height: 48px;
+}
+
+.lounge-status-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.lounge-status-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.lounge-status-retry {
+  margin-top: 14px;
+}
+
+/* 聊天记录弹窗的首屏骨架 + 报错。 */
+.chat-history-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 4px;
+}
+
+.chat-skel-row {
+  display: flex;
+}
+
+.chat-skel-row.is-self {
+  justify-content: flex-end;
+}
+
+.chat-skel-bubble {
+  height: 38px;
+  border-radius: 12px;
+}
+
+.chat-history-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.chat-history-error .lounge-status-retry {
+  margin-top: 4px;
 }

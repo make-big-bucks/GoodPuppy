@@ -71,8 +71,25 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
 
   const status = document.createElement("div");
   status.className = "chat-history-status";
-  status.textContent = "正在加载…";
+  status.hidden = true;
   log.appendChild(status);
+
+  // 首屏加载用气泡骨架占位（往上翻历史时改用 status 文案，不打断阅读）。
+  const skeletonWidths = [62, 48, 78, 40, 70];
+  function buildInitialSkeleton() {
+    const wrap = document.createElement("div");
+    wrap.className = "chat-history-skeleton";
+    skeletonWidths.forEach((width, i) => {
+      const row = document.createElement("div");
+      row.className = `chat-skel-row${i % 2 === 0 ? "" : " is-self"}`;
+      const bubble = document.createElement("div");
+      bubble.className = "gp-skeleton chat-skel-bubble";
+      bubble.style.width = `${width}%`;
+      row.appendChild(bubble);
+      wrap.appendChild(row);
+    });
+    return wrap;
+  }
 
   const jumpBtn = document.createElement("button");
   jumpBtn.type = "button";
@@ -174,7 +191,13 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
     }
   }
 
+  function clearInitialPlaceholders() {
+    log.querySelectorAll(".chat-history-skeleton, .chat-history-error").forEach((el) => el.remove());
+  }
+
   async function loadInitial() {
+    clearInitialPlaceholders();
+    log.appendChild(buildInitialSkeleton());
     try {
       const { page, rows } = await fetchMessagePage(supabase, room.id);
       if (disposed) return;
@@ -183,12 +206,23 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
       messages = page.messages;
       hasMore = page.hasMore;
       oldestCursor = page.nextCursor;
-      status.hidden = true;
+      clearInitialPlaceholders();
       renderAll();
       scrollToBottom();
     } catch {
       if (disposed) return;
-      status.textContent = "加载失败";
+      clearInitialPlaceholders();
+      const error = document.createElement("div");
+      error.className = "chat-history-error";
+      const text = document.createElement("p");
+      text.textContent = "加载失败";
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "btn btn-primary lounge-status-retry";
+      retry.textContent = "重试";
+      retry.addEventListener("click", () => void loadInitial());
+      error.append(text, retry);
+      log.appendChild(error);
     }
   }
 
