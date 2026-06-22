@@ -1,20 +1,14 @@
 import { INTERACTIONS, STATUS_OPTIONS, DEFAULT_SKIN } from "./animationCatalog.js";
-import { Menu, Submenu, MenuItem, CheckMenuItem } from "@tauri-apps/api/menu";
-import { stepPetScale, DEFAULT_PET_SCALE, MIN_PET_SCALE, MAX_PET_SCALE } from "./petLayout.js";
+import { Menu, Submenu, CheckMenuItem } from "@tauri-apps/api/menu";
 import type { PetManifest, PetStatus } from "../../types";
 
-export type PetMode = "free" | "semi";
-
+// 「桌宠大小」「朋友摆放模式」已迁至会客厅设置页统一管理，不再出现在右键菜单。
 export type SelfMenuContext = {
   selfSkin: string;
-  petScale: number;
   manifest: PetManifest | null | undefined;
-  petMode: PetMode;
   onWriteMessage: () => void;
   onSetStatus: (status: PetStatus) => void;
   onSetSkin: (skin: string) => void;
-  onSetScale: (scale: number) => void;
-  onSetMode: (mode: PetMode) => void;
 };
 
 export type RemoteMenuContext = {
@@ -44,33 +38,8 @@ async function buildSkinSubmenu(
   return Submenu.new({ text: "换肤", items });
 }
 
-async function buildSizeSubmenu(petScale: number, onSetScale: (scale: number) => void) {
-  const items = await Promise.all([
-    MenuItem.new({
-      id: "size-up",
-      text: "放大",
-      enabled: petScale < MAX_PET_SCALE,
-      action: () => onSetScale(stepPetScale(petScale, 1)),
-    }),
-    MenuItem.new({
-      id: "size-down",
-      text: "缩小",
-      enabled: petScale > MIN_PET_SCALE,
-      action: () => onSetScale(stepPetScale(petScale, -1)),
-    }),
-    MenuItem.new({
-      id: "size-reset",
-      text: "恢复默认大小",
-      enabled: petScale !== DEFAULT_PET_SCALE,
-      action: () => onSetScale(DEFAULT_PET_SCALE),
-    }),
-  ]);
-  return Submenu.new({ text: "大小", items });
-}
-
 export async function showSelfContextMenu(ctx: SelfMenuContext) {
   const skinMenu = await buildSkinSubmenu(ctx.selfSkin, ctx.manifest, ctx.onSetSkin);
-  const sizeMenu = await buildSizeSubmenu(ctx.petScale, ctx.onSetScale);
   const menu = await Menu.new({
     items: [
       {
@@ -89,29 +58,9 @@ export async function showSelfContextMenu(ctx: SelfMenuContext) {
         action: () => ctx.onSetStatus(null),
       },
       ...(skinMenu ? [skinMenu] : []),
-      sizeMenu,
-      await buildModeSubmenu(ctx.petMode, ctx.onSetMode),
     ],
   });
   await menu.popup();
-}
-
-async function buildModeSubmenu(petMode: PetMode, onSetMode: (mode: PetMode) => void) {
-  const items = await Promise.all([
-    CheckMenuItem.new({
-      id: "mode-free",
-      text: "自由摆放",
-      checked: petMode === "free",
-      action: () => onSetMode("free"),
-    }),
-    CheckMenuItem.new({
-      id: "mode-semi",
-      text: "自动排布",
-      checked: petMode === "semi",
-      action: () => onSetMode("semi"),
-    }),
-  ]);
-  return Submenu.new({ text: "朋友摆放", items });
 }
 
 export async function showRemoteContextMenu(ctx: RemoteMenuContext) {

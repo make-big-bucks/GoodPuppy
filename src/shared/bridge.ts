@@ -202,6 +202,28 @@ const goodPuppy: GoodPuppyBridge = {
     });
     return () => unlisten();
   },
+  async isAutostartEnabled() {
+    if (!inTauri) return false;
+    try {
+      const { isEnabled } = await import("@tauri-apps/plugin-autostart");
+      return await isEnabled();
+    } catch (error) {
+      console.error("autostart isEnabled failed:", error);
+      return false;
+    }
+  },
+  async setAutostart(enabled: boolean) {
+    if (!inTauri) return false;
+    try {
+      const { enable, disable, isEnabled } = await import("@tauri-apps/plugin-autostart");
+      if (enabled) await enable();
+      else await disable();
+      return await isEnabled();
+    } catch (error) {
+      console.error("autostart set failed:", error);
+      return false;
+    }
+  },
   getAppConfig() {
     return appConfig;
   },

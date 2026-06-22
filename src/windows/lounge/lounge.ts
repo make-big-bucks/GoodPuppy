@@ -7,6 +7,7 @@ import { renderProfileCard } from "./views/profile-card.js";
 import { openChatHistory } from "./views/chat-history-dialog.js";
 import { showToast } from "./views/toast.js";
 import { initShowcase, openShowcase } from "./views/pet-showcase.js";
+import { openSettings, closeSettings } from "./views/settings.js";
 import { buildMemberViewModels, mapPendingRoomInvitationRows, normalizeGpId } from "./loungeViewModels.js";
 import type {
   ConnectionRequestRow,
@@ -21,6 +22,7 @@ type LoungePanelOptions = {
   supabase: SupabaseClient;
   selfAuthId: string | null;
   isAnonymous: boolean;
+  email: string | null;
   getActiveRoomId: () => string | null;
   onEnterRoom: (roomId: string) => Promise<void>;
   onExitRoom: () => Promise<void>;
@@ -32,6 +34,7 @@ type UpdatePanelAuthOptions = {
   supabase: SupabaseClient;
   selfAuthId: string | null;
   isAnonymous: boolean;
+  email: string | null;
 };
 
 type InputModalOptions = {
@@ -83,13 +86,14 @@ function requiredQuery<T extends Element>(root: ParentNode, selector: string) {
 let supabaseClient: SupabaseClient | null = null;
 let selfAuthId: string | null = null;
 let currentUserIsAnonymous = false;
+let currentUserEmail: string | null = null;
 let getActiveRoomId: (() => string | null) | null = null;
 let onEnterRoom: ((roomId: string) => Promise<void>) | null = null;
 let onExitRoom: (() => Promise<void>) | null = null;
 let onLoginSuccess: (() => void) | null = null;
 let onLogout: (() => void) | null = null;
 
-const logoutIconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`;
+const gearIconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`;
 const eyeSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>`;
 const eyeOffSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></svg>`;
 const dogLogoSvg = `<svg viewBox="0 0 64 64" fill="none" aria-hidden="true"><path d="M18 47V31C18 20 26 13 37 13C48 13 55 21 55 32C55 41 49 47 39 47H31" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 31C12 33 9 38 9 47" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><path d="M38 47V54" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><circle cx="43" cy="28" r="3" fill="currentColor"/></svg>`;
@@ -194,7 +198,6 @@ function handleSkinChange(skin: string) {
 function renderAuthState(isLoggedIn: boolean) {
   const profileSection = document.querySelector<HTMLElement>(".profile-section");
   profileSection?.classList.toggle("is-unauth", !isLoggedIn);
-  profileSection?.classList.toggle("is-anonymous", isLoggedIn && currentUserIsAnonymous);
 
   const sidebarActions = document.querySelector<HTMLElement>(".sidebar-actions");
   if (sidebarActions) sidebarActions.hidden = !isLoggedIn;
@@ -207,23 +210,16 @@ function renderAuthState(isLoggedIn: boolean) {
     emptyDetail.textContent = isLoggedIn ? "选择一个房间查看成员" : "登录后即可查看你的房间和邀请";
   }
 
-  const actionBtn = document.querySelector<HTMLButtonElement>(".lounge-settings-btn");
-  if (actionBtn) {
-    if (isLoggedIn) {
-      actionBtn.hidden = false;
-      actionBtn.setAttribute("aria-label", "退出登录");
-      actionBtn.innerHTML = logoutIconSvg;
-    } else {
-      actionBtn.hidden = true;
-    }
-  }
-
-  const bindBtn = document.querySelector<HTMLButtonElement>(".lounge-bind-account-btn");
-  if (bindBtn) {
-    bindBtn.hidden = !isLoggedIn || !currentUserIsAnonymous;
+  // 齿轮 = 设置入口；未登录不提供入口（退出登录、绑定邮箱均已收进设置页）。
+  const settingsBtn = document.querySelector<HTMLButtonElement>(".lounge-settings-btn");
+  if (settingsBtn) {
+    settingsBtn.hidden = !isLoggedIn;
+    settingsBtn.setAttribute("aria-label", "设置");
+    settingsBtn.innerHTML = gearIconSvg;
   }
 
   if (!isLoggedIn) {
+    closeSettings();
     const roomDetail = document.querySelector<HTMLElement>(".lounge-room-detail");
     if (roomDetail) roomDetail.hidden = true;
   }
@@ -351,6 +347,21 @@ function openLoginDialog() {
   form.onsubmit = (event) => { event.preventDefault(); void doSignIn(); };
 }
 
+function openSettingsView() {
+  // 邮箱来自启动时 getSession() 拿到的会话（onAuthStateChange 持续同步），这里无需再发
+  // getUser() 网络请求，直接同步打开设置页，点齿轮即开、不卡顿。
+  openSettings({
+    getAccount: () => ({
+      isLoggedIn: Boolean(selfAuthId),
+      isAnonymous: currentUserIsAnonymous,
+      email: currentUserEmail,
+    }),
+    onBindAccount: () => openBindAccountDialog(),
+    onLogout: () => openLogoutConfirmDialog(),
+    onClose: () => closeSettings(),
+  });
+}
+
 function openLogoutConfirmDialog() {
   const backdrop = modalBackdrop();
   const form = modalForm();
@@ -384,6 +395,7 @@ function openLogoutConfirmDialog() {
     }
     await supabaseClient?.auth.signOut();
     closeModal();
+    closeSettings();
     onLogout?.();
   };
 }
@@ -454,6 +466,7 @@ function openBindAccountDialog() {
       if (error) throw error;
 
       currentUserIsAnonymous = Boolean(data.user?.is_anonymous);
+      currentUserEmail = data.user?.email ?? currentUserEmail;
       renderAuthState(Boolean(selfAuthId));
       closeModal();
       showToast(currentUserIsAnonymous ? "请检查邮箱完成绑定" : "账号已绑定");
@@ -1080,14 +1093,7 @@ function bindEvents() {
 
     if (btn.matches(".lounge-settings-btn")) {
       if (selfAuthId) {
-        openLogoutConfirmDialog();
-      }
-      return;
-    }
-
-    if (btn.matches(".lounge-bind-account-btn")) {
-      if (selfAuthId && currentUserIsAnonymous) {
-        openBindAccountDialog();
+        void openSettingsView();
       }
       return;
     }
@@ -1150,7 +1156,10 @@ function bindEvents() {
 
   p.addEventListener("pointerdown", (event) => {
     const target = targetElement(event.target);
-    if (target?.closest(".sidebar-drag-region, .main-drag-region")) {
+    if (
+      target?.closest(".sidebar-drag-region, .main-drag-region, .settings-header") &&
+      !target?.closest(".settings-back")
+    ) {
       window.goodPuppy.startWindowDrag();
     }
   });
@@ -1169,6 +1178,7 @@ export function initLoungePanel({
   supabase,
   selfAuthId: nextSelfAuthId,
   isAnonymous: nextIsAnonymous,
+  email: nextEmail,
   getActiveRoomId: nextGetActiveRoomId,
   onEnterRoom: nextOnEnterRoom,
   onExitRoom: nextOnExitRoom,
@@ -1178,6 +1188,7 @@ export function initLoungePanel({
   supabaseClient = supabase;
   selfAuthId = nextSelfAuthId;
   currentUserIsAnonymous = Boolean(nextSelfAuthId && nextIsAnonymous);
+  currentUserEmail = nextSelfAuthId ? nextEmail : null;
   getActiveRoomId = nextGetActiveRoomId;
   onEnterRoom = nextOnEnterRoom;
   onExitRoom = nextOnExitRoom;
@@ -1192,13 +1203,14 @@ export function initLoungePanel({
   }
 }
 
-export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, isAnonymous: nextIsAnonymous }: UpdatePanelAuthOptions) {
+export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, isAnonymous: nextIsAnonymous, email: nextEmail }: UpdatePanelAuthOptions) {
   const wasLoggedIn = Boolean(selfAuthId);
   const isLoggedIn = Boolean(nextSelfAuthId);
 
   supabaseClient = supabase;
   selfAuthId = nextSelfAuthId;
   currentUserIsAnonymous = Boolean(nextSelfAuthId && nextIsAnonymous);
+  currentUserEmail = nextSelfAuthId ? nextEmail : null;
 
   if (isLoggedIn) {
     subscribeToRequests();

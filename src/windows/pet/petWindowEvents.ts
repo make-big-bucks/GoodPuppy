@@ -57,6 +57,15 @@ export const SELF_COMPOSE_RESULT = "self-compose-result";
 export type SelfComposeSubmitPayload = { text: string };
 export type SelfComposeResultPayload = { ok: boolean; error?: string };
 
+// 会客厅设置页 → 协调者（main）：远程遥控桌宠偏好，main 是唯一执行 + 落盘点。
+/** 设置页改了「朋友摆放模式」。 */
+export const PET_PREF_MODE = "pet-pref-mode";
+/** 设置页改了「桌宠大小」。 */
+export const PET_PREF_SCALE = "pet-pref-scale";
+
+export type PetPrefModePayload = { mode: "free" | "semi" };
+export type PetPrefScalePayload = { scale: number };
+
 // 呈现者 → 协调者
 export const PET_MOVED = "pet-moved";
 export const PET_INTERACT_REQUEST = "pet-interact-request";

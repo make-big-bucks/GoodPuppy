@@ -116,6 +116,7 @@ async function init() {
     supabase,
     selfAuthId,
     isAnonymous: sessionIsAnonymous(data.session),
+    email: data.session?.user?.email ?? null,
     getActiveRoomId: () => activeRoomId,
     onEnterRoom: (roomId: string) => {
       void emit("switch-room", { roomId });
@@ -145,6 +146,7 @@ async function init() {
       supabase,
       selfAuthId: session?.user?.id || null,
       isAnonymous: sessionIsAnonymous(session),
+      email: session?.user?.email ?? null,
     });
   });
 

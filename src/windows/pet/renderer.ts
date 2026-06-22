@@ -21,7 +21,11 @@ import {
   SELF_OPEN_COMPOSE,
   SELF_COMPOSE_SUBMIT,
   SELF_COMPOSE_RESULT,
+  PET_PREF_MODE,
+  PET_PREF_SCALE,
   type SelfComposeSubmitPayload,
+  type PetPrefModePayload,
+  type PetPrefScalePayload,
 } from "./petWindowEvents.js";
 import { showSelfContextMenu } from "./contextMenu.js";
 import {
@@ -151,20 +155,25 @@ window.goodPuppy.onAppEvent<SelfComposeSubmitPayload>(SELF_COMPOSE_SUBMIT, async
   }
 });
 
+// ── 会客厅设置页遥控 ─────────────────────────────────────────────────────
+// 偏好的唯一执行 + 落盘点在 main：会客厅只发事件，这里应用并持久化。
+window.goodPuppy.onAppEvent<PetPrefModePayload>(PET_PREF_MODE, ({ mode }) => {
+  coordinator.setMode(mode);
+});
+window.goodPuppy.onAppEvent<PetPrefScalePayload>(PET_PREF_SCALE, ({ scale }) => {
+  setPetScale(scale);
+});
+
 // ── Context menu (self) ────────────────────────────────────────────────────
 async function showPetContextMenu(event: MouseEvent) {
   void event;
   await showSelfContextMenu({
     selfSkin,
-    petScale,
     manifest: selfAnimator.manifest,
-    petMode: coordinator.getMode(),
     // 「写消息」通知自己的气泡窗口展开记号棒（聚焦逻辑亦在那边处理）。
     onWriteMessage: () => void window.goodPuppy.emitToWindow(BUBBLE_SELF_LABEL, SELF_OPEN_COMPOSE),
     onSetStatus: setSelfStatus,
     onSetSkin: setSelfSkin,
-    onSetScale: setPetScale,
-    onSetMode: (mode) => coordinator.setMode(mode),
   });
 }
 

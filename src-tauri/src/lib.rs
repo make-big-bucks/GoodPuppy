@@ -876,6 +876,12 @@ pub fn run() {
     let monitor_hit_shapes = hit_shapes.clone();
     let bubbles: Bubbles = Arc::new(std::sync::Mutex::new(BubbleRegistry::default()));
     tauri::Builder::default()
+        // 开机自启动（会客厅设置页「通用 → 开机自启动」开关控制）。
+        // macOS 走 LaunchAgent，Windows 走注册表，由插件按平台封装。
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .manage(hit_shapes)
         .manage(bubbles)
         .invoke_handler(tauri::generate_handler![

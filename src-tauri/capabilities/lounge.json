@@ -9,6 +9,9 @@
     "core:event:allow-listen",
     "core:event:allow-emit",
     "core:window:allow-hide",
-    "core:window:allow-start-dragging"
+    "core:window:allow-start-dragging",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
   ]
 }

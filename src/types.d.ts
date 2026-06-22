@@ -64,6 +64,10 @@ export interface GoodPuppyBridge {
   publishHitShape(shape: PetHitShape): void;
   /** 当前 webview 窗口的 label（"main" = 自己/协调者，"pet-<userId>" = 远程呈现者）。 */
   getWindowLabel(): string;
+  /** 开机自启动当前是否开启（非 Tauri / 不支持时恒为 false）。 */
+  isAutostartEnabled(): Promise<boolean>;
+  /** 设置开机自启动，返回设置后最终状态；非 Tauri / 不支持时为 no-op 返回 false。 */
+  setAutostart(enabled: boolean): Promise<boolean>;
   /** 协调者请求 Rust 动态创建一只远程成员的 pet 窗口（label `pet-<userId>`）。 */
   spawnPetWindow(opts: { label: string; x: number; y: number; width: number; height: number }): Promise<void>;
   /** 协调者请求销毁某只远程 pet 窗口。 */
