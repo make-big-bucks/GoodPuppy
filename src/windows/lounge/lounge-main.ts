@@ -5,6 +5,22 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { initLoungePanel, openActiveRoomHistory, openLoungePanel, refreshLoungePanelActiveRoom, updateLoungePanelAuth } from "./lounge.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
+import { showPanelSkeleton, hidePanelState } from "./views/panelState.js";
+
+// 是否存在已持久化的登录态。Supabase 把 session 存在 localStorage 的
+// `sb-<ref>-auth-token` 键里，这里同步探测，用于在 await getSession() 之前就决定
+// 要不要先铺骨架屏（已登录用户冷启动几乎必然有这个键）。
+function hasPersistedSession(): boolean {
+  try {
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("sb-") && key.endsWith("-auth-token")) return true;
+    }
+  } catch {
+    /* localStorage 不可用时按未登录处理 */
+  }
+  return false;
+}
 
 async function initWinTitlebar() {
   if (!navigator.platform.startsWith('Win')) return;
@@ -109,6 +125,10 @@ let pendingEnterResolve: (() => void) | null = null;
 let pendingExitResolve: (() => void) | null = null;
 
 async function init() {
+  // 冷启动先铺骨架屏，避免在 await getSession()（多窗口共享 auth 锁时可能较慢）期间
+  // 露出尚未加载数据的静态页面。若实际未登录，下面 openLoungePanel 的非登录分支会撤掉。
+  if (hasPersistedSession()) showPanelSkeleton();
+
   const { data } = await supabase.auth.getSession();
   const selfAuthId = data.session?.user?.id || null;
 

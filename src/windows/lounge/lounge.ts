@@ -1415,6 +1415,8 @@ export function openLoungePanel() {
     renderAuthState(true);
     void loadPanelData();
   } else {
+    // 未登录：撤掉冷启动时乐观铺设的骨架屏（见 lounge-main.ts 的 hasPersistedSession）。
+    hidePanelState();
     renderAuthState(false);
     renderProfile(null);
   }
