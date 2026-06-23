@@ -38,6 +38,11 @@ export const BUBBLE_SHOW = "bubble-show";
  * 堆叠锚点与小尾巴方向（窗口只能改自己，故由气泡窗口自行 setWindowBounds）。 */
 export const BUBBLE_PLACEMENT = "bubble-placement";
 
+/** 原生光标监视器逐 tick 告知该覆盖层窗口当前是否「可交互」（光标落在命中区内）。
+ * 气泡窗口据此切关闭按钮的浮现，避免依赖窗口聚焦才更新的 CSS `:hover`（非 key 窗口
+ * 收不到 mouseMoved，`:hover` 不刷新）。payload 为布尔。 */
+export const OVERLAY_HOVER = "overlay-hover";
+
 export type BubblePlacementPayload = {
   x: number;
   y: number;

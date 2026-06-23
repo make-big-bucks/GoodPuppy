@@ -17,6 +17,7 @@ import {
   PET_HISTORY,
   BUBBLE_SHOW,
   BUBBLE_PLACEMENT,
+  OVERLAY_HOVER,
   SELF_OPEN_COMPOSE,
   SELF_COMPOSE_SUBMIT,
   SELF_COMPOSE_RESULT,
@@ -83,6 +84,11 @@ if (root && area) {
   initBubbleStacks({ onRefreshPassthrough: refreshHitShape, onVisibilityChange: refreshHitShape });
   // 用气泡窗口 label（bubble-self / bubble-<userId>）作水位线持久化 key。
   mountStack(area, bridge.getWindowLabel());
+
+  // 光标落在气泡命中区时浮现关闭按钮（由原生监视器驱动，不依赖窗口聚焦）。
+  bridge.onAppEvent<boolean>(OVERLAY_HOVER, (interactive) => {
+    area.classList.toggle("bubble-hovered", interactive);
+  });
 
   bridge.onAppEvent<PetHistoryPayload>(PET_HISTORY, (payload) => setMessagesForArea(area, payload.messages));
   bridge.onAppEvent<PetMessagePayload>(PET_MESSAGE, (payload) => addMessageToArea(area, payload.message));

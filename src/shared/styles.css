@@ -432,7 +432,9 @@ body {
   border-bottom: 7px solid rgba(255, 255, 255, 0.92);
 }
 
-/* 气泡窗口里只有堆叠区可交互，关闭按钮用纯 CSS hover 浮现（无需 JS 跟踪 hover）。 */
+/* 气泡窗口里关闭按钮由原生光标监视器驱动浮现（见 .dog-area.bubble-hovered 规则）：
+   非 key 窗口收不到 mouseMoved，纯 CSS :hover 要先聚焦才更新，故改走 .bubble-hovered。
+   :hover 作为已聚焦时的额外保险保留。 */
 .bubble-window .dog-area:hover .bubble-close {
   display: flex;
 }

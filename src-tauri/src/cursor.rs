@@ -176,6 +176,9 @@ pub(crate) fn spawn_cursor_monitor(app: &tauri::App, hit_shapes: HitShapes) {
                     let ignore = !interactive;
 
                     if guard.get(&label) != Some(&ignore) {
+                        // 告知该窗口最新可交互状态：气泡窗口据此切关闭按钮浮现，不依赖
+                        // 焦点才更新的 CSS :hover（非 key 窗口收不到 mouseMoved）。
+                        let _ = window.emit_to(label.as_str(), "overlay-hover", interactive);
                         guard.insert(label, ignore);
                         let _ = window.set_ignore_cursor_events(ignore);
                     }
