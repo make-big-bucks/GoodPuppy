@@ -35,7 +35,7 @@ const slots: (string | null)[] = new Array(MAX_VISIBLE).fill(null); // slot -> t
 const pendingByLabel = new Map<string, OnlineNotifyPayload>(); // awaiting toast-ready
 const queue: OnlineNotifyPayload[] = [];
 let seq = 0;
-let unlisteners: Array<() => void> = [];
+let listenersBound = false;
 
 function platform(): "macos" | "windows" {
   return navigator.platform.startsWith("Win") ? "windows" : "macos";
@@ -104,6 +104,14 @@ export function onPresenceChange(row: LoungePresenceRow): void {
       isWithinDedupeWindow(lastNotifiedAt.get(dedupeKey(roomId, userId)), Date.now(), DEDUPE_MS),
   });
 
+  console.warn(
+    "[online-notify] presence",
+    row.user_id,
+    "→ room",
+    decision.roomId,
+    "notify?",
+    decision.shouldNotify,
+  );
   snapshot.set(row.user_id, decision.roomId);
 
   if (!decision.shouldNotify || !decision.roomId) return;
@@ -139,6 +147,7 @@ function showOrQueue(payload: OnlineNotifyPayload): void {
 
 async function allocate(slot: number, payload: OnlineNotifyPayload): Promise<void> {
   const label = `toast-${seq++}`;
+  console.warn("[online-notify] spawn", label, "slot", slot, "room", payload.roomId);
   slots[slot] = label;
   pendingByLabel.set(label, payload);
 
@@ -153,6 +162,7 @@ async function allocate(slot: number, payload: OnlineNotifyPayload): Promise<voi
 }
 
 function freeSlot(label: string): void {
+  console.warn("[online-notify] freeSlot/close", label);
   const slot = slots.indexOf(label);
   if (slot !== -1) slots[slot] = null;
   pendingByLabel.delete(label);
@@ -167,6 +177,7 @@ function freeSlot(label: string): void {
 }
 
 export function dismissAllToasts(): void {
+  console.warn("[online-notify] dismissAllToasts", slots.filter(Boolean));
   queue.length = 0;
   for (let i = 0; i < slots.length; i += 1) {
     const label = slots[i];
@@ -178,36 +189,39 @@ export function dismissAllToasts(): void {
   }
 }
 
+// toast 回传监听器整会话只绑定一次（与 lounge 的 toast-enter-room 监听同理），
+// 引用的是模块级状态，登入登出间一直有效；不再随每次 init 重绑（那样会因 lounge
+// 缺 allow-unlisten 而抛错并泄漏监听器）。
+function bindListeners(): void {
+  if (listenersBound) return;
+  listenersBound = true;
+  const bridge = window.goodPuppy;
+  bridge.onAppEvent<{ label?: string }>("toast-ready", ({ label }) => {
+    console.warn("[online-notify] toast-ready recv", label);
+    if (!label) return;
+    const payload = pendingByLabel.get(label);
+    if (payload) void bridge.emitToWindow(label, "toast-data", payload);
+  });
+  bridge.onAppEvent<{ label?: string; reason?: string }>("toast-dismiss", ({ label, reason }) => {
+    console.warn("[online-notify] toast-dismiss recv", label, "reason", reason);
+    if (label) freeSlot(label);
+  });
+}
+
 export function initOnlineNotifier(nextDeps: OnlineNotifierDeps): void {
+  console.warn("[online-notify] initOnlineNotifier");
   deps = nextDeps;
   const selfId = deps.getSelfId();
   const store = storage();
   subscribed = selfId && store ? readSubscribedRooms(store, selfId) : new Set();
-
-  disposeListeners();
-  const bridge = window.goodPuppy;
-  unlisteners = [
-    bridge.onAppEvent<{ label?: string }>("toast-ready", ({ label }) => {
-      if (!label) return;
-      const payload = pendingByLabel.get(label);
-      if (payload) void bridge.emitToWindow(label, "toast-data", payload);
-    }),
-    bridge.onAppEvent<{ label?: string }>("toast-dismiss", ({ label }) => {
-      if (label) freeSlot(label);
-    }),
-  ];
-}
-
-function disposeListeners(): void {
-  for (const off of unlisteners) off();
-  unlisteners = [];
+  bindListeners();
 }
 
 export function disposeOnlineNotifier(): void {
-  disposeListeners();
   dismissAllToasts();
   snapshot.clear();
   lastNotifiedAt.clear();
   subscribed = new Set();
   deps = null;
+  // 监听器常驻（绑定一次、不 unlisten）：登出后无 pending toast，回调为 no-op。
 }

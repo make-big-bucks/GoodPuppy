@@ -1363,6 +1363,7 @@ function bindOnlineNotifier() {
   if (toastEnterListenerBound) return;
   toastEnterListenerBound = true;
   window.goodPuppy.onAppEvent<{ roomId?: string }>("toast-enter-room", ({ roomId }) => {
+    console.warn("[online-notify] toast-enter-room recv", roomId);
     if (!roomId) return;
     dismissAllToasts();
     if (getActiveRoomId?.() === roomId) return;
@@ -1417,6 +1418,7 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, is
       void supabaseClient.removeChannel(profilesChannel);
       profilesChannel = null;
     }
+    console.warn("[online-notify] auth logout → disposeOnlineNotifier");
     disposeOnlineNotifier();
     rooms = [];
     pendingRequests = [];

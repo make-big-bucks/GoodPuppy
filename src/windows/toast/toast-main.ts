@@ -21,14 +21,14 @@ let dismissTimer: ReturnType<typeof setTimeout> | null = null;
 let currentRoomId: string | null = null;
 let dismissed = false;
 
-function dismiss(reason: "close" | "enter") {
+function dismiss(reason: "timeout" | "close" | "enter") {
   if (dismissed) return;
   dismissed = true;
   if (dismissTimer) clearTimeout(dismissTimer);
   if (reason === "enter" && currentRoomId) {
     void bridge.emitToWindow("lounge", "toast-enter-room", { roomId: currentRoomId, label });
   } else {
-    void bridge.emitToWindow("lounge", "toast-dismiss", { label });
+    void bridge.emitToWindow("lounge", "toast-dismiss", { label, reason });
   }
 }
 
@@ -48,7 +48,7 @@ function render(payload: OnlineNotifyPayload) {
   requestAnimationFrame(() => card?.classList.add("is-visible"));
 
   if (payload.autoDismissMs > 0) {
-    dismissTimer = setTimeout(() => dismiss("close"), payload.autoDismissMs);
+    dismissTimer = setTimeout(() => dismiss("timeout"), payload.autoDismissMs);
   }
 }
 
