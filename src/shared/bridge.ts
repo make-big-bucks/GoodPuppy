@@ -1,4 +1,12 @@
-import { getCurrentWindow, currentMonitor, availableMonitors } from "@tauri-apps/api/window";
+import {
+  getCurrentWindow,
+  currentMonitor,
+  primaryMonitor,
+  availableMonitors,
+  monitorFromPoint,
+  cursorPosition,
+  type Monitor,
+} from "@tauri-apps/api/window";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
@@ -50,6 +58,35 @@ const goodPuppy: GoodPuppyBridge = {
       width: Math.round(monitor.size.width / scale),
       height: Math.round(monitor.size.height / scale),
     };
+  },
+  async getCursorMonitorWorkArea() {
+    // 上线提醒 toast 的目标屏：取光标当前所在屏的「可用区」（扣除菜单栏/dock/taskbar），
+    // 回退到当前窗口所在屏 / 主屏。workArea 为物理像素，换算成逻辑像素以与窗口坐标一致。
+    const fallback = {
+      x: 0,
+      y: 0,
+      width: window.screen.availWidth,
+      height: window.screen.availHeight,
+    };
+    if (!appWindow) return fallback;
+    const toWorkArea = (monitor: Monitor | null) => {
+      if (!monitor) return null;
+      const scale = monitor.scaleFactor || 1;
+      return {
+        x: Math.round(monitor.workArea.position.x / scale),
+        y: Math.round(monitor.workArea.position.y / scale),
+        width: Math.round(monitor.workArea.size.width / scale),
+        height: Math.round(monitor.workArea.size.height / scale),
+      };
+    };
+    try {
+      const cursor = await cursorPosition();
+      const underCursor = toWorkArea(await monitorFromPoint(cursor.x, cursor.y));
+      if (underCursor) return underCursor;
+    } catch (error) {
+      console.warn("cursor monitor lookup failed, falling back:", error);
+    }
+    return toWorkArea(await currentMonitor()) || toWorkArea(await primaryMonitor()) || fallback;
   },
   async getMonitors() {
     // 浏览器 fallback：只知道单块屏，用其可用区近似。
@@ -174,6 +211,24 @@ const goodPuppy: GoodPuppyBridge = {
     if (!inTauri) return Promise.resolve();
     return invoke<void>("close_bubble_window", { label }).catch((error) => {
       console.error("close_bubble_window failed:", error);
+    });
+  },
+  spawnToastWindow(opts: { label: string; x: number; y: number; width: number; height: number }) {
+    if (!inTauri) return Promise.resolve();
+    return invoke<void>("spawn_toast_window", {
+      label: opts.label,
+      x: Math.round(opts.x),
+      y: Math.round(opts.y),
+      width: Math.round(opts.width),
+      height: Math.round(opts.height),
+    }).catch((error) => {
+      console.error("spawn_toast_window failed:", error);
+    });
+  },
+  closeToastWindow(label: string) {
+    if (!inTauri) return Promise.resolve();
+    return invoke<void>("close_toast_window", { label }).catch((error) => {
+      console.error("close_toast_window failed:", error);
     });
   },
   emitToWindow(label: string, event: string, payload?: unknown) {

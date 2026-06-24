@@ -1,0 +1,120 @@
+@import "../../shared/styles.css";
+
+.toast-card {
+  position: fixed;
+  inset: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border: 2px solid rgba(47, 47, 53, 0.42);
+  border-radius: 14px;
+  background: rgba(255, 250, 253, 0.98);
+  box-shadow: 0 12px 30px rgba(47, 47, 53, 0.22);
+  color: var(--gp-pet-ink);
+  font-family: var(--gp-font-pet);
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.toast-card.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toast-avatar {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+}
+
+.toast-avatar .pet-avatar {
+  width: 44px;
+  height: 44px;
+}
+
+.toast-avatar .pet-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.toast-avatar .pet-avatar.is-fallback {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--gp-pet-brand);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.toast-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toast-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toast-room {
+  font-size: 12px;
+  color: rgba(47, 47, 53, 0.66);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toast-actions {
+  flex: 0 0 auto;
+}
+
+.toast-enter {
+  border: none;
+  border-radius: 9px;
+  padding: 7px 12px;
+  background: var(--gp-pet-brand);
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.toast-enter:hover {
+  filter: brightness(0.96);
+}
+
+.toast-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  border: none;
+  background: transparent;
+  color: rgba(47, 47, 53, 0.5);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.toast-close:hover {
+  color: var(--gp-pet-ink);
+}

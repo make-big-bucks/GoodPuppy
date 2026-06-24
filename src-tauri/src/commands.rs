@@ -228,6 +228,77 @@ pub(crate) async fn close_bubble_window(
     Ok(())
 }
 
+/// Dynamically create a transparent, always-on-top toast window for the
+/// room-online notification. Loads `toast.html`; the frontend reads its label
+/// (`toast-<seq>`) and the geometry / payload is supplied by the lounge via
+/// `emit_to`. A plain floating overlay (not a panel) so it can be destroyed
+/// safely when it auto-dismisses or the user closes/clicks it. Unlike pet /
+/// bubble overlays it is NOT registered with the cursor monitor, so the webview
+/// receives clicks natively (the card's buttons are normal DOM clicks).
+#[tauri::command]
+pub(crate) async fn spawn_toast_window(
+    app: AppHandle,
+    label: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    if app.get_webview_window(&label).is_some() {
+        return Ok(());
+    }
+
+    let window =
+        WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("windows/toast.html".into()))
+            .title("GoodPuppy")
+            .accept_first_mouse(true)
+            .inner_size(width, height)
+            .resizable(false)
+            .maximizable(false)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .shadow(false)
+            .focused(false)
+            .visible(false)
+            .build()
+            .map_err(|e| e.to_string())?;
+
+    let win = window.clone();
+    window
+        .run_on_main_thread(move || {
+            configure_floating_overlay(&win);
+            position_overlay_window(&win, x, y, width, height);
+            let _ = win.show();
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Destroy a toast window (auto-dismiss / manual close / clicked through).
+/// Plain floating NSWindow — standard Tauri teardown, guarded on macOS against
+/// the window-teardown race the spawned pet/bubble windows also guard.
+#[tauri::command]
+pub(crate) async fn close_toast_window(app: AppHandle, label: String) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(&label) {
+        let win = window.clone();
+        window
+            .run_on_main_thread(move || {
+                #[cfg(target_os = "macos")]
+                guard_appkit("destroy_toast_window", || {
+                    let _ = win.destroy();
+                });
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let _ = win.destroy();
+                }
+            })
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Make the pet panel the key window so its HTML text inputs (the compose
 /// stick's textarea) can receive keyboard events. The panel is a nonactivating
 /// NSPanel, so this grabs key status WITHOUT activating the app (Spotlight

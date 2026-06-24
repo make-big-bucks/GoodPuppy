@@ -10,6 +10,10 @@
     "core:event:allow-emit",
     "core:window:allow-hide",
     "core:window:allow-start-dragging",
+    "core:window:allow-cursor-position",
+    "core:window:allow-current-monitor",
+    "core:window:allow-primary-monitor",
+    "core:window:allow-monitor-from-point",
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled"

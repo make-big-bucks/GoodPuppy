@@ -21,6 +21,7 @@ export default defineConfig({
       input: {
         pet: resolve(__dirname, "windows/pet.html"),
         bubble: resolve(__dirname, "windows/bubble.html"),
+        toast: resolve(__dirname, "windows/toast.html"),
         login: resolve(__dirname, "windows/login.html"),
         lounge: resolve(__dirname, "windows/lounge.html"),
       },

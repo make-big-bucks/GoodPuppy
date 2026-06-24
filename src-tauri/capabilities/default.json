@@ -5,7 +5,8 @@
   "windows": [
     "main",
     "pet-*",
-    "bubble-*"
+    "bubble-*",
+    "toast-*"
   ],
   "permissions": [
     "core:default",

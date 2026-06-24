@@ -622,11 +622,26 @@ body.platform-windows .sidebar {
 .room-hero {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 38px;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 16px;
   align-items: start;
   padding-bottom: 24px;
   border-bottom: 1px solid var(--line);
+}
+
+.room-hero-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.lounge-notify-toggle.is-on {
+  color: var(--gp-pet-brand, #e89abe);
+}
+
+.lounge-notify-toggle.is-on svg {
+  fill: currentColor;
+  fill-opacity: 0.18;
 }
 
 .room-title {

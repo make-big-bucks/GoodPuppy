@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Good Puppy</title>
+  </head>
+  <body>
+    <!-- 房间上线提醒 toast 窗口：透明窗口内画一张不透明圆角卡片（保证圆角干净，
+         沿用 bubble 窗「透明窗画不透明内容」做法）。内容由 Lounge 经 toast-data 事件下发。 -->
+    <main class="toast-card" role="alert" aria-live="polite">
+      <div class="toast-avatar"></div>
+      <div class="toast-copy">
+        <div class="toast-title"></div>
+        <div class="toast-room"></div>
+      </div>
+      <div class="toast-actions">
+        <button class="toast-enter" type="button">进入房间</button>
+      </div>
+      <button class="toast-close" type="button" aria-label="关闭">&times;</button>
+    </main>
+
+    <script type="module" src="/src/windows/toast/toast-main.ts"></script>
+  </body>
+</html>

@@ -15,11 +15,17 @@ export function switchView(name: "detail" | "empty") {
   empty.hidden = isDetail;
 }
 
+export interface RoomNotifyControls {
+  isSubscribed: (roomId: string) => boolean;
+  onToggle: (roomId: string, on: boolean) => void;
+}
+
 export function renderRoomDetail(
   room: LoungeRoom | null,
   selfAuthId: string | null,
   activeRoomId: string | null = null,
   pendingTransition: PendingTransition | null = null,
+  notify: RoomNotifyControls | null = null,
 ) {
   if (!room) {
     switchView("empty");
@@ -30,6 +36,21 @@ export function renderRoomDetail(
 
   const detail = document.querySelector<HTMLElement>(".lounge-room-detail");
   if (!detail) return;
+
+  const notifyToggle = detail.querySelector<HTMLButtonElement>(".lounge-notify-toggle");
+  if (notifyToggle) {
+    const on = notify ? notify.isSubscribed(room.id) : false;
+    notifyToggle.setAttribute("aria-pressed", on ? "true" : "false");
+    notifyToggle.classList.toggle("is-on", on);
+    notifyToggle.title = on ? "已开启上线提醒，点击关闭" : "有人进入该房间时提醒";
+    // 替换节点以清掉上一次 render 绑定的旧房间 click 闭包。
+    const fresh = notifyToggle.cloneNode(true) as HTMLButtonElement;
+    notifyToggle.replaceWith(fresh);
+    fresh.addEventListener("click", () => {
+      if (!notify) return;
+      notify.onToggle(room.id, !notify.isSubscribed(room.id));
+    });
+  }
 
   const title = detail.querySelector<HTMLElement>(".lounge-room-title");
   const description = detail.querySelector<HTMLElement>(".lounge-room-description");

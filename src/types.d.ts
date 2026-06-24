@@ -50,6 +50,9 @@ export interface GoodPuppyBridge {
   /** 当前所有已连接显示器的整屏矩形（逻辑像素），用于校验存档窗口位置是否仍可见
    * （外接屏断开后旧坐标可能整窗落在屏外）。 */
   getMonitors(): Promise<Array<WindowPoint & WindowSize>>;
+  /** 光标当前所在显示器的可用区域（逻辑像素），用于定位上线提醒 toast；
+   * 回退到当前窗口所在屏 / 主屏。 */
+  getCursorMonitorWorkArea(): Promise<WindowPoint & WindowSize>;
   setWindowPosition(position: WindowPoint): void;
   setWindowSize(size: WindowSize): void;
   /** 原子化设置窗口位置+尺寸（单次 IPC），避免增高/翻转时的闪烁跳动。 */
@@ -85,6 +88,10 @@ export interface GoodPuppyBridge {
   }): Promise<void>;
   /** 协调者请求销毁某只远程气泡窗口（自己的气泡窗口整会话只隐藏不销毁）。 */
   closeBubbleWindow(label: string): Promise<void>;
+  /** 创建一只上线提醒 toast 窗口（label `toast-<seq>`），不透明圆角卡片置顶不抢焦点。 */
+  spawnToastWindow(opts: { label: string; x: number; y: number; width: number; height: number }): Promise<void>;
+  /** 销毁某只 toast 窗口（自动消失 / 手动关闭 / 点击进入后）。 */
+  closeToastWindow(label: string): Promise<void>;
   /** 向指定窗口定向发送一个跨窗口事件（协调者 → 呈现者，或呈现者 → 协调者）。 */
   emitToWindow(label: string, event: string, payload?: unknown): Promise<void>;
   /** 订阅本窗口收到的跨窗口事件（含定向到本窗口的事件）；返回取消订阅函数。 */
@@ -178,6 +185,18 @@ export interface MemberViewModel {
   skin: string;
   isSelf: boolean;
   isOnline: boolean;
+}
+
+/** 一条房间上线提醒的内容载荷（Lounge → toast 窗口）。 */
+export interface OnlineNotifyPayload {
+  roomId: string;
+  roomName: string;
+  userId: string;
+  displayName: string;
+  petId: string;
+  skin: string;
+  /** 自动消失毫秒数（0 表示不自动消失）。 */
+  autoDismissMs: number;
 }
 
 export interface LoungeRoom {

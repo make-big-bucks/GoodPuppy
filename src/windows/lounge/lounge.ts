@@ -10,6 +10,16 @@ import { showPanelSkeleton, showPanelError, hidePanelState, panelIsInError, isOf
 import { initShowcase, openShowcase } from "./views/pet-showcase.js";
 import { openSettings, closeSettings } from "./views/settings.js";
 import { buildMemberViewModels, mapPendingRoomInvitationRows, normalizeGpId } from "./loungeViewModels.js";
+import {
+  initOnlineNotifier,
+  disposeOnlineNotifier,
+  onPresenceChange as notifyPresenceChange,
+  seedSnapshot as seedNotifierSnapshot,
+  syncRooms as syncNotifierRooms,
+  isRoomSubscribed,
+  setRoomSubscribed,
+  dismissAllToasts,
+} from "./onlineNotifier.js";
 import type {
   ConnectionRequestRow,
   LoungeMemberRow,
@@ -601,7 +611,13 @@ function onRoomSelect(id: string) {
 function renderAll() {
   renderRoomList(rooms, selectedRoomId, getActiveRoomId?.() || null, onRoomSelect, pendingTransition);
   renderPendingRequests(pendingRequests);
-  renderRoomDetail(getSelectedRoom(), selfAuthId, getActiveRoomId?.() || null, pendingTransition);
+  renderRoomDetail(getSelectedRoom(), selfAuthId, getActiveRoomId?.() || null, pendingTransition, {
+    isSubscribed: isRoomSubscribed,
+    onToggle: (roomId, on) => {
+      setRoomSubscribed(roomId, on);
+      renderAll();
+    },
+  });
 }
 
 async function loadPanelData() {
@@ -691,6 +707,10 @@ async function loadPanelData() {
     if (!selectedRoomId || !rooms.some((room) => room.id === selectedRoomId)) {
       selectedRoomId = rooms[0]?.id || null;
     }
+
+    // 上线提醒：用本次拉取的 presence 行重置快照基线，并清除已退出房间的订阅开关。
+    seedNotifierSnapshot(allPresence);
+    syncNotifierRooms();
 
     renderAll();
     hasLoadedOnce = true;
@@ -1126,7 +1146,10 @@ function subscribeToPresenceChanges() {
         schema: "public",
         table: "presence",
       },
-      () => {
+      (payload) => {
+        // 先用旧快照做上线检测，再 loadPanelData 刷新数据（其内部会重置快照基线）。
+        const row = payload.new as LoungePresenceRow | null;
+        if (row?.user_id) notifyPresenceChange(row);
         void loadPanelData();
       },
     )
@@ -1317,6 +1340,7 @@ export function initLoungePanel({
   onSkinSaved = nextOnSkinSaved;
 
   bindEvents();
+  bindOnlineNotifier();
   if (!onlineListenerBound) {
     onlineListenerBound = true;
     // 断网恢复时，若当前正停在冷启动报错态，自动重新加载（手动「重试」按钮作兜底）。
@@ -1329,7 +1353,30 @@ export function initLoungePanel({
     subscribeToPresenceChanges();
     subscribeToRoomMembers();
     subscribeToProfilesChanges();
+    startOnlineNotifier();
   }
+}
+
+// toast「进入房间」回传：复用既有进房流程，并清掉所有提醒。整会话只绑定一次。
+let toastEnterListenerBound = false;
+function bindOnlineNotifier() {
+  if (toastEnterListenerBound) return;
+  toastEnterListenerBound = true;
+  window.goodPuppy.onAppEvent<{ roomId?: string }>("toast-enter-room", ({ roomId }) => {
+    if (!roomId) return;
+    dismissAllToasts();
+    if (getActiveRoomId?.() === roomId) return;
+    selectedRoomId = roomId;
+    void handleRoomTransition(roomId, "enter");
+  });
+}
+
+function startOnlineNotifier() {
+  initOnlineNotifier({
+    getSelfId: () => selfAuthId,
+    getRooms: () => rooms,
+    getActiveRoomId: () => getActiveRoomId?.() || null,
+  });
 }
 
 export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, isAnonymous: nextIsAnonymous, email: nextEmail }: UpdatePanelAuthOptions) {
@@ -1346,6 +1393,7 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, is
     subscribeToPresenceChanges();
     subscribeToRoomMembers();
     subscribeToProfilesChanges();
+    startOnlineNotifier();
     renderAuthState(true);
     void loadPanelData();
   } else if (wasLoggedIn) {
@@ -1369,6 +1417,7 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, is
       void supabaseClient.removeChannel(profilesChannel);
       profilesChannel = null;
     }
+    disposeOnlineNotifier();
     rooms = [];
     pendingRequests = [];
     selectedRoomId = null;

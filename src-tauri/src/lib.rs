@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use bubbles::{BubbleRegistry, Bubbles};
 use commands::{
-    close_bubble_window, close_pet_window, focus_pet_panel, set_pet_hit_shape, set_window_bounds,
-    spawn_bubble_window, spawn_pet_window,
+    close_bubble_window, close_pet_window, close_toast_window, focus_pet_panel, set_pet_hit_shape,
+    set_window_bounds, spawn_bubble_window, spawn_pet_window, spawn_toast_window,
 };
 use cursor::spawn_cursor_monitor;
 use hit_test::HitShapes;
@@ -75,6 +75,8 @@ pub fn run() {
             close_pet_window,
             spawn_bubble_window,
             close_bubble_window,
+            spawn_toast_window,
+            close_toast_window,
             set_pet_hit_shape
         ])
         .setup(move |app| {
