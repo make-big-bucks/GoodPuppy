@@ -1,0 +1,193 @@
+name: Feishu Notify
+
+# 将 issue / issue 评论 / issue 指派 / PR 等事件推送到飞书自定义机器人。
+# Webhook 地址存放在仓库 Secret: FEISHU_WEBHOOK（可选签名校验: FEISHU_SIGN_SECRET）。
+on:
+  issues:
+    types: [opened, closed, reopened, assigned, unassigned, labeled]
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [opened, closed, reopened, ready_for_review, assigned, review_requested]
+
+# 只读权限即可，遵循最小权限原则。
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+# 同一条 issue/PR 的连续事件做轻量串行，避免飞书消息乱序。
+concurrency:
+  group: feishu-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    # 没配置 webhook 时直接跳过，避免无意义失败。
+    if: ${{ vars.FEISHU_DISABLED != 'true' }}
+    steps:
+      - name: Send to Feishu
+        uses: actions/github-script@v7
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          FEISHU_SIGN_SECRET: ${{ secrets.FEISHU_SIGN_SECRET }}
+        with:
+          script: |
+            const crypto = require('crypto');
+            const webhook = process.env.FEISHU_WEBHOOK;
+            if (!webhook) {
+              core.warning('未配置 FEISHU_WEBHOOK secret，跳过通知。');
+              return;
+            }
+
+            const { eventName, payload } = context;
+            const repo = payload.repository?.full_name || '';
+            const actor = context.actor;
+
+            // ---- 工具函数 ----
+            const trunc = (s, n = 300) => {
+              if (!s) return '';
+              const t = String(s).trim();
+              return t.length > n ? t.slice(0, n) + ' …' : t;
+            };
+            const fmtUsers = (arr) =>
+              (arr && arr.length) ? arr.map((u) => `\`${u.login}\``).join(' ') : '_无_';
+            const fmtLabels = (arr) =>
+              (arr && arr.length) ? arr.map((l) => `\`${l.name}\``).join(' ') : '_无_';
+
+            // ---- 根据事件类型构造卡片内容 ----
+            let title, template, url, fields = [], bodyText = '';
+
+            if (eventName === 'issues') {
+              const issue = payload.issue;
+              const action = payload.action;
+              const actionCN = {
+                opened: '🆕 新建 Issue',
+                closed: '✅ 关闭 Issue',
+                reopened: '♻️ 重开 Issue',
+                assigned: '👤 Issue 指派',
+                unassigned: '🚫 Issue 取消指派',
+                labeled: '🏷️ Issue 加标签',
+              }[action] || `Issue ${action}`;
+              title = `${actionCN} #${issue.number}`;
+              template = { opened: 'blue', closed: 'grey', reopened: 'blue', assigned: 'orange', unassigned: 'grey', labeled: 'turquoise' }[action] || 'blue';
+              url = issue.html_url;
+              fields = [
+                `**标题**：${issue.title}`,
+                `**操作人**：\`${actor}\``,
+                `**负责人**：${fmtUsers(issue.assignees)}`,
+                `**标签**：${fmtLabels(issue.labels)}`,
+                `**状态**：${issue.state}`,
+              ];
+              if (action === 'assigned' && payload.assignee) {
+                fields.splice(2, 0, `**本次指派给**：\`${payload.assignee.login}\``);
+              }
+              if (action === 'labeled' && payload.label) {
+                fields.push(`**本次新增标签**：\`${payload.label.name}\``);
+              }
+              if (action === 'opened') bodyText = trunc(issue.body);
+
+            } else if (eventName === 'issue_comment') {
+              const issue = payload.issue;
+              const comment = payload.comment;
+              const isPR = !!issue.pull_request;
+              title = `💬 ${isPR ? 'PR' : 'Issue'} 新评论 #${issue.number}`;
+              template = 'turquoise';
+              url = comment.html_url;
+              fields = [
+                `**所属**：${issue.title}`,
+                `**评论人**：\`${actor}\``,
+                `**负责人**：${fmtUsers(issue.assignees)}`,
+              ];
+              bodyText = trunc(comment.body);
+
+            } else if (eventName === 'pull_request') {
+              const pr = payload.pull_request;
+              const action = payload.action;
+              const merged = pr.merged;
+              const actionCN = {
+                opened: '🔀 新建 PR',
+                closed: merged ? '🎉 PR 已合并' : '❌ PR 已关闭',
+                reopened: '♻️ 重开 PR',
+                ready_for_review: '👀 PR 可评审',
+                assigned: '👤 PR 指派',
+                review_requested: '🙏 请求评审',
+              }[action] || `PR ${action}`;
+              title = `${actionCN} #${pr.number}`;
+              template = action === 'opened' ? 'green' : (merged ? 'purple' : (action === 'closed' ? 'grey' : 'green'));
+              url = pr.html_url;
+              fields = [
+                `**标题**：${pr.title}`,
+                `**操作人**：\`${actor}\``,
+                `**分支**：\`${pr.head.ref}\` → \`${pr.base.ref}\``,
+                `**负责人**：${fmtUsers(pr.assignees)}`,
+                `**评审人**：${fmtUsers(pr.requested_reviewers)}`,
+                `**标签**：${fmtLabels(pr.labels)}`,
+                `**改动**：+${pr.additions} / -${pr.deletions}（${pr.changed_files} 个文件）`,
+              ];
+              if (action === 'assigned' && payload.assignee) {
+                fields.push(`**本次指派给**：\`${payload.assignee.login}\``);
+              }
+              if (action === 'review_requested' && payload.requested_reviewer) {
+                fields.push(`**本次请求评审**：\`${payload.requested_reviewer.login}\``);
+              }
+              if (action === 'opened') bodyText = trunc(pr.body);
+
+            } else {
+              core.info(`未处理的事件类型: ${eventName}`);
+              return;
+            }
+
+            // ---- 组装飞书交互卡片 ----
+            const elements = [
+              { tag: 'div', text: { tag: 'lark_md', content: fields.join('\n') } },
+            ];
+            if (bodyText) {
+              elements.push({ tag: 'hr' });
+              elements.push({ tag: 'div', text: { tag: 'lark_md', content: trunc(bodyText) } });
+            }
+            elements.push({
+              tag: 'action',
+              actions: [
+                { tag: 'button', text: { tag: 'plain_text', content: '在 GitHub 查看' }, url, type: 'primary' },
+              ],
+            });
+
+            const card = {
+              config: { wide_screen_mode: true },
+              header: {
+                template,
+                title: { tag: 'plain_text', content: `[${repo}] ${title}` },
+              },
+              elements,
+            };
+
+            const body = { msg_type: 'interactive', card };
+
+            // ---- 可选：飞书签名校验 ----
+            const sign = process.env.FEISHU_SIGN_SECRET;
+            if (sign) {
+              const timestamp = Math.floor(Date.now() / 1000).toString();
+              const stringToSign = `${timestamp}\n${sign}`;
+              const signature = crypto
+                .createHmac('sha256', stringToSign)
+                .update('')
+                .digest('base64');
+              body.timestamp = timestamp;
+              body.sign = signature;
+            }
+
+            const res = await fetch(webhook, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            const text = await res.text();
+            core.info(`飞书响应: ${res.status} ${text}`);
+            // 飞书成功返回 {"code":0,...}；非 0 视为失败。
+            let json = {};
+            try { json = JSON.parse(text); } catch (_) {}
+            if (json.code && json.code !== 0) {
+              core.setFailed(`飞书返回错误 code=${json.code} msg=${json.msg}`);
+            }
