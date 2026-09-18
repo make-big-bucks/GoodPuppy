@@ -2,26 +2,49 @@
 
 .toast-card {
   position: fixed;
-  inset: 8px;
+  inset: 12px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
   box-sizing: border-box;
-  padding: 12px 14px;
-  border: 2px solid rgba(47, 47, 53, 0.42);
-  border-radius: 14px;
-  background: rgba(255, 250, 253, 0.98);
-  box-shadow: 0 12px 30px rgba(47, 47, 53, 0.22);
+  padding: 12px 42px 12px 14px;
+  border: 1px solid rgba(32, 33, 36, 0.12);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(251, 250, 248, 0.76)),
+    rgba(255, 255, 255, 0.72);
+  box-shadow:
+    0 0 14px rgba(25, 22, 18, 0.08),
+    0 5px 12px rgba(25, 22, 18, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
   color: var(--gp-pet-ink);
   font-family: var(--gp-font-pet);
+  backdrop-filter: blur(18px) saturate(1.18);
+  -webkit-backdrop-filter: blur(18px) saturate(1.18);
   opacity: 0;
-  transform: translateY(-6px);
-  transition: opacity 160ms ease, transform 160ms ease;
+  transform: translateY(-8px) scale(0.96);
+  transform-origin: center;
 }
 
 .toast-card.is-visible {
-  opacity: 1;
-  transform: translateY(0);
+  animation: toast-pop-in 260ms cubic-bezier(0.2, 0.9, 0.2, 1.08) both;
+}
+
+@keyframes toast-pop-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+
+  70% {
+    opacity: 1;
+    transform: translateY(1px) scale(1.015);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .toast-avatar {
@@ -50,7 +73,7 @@
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: var(--gp-pet-brand);
+  background: linear-gradient(135deg, rgba(19, 122, 69, 0.95), rgba(47, 95, 143, 0.88));
   color: #fff;
   font-size: 13px;
   font-weight: 700;
@@ -68,6 +91,7 @@
   font-size: 14px;
   font-weight: 700;
   line-height: 1.25;
+  color: #202124;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -75,7 +99,7 @@
 
 .toast-room {
   font-size: 12px;
-  color: rgba(47, 47, 53, 0.66);
+  color: rgba(32, 33, 36, 0.64);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -86,10 +110,10 @@
 }
 
 .toast-enter {
-  border: none;
-  border-radius: 9px;
-  padding: 7px 12px;
-  background: var(--gp-pet-brand);
+  border: 1px solid rgba(19, 122, 69, 0.22);
+  border-radius: 10px;
+  padding: 7px 13px;
+  background: #137a45;
   color: #fff;
   font-family: inherit;
   font-size: 12px;
@@ -99,22 +123,28 @@
 }
 
 .toast-enter:hover {
-  filter: brightness(0.96);
+  background: #106b3d;
 }
 
 .toast-close {
   position: absolute;
-  top: 4px;
-  right: 6px;
+  top: 10px;
+  right: 10px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
   border: none;
-  background: transparent;
-  color: rgba(47, 47, 53, 0.5);
+  border-radius: 50%;
+  background: rgba(32, 33, 36, 0.05);
+  color: rgba(32, 33, 36, 0.48);
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 0;
 }
 
 .toast-close:hover {
-  color: var(--gp-pet-ink);
+  background: rgba(32, 33, 36, 0.1);
+  color: #202124;
 }

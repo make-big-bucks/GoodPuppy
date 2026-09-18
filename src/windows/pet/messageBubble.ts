@@ -66,6 +66,10 @@ export function initBubbleStacks(callbacks: StackCallbacks) {
   cbs = callbacks;
 }
 
+export function bubbleClassName(messageId: string, enteringMessageId: string | null): string {
+  return messageId === enteringMessageId ? "bubble is-entering" : "bubble";
+}
+
 function getStackEl(area: HTMLElement): HTMLElement | null {
   return area.querySelector<HTMLElement>(".bubble-stack");
 }
@@ -83,10 +87,10 @@ export function mountStack(area: HTMLElement, storageKey?: string) {
     event.stopPropagation();
     dismissArea(area);
   });
-  renderArea(area);
+  renderArea(area, null);
 }
 
-function renderArea(area: HTMLElement) {
+function renderArea(area: HTMLElement, enteringMessageId: string | null) {
   const stack = getStackEl(area);
   if (!stack) return;
   const messages = messagesByArea.get(area) ?? [];
@@ -106,7 +110,7 @@ function renderArea(area: HTMLElement) {
 
   for (const message of visible) {
     const bubble = document.createElement("div");
-    bubble.className = "bubble";
+    bubble.className = bubbleClassName(message.id, enteringMessageId);
     bubble.textContent = message.info;
     stack.appendChild(bubble);
   }
@@ -133,7 +137,7 @@ export function setMessagesForArea(
 ) {
   // 历史重放：替换消息列表但保留水位线，水位线以下的旧历史不会重新弹出。
   messagesByArea.set(area, trimMessages(buildMessageList(messages)));
-  renderArea(area);
+  renderArea(area, null);
 }
 
 export function addMessageToArea(area: HTMLElement, message: Partial<LocalMessage> | null | undefined) {
@@ -142,7 +146,7 @@ export function addMessageToArea(area: HTMLElement, message: Partial<LocalMessag
   if (!normalized) return;
   messagesByArea.set(area, trimMessages(messages));
   // 不清水位线：关闭后只有「晚于水位线」的新消息会显示，历史不再重新弹出。
-  renderArea(area);
+  renderArea(area, normalized.id);
 }
 
 /** 关闭该宠物堆叠：记下当前最新消息时间为水位线（持久化），之后只显示更晚的新消息。 */
@@ -150,13 +154,13 @@ export function dismissArea(area: HTMLElement) {
   const messages = messagesByArea.get(area) ?? [];
   const latest = messages.reduce((max, m) => Math.max(max, messageTime(m)), 0);
   saveWatermark(area, latest || Date.now());
-  renderArea(area);
+  renderArea(area, null);
 }
 
 /** 显式重新展开全部堆叠（远程「查看状态」触发），清掉水位线。无消息时无可见效果。 */
 export function showArea(area: HTMLElement) {
   saveWatermark(area, 0);
-  renderArea(area);
+  renderArea(area, null);
 }
 
 export function clearArea(area: HTMLElement) {

@@ -221,6 +221,27 @@ body {
   flex: none;
 }
 
+.bubble.is-entering {
+  animation: bubble-pop-in 220ms cubic-bezier(0.2, 0.9, 0.25, 1.25) both;
+}
+
+@keyframes bubble-pop-in {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.86);
+  }
+
+  72% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.03);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 /* 仅最贴近宠物头部的那条（DOM 中最后一条 = 最新）带指向头的小尾巴。 */
 .bubble-stack .bubble:last-child::after {
   content: "";
@@ -425,11 +446,38 @@ body {
   flex-direction: column-reverse;
 }
 
+.bubble-window[data-placement="below"] .bubble.is-entering {
+  animation-name: bubble-pop-in-below;
+}
+
+@keyframes bubble-pop-in-below {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.86);
+  }
+
+  72% {
+    opacity: 1;
+    transform: translateY(1px) scale(1.03);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .bubble-window[data-placement="below"] .bubble-stack .bubble:last-child::after {
   bottom: auto;
   top: -6px;
   border-top: 0;
   border-bottom: 7px solid rgba(255, 255, 255, 0.92);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble.is-entering {
+    animation: none;
+  }
 }
 
 /* 气泡窗口里关闭按钮由原生光标监视器驱动浮现（见 .dog-area.bubble-hovered 规则）：
