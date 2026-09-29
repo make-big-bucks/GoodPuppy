@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from puppy_states import load_run_states
+
 import argparse
 import base64
 import hashlib
@@ -217,6 +219,7 @@ def main() -> None:
 
     run_dir = Path(args.run_dir).expanduser().resolve()
     manifest_path = run_dir / "imagegen-jobs.json"
+    load_run_states(run_dir)
     manifest = load_manifest(run_dir)
     jobs = select_jobs(
         manifest,

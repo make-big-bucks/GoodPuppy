@@ -1,4 +1,4 @@
 interface:
   display_name: "Hatch Puppy Pet"
   short_description: "Hatch GoodPuppy desktop-pet per-state transparent GIFs"
-  default_prompt: "Hatch a GoodPuppy desktop pet from a concept, reference images, or both. Infer missing names/descriptions, use $imagegen for the base and grounded row strips for the GoodPuppy animation states (14 required + selected idle variants), then use this skill's deterministic scripts to ingest outputs, validate frames, compose per-state 240x240 transparent animated GIFs, and package the pet (pet.json plus one GIF per state)."
+  default_prompt: "Create a GoodPuppy character with a coherent identity, anatomy, style and personality; prepare run-specific idle actions, generate grounded animation rows with $imagegen, preserve motion coordinates, review actual GIFs and transitions, then package only after visual acceptance. Distinguish resource delivery from project integration."

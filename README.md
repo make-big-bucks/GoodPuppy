@@ -73,3 +73,15 @@ npm run tauri build
 ```
 
 Output is in `src-tauri/target/release/bundle/`.
+
+## 自定义桌宠资源
+
+仓库内的 [hatch-puppy-pet](skills/hatch-puppy-pet/SKILL.md) 支持按角色配置画风、身体结构、性格和自定义闲置动作，生成 240×240 透明 GIF。流水线保留动作位移，提供深浅背景、状态切换和镜像伙伴的动态预览，视觉验收后才打包。
+
+资源包默认输出到 `output/pets/<id>/`；接入应用还需要复制到 `public/pets/<id>/` 并注册形象，具体步骤见 [资源与接入契约](skills/hatch-puppy-pet/references/goodpuppy-pet-contract.md)。生成包不等于已安装或已切换当前角色。
+
+技能脚本的确定性回归测试（需要 Python 3 和 Pillow）：
+
+```bash
+python3 -m unittest discover -s skills/hatch-puppy-pet/tests -v
+```

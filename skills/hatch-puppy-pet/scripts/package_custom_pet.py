@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from puppy_states import load_run_states
+
 import argparse
 import json
 import re
@@ -10,6 +12,7 @@ import shutil
 from pathlib import Path
 
 from PIL import Image
+from visual_review import accepted_review
 
 from puppy_states import CELL_HEIGHT, CELL_WIDTH, DURATIONS, FRAME_COUNTS, LOOPS, STATE_NAMES
 
@@ -51,7 +54,15 @@ def main() -> None:
         help="Exact pet package directory. Defaults to ./output/pets/<pet-name> under the current working directory.",
     )
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--run-dir", required=True, help="Run whose current GIFs passed visual review")
     args = parser.parse_args()
+
+    run_dir = Path(args.run_dir).expanduser().resolve()
+    if not accepted_review(run_dir):
+        raise SystemExit("visual review missing, failed or stale")
+    jobs = json.loads((run_dir / "imagegen-jobs.json").read_text())["jobs"]
+    if any(job.get("synthetic_test_source") for job in jobs):
+        raise SystemExit("synthetic test sources cannot be delivered")
 
     raw_pet_name = (args.pet_name or args.display_name).strip()
     if not raw_pet_name:
@@ -62,6 +73,9 @@ def main() -> None:
     display_name = (args.display_name or raw_pet_name).strip()
 
     gif_dir = Path(args.gif_dir).expanduser().resolve()
+    if gif_dir != run_dir / "gifs":
+        raise SystemExit("--gif-dir must be the reviewed run GIF directory")
+    load_run_states(gif_dir)
     target_dir = (
         Path(args.output_dir).expanduser().resolve()
         if args.output_dir
@@ -76,6 +90,10 @@ def main() -> None:
     for state in STATE_NAMES:
         source = gif_dir / f"{state}.gif"
         validate_gif(source, state)
+        from validate_gifs import validate_gif as validate_export
+        result = validate_export(gif_dir, state, 50)
+        if not result["ok"]:
+            raise SystemExit("; ".join(result["errors"]))
         states_manifest.append(
             {
                 "state": state,

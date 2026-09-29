@@ -12,6 +12,8 @@ renderer wants when it swaps the <img> src.
 
 from __future__ import annotations
 
+from puppy_states import load_run_states
+
 import argparse
 import json
 from pathlib import Path
@@ -65,7 +67,7 @@ def to_transparent_palette(frame: Image.Image) -> Image.Image:
 def compose_state_gif(state: str, frames_root: Path, output_dir: Path) -> dict[str, object]:
     expected = FRAME_COUNTS[state]
     files = frame_files(frames_root / state)
-    if len(files) < expected:
+    if len(files) != expected:
         raise SystemExit(
             f"{state} needs {expected} frames, found {len(files)} under {frames_root / state}"
         )
@@ -107,6 +109,7 @@ def main() -> None:
 
     frames_root = Path(args.frames_root).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
+    load_run_states(frames_root)
     states = parse_states(args.states)
 
     composed = [compose_state_gif(state, frames_root, output_dir) for state in states]

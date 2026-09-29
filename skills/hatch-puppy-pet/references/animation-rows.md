@@ -1,7 +1,7 @@
 # Animation States
 
 GoodPuppy renders one transparent animated GIF per state, sized 240x240, swapped
-into the pet `<img>` by `src/renderer.js`. The authoritative manifest lives in
+into the pet `<img>` by `src/windows/pet/renderer.ts`. The authoritative manifest lives in
 `scripts/puppy_states.py`; this table mirrors it for review.
 
 States come from `docs/桌宠动画清单.md` and ADR-0009 (分层动画的双角色互动与 idle
@@ -32,8 +32,9 @@ frame (the app re-triggers them).
 The old fixed `wander` / `sit-stand` pair is replaced by per-pet idle variants.
 The app plays any `idle-*` state declared in `pet.json` on a random timer while
 idle, so different pets can ship different flourishes. The pool below has fixed
-specs for stable generation; `SELECTED_IDLE_VARIANTS` in `puppy_states.py`
-chooses which entries a run generates (default: `idle-stretch`, `idle-shake`).
+specs for stable generation; The run profile or `--idle-variants` chooses entries (default: `idle-stretch`,
+`idle-shake`). Custom idle actions use validated run-level specifications; never edit
+shared source to choose a character's variants.
 
 | State | Frames | Loop | Durations (ms) | Purpose |
 | --- | ---: | --- | --- | --- |
@@ -56,13 +57,16 @@ Some states explicitly allow one inanimate prop (see `STATE_REQUIREMENTS` in
 in a frame), the food pack (`feed`, may be separate from the pet early on), the
 paper plane (`message`, may detach in the final frames), the magic wand
 (`cast`, always held), and the tiny desk/laptop (`busy`, always touching).
-Props must be opaque, hard-edged, pixel-style, and stay inside their frame slot.
+Props must be opaque, clean-edged, consistent with the character style, and stay inside their frame slot.
 
 ## Generation layout
 
 Each state is generated as one horizontal sprite strip of N equal 240x240 slots
 (N = frame count), keyed off a flat chroma background, then extracted into frames
 and assembled into the transparent GIF with the durations and loop flag above.
-Prop-heavy states (`enter`, `leave`, `feed`, `message`) are extracted with fixed
-equal slots instead of connected-component grouping; keep every pose and prop
-centered in its slot.
+All states default to stable equal-slot extraction: preserve a shared scale and the
+original slot-relative positions, including motion and right-side cuddle contact.
+Legacy component or bounding-box slot extraction is available only for deliberate
+compatibility work, not automatic fallback. The state table is a production timing
+preset; anatomy-specific choreography comes from the character profile. Pixel props
+in the historical descriptions are defaults, not a mandatory rendering style.

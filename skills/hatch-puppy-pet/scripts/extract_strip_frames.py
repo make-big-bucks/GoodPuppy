@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from puppy_states import load_run_states
+
 import argparse
 import json
 import math
@@ -58,7 +60,7 @@ def remove_chroma_background(
         for x in range(rgba.width):
             red, green, blue, alpha = pixels[x, y]
             if color_distance(red, green, blue, chroma_key) <= threshold:
-                pixels[x, y] = (red, green, blue, 0)
+                pixels[x, y] = (0, 0, 0, 0)
     return rgba
 
 
@@ -213,6 +215,27 @@ def extract_slot_frames(strip: Image.Image, frame_count: int) -> list[Image.Imag
     return frames
 
 
+def extract_stable_frames(strip: Image.Image, frame_count: int, *, pixel: bool = False) -> list[Image.Image]:
+    """Preserve the whole slot coordinate system, including empty motion space.
+
+    A single uniform scale applies to the row. Never crop to each pose's bbox:
+    that would erase flight, contact positions and intentional squash/stretch.
+    """
+    slot_width = strip.width / frame_count
+    scale = min(CELL_WIDTH / slot_width, CELL_HEIGHT / strip.height)
+    width = max(1, round(slot_width * scale))
+    height = max(1, round(strip.height * scale))
+    resample = Image.Resampling.NEAREST if pixel else Image.Resampling.LANCZOS
+    frames = []
+    for index in range(frame_count):
+        crop = strip.crop((round(index * slot_width), 0, round((index + 1) * slot_width), strip.height))
+        crop = crop.resize((width, height), resample)
+        canvas = Image.new("RGBA", (CELL_WIDTH, CELL_HEIGHT))
+        canvas.alpha_composite(crop, ((CELL_WIDTH - width) // 2, (CELL_HEIGHT - height) // 2))
+        frames.append(canvas)
+    return frames
+
+
 def extract_state(
     strip_path: Path,
     state: str,
@@ -230,10 +253,12 @@ def extract_state(
 
     frames = None
     used_method = method
-    # 含大体量分离道具的状态（门/食物包/纸飞机）按槽位切割更稳：
-    # 连通组件提取可能把道具归到相邻帧的种子上。
-    if method == "auto" and state in SLOT_EXTRACT_STATES:
-        method = "slots"
+    if method in {"auto", "stable-slots"}:
+        request_path = strip_path.parent.parent / "pet_request.json"
+        request = json.loads(request_path.read_text()) if request_path.is_file() else {}
+        frames = extract_stable_frames(strip, frame_count, pixel=request.get("style_preset") == "pixel")
+        used_method = "stable-slots"
+        method = "stable-slots"
     if method in {"auto", "components"}:
         frames = extract_component_frames(strip, frame_count)
         if frames is None and method == "components":
@@ -262,14 +287,15 @@ def main() -> None:
     parser.add_argument("--key-threshold", type=float, default=96.0)
     parser.add_argument(
         "--method",
-        choices=("auto", "components", "slots"),
+        choices=("auto", "stable-slots", "components", "slots"),
         default="auto",
-        help="Use connected sprite components when possible, or fixed equal slots.",
+        help="auto preserves slot coordinates; components/slots are legacy recentering modes.",
     )
     args = parser.parse_args()
 
     decoded_dir = Path(args.decoded_dir).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
+    load_run_states(decoded_dir)
     chroma_key = load_chroma_key(decoded_dir, args.chroma_key)
     states = parse_states(args.states)
     manifest = []

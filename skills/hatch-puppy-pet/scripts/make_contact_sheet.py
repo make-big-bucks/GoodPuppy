@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from puppy_states import load_run_states
+
 import argparse
 from pathlib import Path
 
@@ -41,6 +43,7 @@ def main() -> None:
     args = parser.parse_args()
 
     frames_root = Path(args.frames_root).expanduser().resolve()
+    load_run_states(frames_root)
     cell_w = max(1, round(CELL_WIDTH * args.scale))
     cell_h = max(1, round(CELL_HEIGHT * args.scale))
     rows = len(STATES)

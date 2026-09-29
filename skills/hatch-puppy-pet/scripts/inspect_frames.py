@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from puppy_states import load_run_states
+
 import argparse
 import json
 import math
@@ -114,6 +116,7 @@ def inspect_state(
     row_warnings: list[str] = []
     frames: list[dict[str, object]] = []
     areas: list[int] = []
+    signatures = set()
     manifest_row = manifest_rows.get(state, {})
     method = manifest_row.get("method")
 
@@ -134,6 +137,7 @@ def inspect_state(
     for index, frame_path in enumerate(files[:expected_count]):
         with Image.open(frame_path) as opened:
             frame = opened.convert("RGBA")
+        signatures.add(frame.tobytes())
         nontransparent = alpha_nonzero_count(frame)
         bbox = frame.getbbox()
         edge_pixels = edge_alpha_count(frame, args.edge_margin)
@@ -171,6 +175,9 @@ def inspect_state(
             row_errors.append(
                 f"{state} frame {index:02d} has {chroma_adjacent_pixels} non-transparent pixels close to the chroma key"
             )
+
+    if files and len(signatures) < 2:
+        row_errors.append(f"{state}: all extracted frames are identical")
 
     if areas:
         row_median = median(areas)
@@ -210,11 +217,12 @@ def main() -> None:
     parser.add_argument(
         "--require-components",
         action="store_true",
-        help="Fail rows that fell back to equal-slot extraction.",
+        help="Require the stable-slot production extraction method (legacy flag name).",
     )
     args = parser.parse_args()
 
     frames_root = Path(args.frames_root).expanduser().resolve()
+    load_run_states(frames_root)
     manifest_rows = load_manifest(frames_root)
     chroma_key = load_chroma_key(frames_root)
     rows = [

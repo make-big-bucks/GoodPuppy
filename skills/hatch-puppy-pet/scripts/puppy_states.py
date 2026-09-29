@@ -20,12 +20,14 @@ The state set has two parts:
   other -- generate only the rightward-leaning version).
 - IDLE_VARIANT_POOL: optional per-pet "alive" flourishes that replace the old
   fixed wander/sit-stand pair. The app plays any `idle-*` state declared in
-  pet.json on a random timer while idle. SELECTED_IDLE_VARIANTS picks which
-  pool entries this run generates; change the selection (not the specs) to give
-  different pets different flavor while keeping generation stable.
+  pet.json on a random timer while idle. the run request freezes the selected variants and any custom idle specifications.
 """
 
 from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
 
 # GoodPuppy renders 240x240 transparent GIFs (public/pets/<id>/<state>.gif),
 # so every cell, frame, layout guide, and final GIF is square 240x240.
@@ -39,11 +41,11 @@ REQUIRED_STATES: list[tuple[str, int, list[int], bool, str]] = [
      "neutral breathing and blinking idle loop; first frame is the reduced-motion still"),
     # B001 用户交互: 拖动 -> 被无形之手拎起（方向无关）
     ("drag-lift", 6, [110, 110, 110, 110, 110, 180], True,
-     "held aloft by an invisible grip: body dangles upright, all four limbs hang and paddle in the air, "
+     "held aloft by an invisible grip: body dangles upright, existing limbs or body tips hang and paddle in the air, "
      "head tilts up and wiggles; symmetric front or 3/4 view with no left/right direction"),
     # C001 好友交互: 发消息 (叼起纸飞机掷出)
     ("message", 6, [140, 140, 150, 150, 160, 260], False,
-     "send a message: pick up a small pixel paper plane in the mouth, rear the head back, "
+     "send a message: pick up a small paper plane using its existing body anatomy, lean back, "
      "toss it up and away off the top of the frame, then settle watching it go"),
     # C002 好友交互: 贴贴 (双方都播; 基准朝右, app 负责镜像)
     ("cuddle", 6, [180, 150, 150, 180, 180, 240], True,
@@ -51,23 +53,23 @@ REQUIRED_STATES: list[tuple[str, int, list[int], bool, str]] = [
      "flat against that edge, cheek squished, happy closed eyes; generate only this rightward lean"),
     # C002 好友交互: 施法 (feed/kick 的发起者动画)
     ("cast", 6, [140, 130, 130, 150, 160, 260], False,
-     "wave a small pixel magic wand held in one paw: raise the wand, two quick flourish waves with "
+     "wave a small magic wand held against an existing limb or body: raise the wand, two quick flourish waves with "
      "a tiny opaque spark touching the wand tip, then lower it"),
     # C002 好友交互: 喂食 (被作用者动画)
     ("feed", 8, [160, 140, 140, 140, 140, 150, 160, 260], False,
-     "a small pixel food pack appears on the ground in front of the pet, the pet dips its head in "
+     "a small food pack appears on the ground in front of the pet, the pet dips its head in "
      "and eats it bite by bite until the pack is gone, then looks up satisfied"),
     # C002 好友交互: 踢飞 (被作用者动画)
     ("kicked", 6, [120, 90, 90, 110, 140, 260], False,
      "comedic launch after being kicked: tumble through poses and land dazed"),
     # C003 好友交互: 进入房间 (从门中走出)
     ("enter", 8, [150, 130, 120, 120, 120, 130, 150, 260], False,
-     "arrive through a door: first frame shows only a closed pixel door, the pet gradually steps "
+     "arrive through a door: first frame shows only a closed door, the pet gradually steps "
      "out of the opening door frame by frame, the door shrinks away, and the final frame shows the "
      "pet standing alone in a near-idle pose"),
     # C003 好友交互: 别人进入时打招呼
     ("greet", 4, [150, 140, 140, 260], False,
-     "a friendly greeting: raise a paw and tilt the head"),
+     "a friendly greeting: raise an existing limb or tilt the body"),
     # C003 好友交互: 离开 (走入门中消失)
     ("leave", 8, [150, 130, 120, 120, 120, 130, 150, 280], False,
      "depart through a door: a pixel door appears beside the pet, the pet walks into the opening "
@@ -77,23 +79,23 @@ REQUIRED_STATES: list[tuple[str, int, list[int], bool, str]] = [
      "cheerful bounce/wiggle expressing happiness"),
     # D001 状态动画: 难过
     ("sad", 5, [260, 180, 180, 200, 320], True,
-     "downcast slump with drooping ears and a slow sniffle loop"),
+     "downcast slump with lowered posture and a slow sigh loop"),
     # D002 状态动画: 忙碌 (专注勿扰)
     ("busy", 6, [140, 130, 130, 140, 150, 220], True,
-     "deep do-not-disturb focus: hunched over a tiny pixel desk or laptop touching the body, "
-     "back half-turned, head down, paws tapping steadily, never looking up"),
+     "deep do-not-disturb focus: hunched over a tiny desk or laptop touching the body, "
+     "back half-turned, head down, existing appendages or body tapping steadily, never looking up"),
     # D002 状态动画: 无聊
     ("bored", 5, [280, 180, 180, 200, 340], True,
      "listless bored idle: sway, sigh, look around slowly"),
 ]
 
 # idle 变体候选池: per-pet 的「鲜活」花样。每个条目规格固定以保证稳定生成；
-# 通过 SELECTED_IDLE_VARIANTS 选择本次生成哪些（默认 2 个）。
+# 通过每次运行的 profile/CLI 选择（默认 2 个）。
 IDLE_VARIANT_POOL: list[tuple[str, int, list[int], bool, str]] = [
     ("idle-stretch", 6, [160, 140, 140, 160, 180, 260], False,
-     "a long satisfying stretch: front paws slide forward, chest dips, rump up, then rise back"),
+     "a long satisfying stretch: extend the existing body, hold the stretch, then recover"),
     ("idle-shake", 6, [120, 110, 110, 120, 140, 220], False,
-     "a quick full-body shake from head to tail, fur/body ruffling, ending composed"),
+     "a quick full-body shake through the existing body, surface gently ruffling, ending composed"),
     ("idle-sniff", 6, [150, 140, 140, 150, 160, 240], False,
      "curious sniffing: lower the nose toward the ground, sniff side to side, then look up"),
     ("idle-tail-chase", 6, [120, 110, 110, 110, 130, 200], False,
@@ -102,8 +104,7 @@ IDLE_VARIANT_POOL: list[tuple[str, int, list[int], bool, str]] = [
      "sit briefly and scratch behind one ear with a hind leg, then settle back"),
 ]
 
-# 本次运行生成的 idle 变体。换 pet 想要不同花样时改这份选择即可，
-# 规格本身（帧数/时长/提示词）保持不变以维持稳定生成。
+# 兼容旧运行的默认选择；新运行通过 profile/CLI 冻结配置，不修改此列表。
 SELECTED_IDLE_VARIANTS: list[str] = ["idle-stretch", "idle-shake"]
 
 _POOL_BY_NAME = {name: entry for entry in IDLE_VARIANT_POOL for name in [entry[0]]}
@@ -159,7 +160,7 @@ REPAIR_GUIDANCE: dict[str, list[str]] = {
         *SLOT_DISCIPLINE_GUIDANCE,
     ],
     "message": [
-        "The paper plane must stay attached to the pet (mouth or paw) in every frame "
+        "The paper plane must stay attached to the pet (existing appendage or body) in every frame "
         "except the final 1-2 frames, where it detaches upward but remains inside the "
         "same slot's safe area.",
         *SLOT_DISCIPLINE_GUIDANCE,
@@ -178,7 +179,68 @@ def parse_states(raw: str) -> list[str]:
     if raw.strip().lower() == "all":
         return list(STATE_NAMES)
     states = [item.strip() for item in raw.split(",") if item.strip()]
+    if len(states) != len(set(states)):
+        raise SystemExit("duplicate state selection")
     unknown = sorted(set(states) - set(STATE_NAMES))
     if unknown:
         raise SystemExit(f"unknown state(s): {', '.join(unknown)}")
     return states
+
+
+def configure_states(entries: list[dict[str, object]]) -> None:
+    """Load a validated run snapshot, updating containers imported by other scripts."""
+    if not isinstance(entries, list):
+        raise SystemExit("states must be a list")
+    required = {entry[0]: entry for entry in REQUIRED_STATES}
+    parsed = []
+    seen = set()
+    for item in entries:
+        if not isinstance(item, dict):
+            raise SystemExit("each state must be an object")
+        name = item.get("state")
+        if not isinstance(name, str) or (name not in required and not re.fullmatch(r"idle-[a-z][a-z-]*", name)):
+            raise SystemExit(f"invalid state name: {name}")
+        if name in seen:
+            raise SystemExit(f"duplicate state: {name}")
+        seen.add(name)
+        frames = item.get("frames")
+        durations = item.get("durations_ms")
+        loop = item.get("loop")
+        purpose = item.get("purpose")
+        if type(frames) is not int or not 2 <= frames <= 8:
+            raise SystemExit(f"{name}: frames must be an integer from 2 to 8")
+        if not isinstance(durations, list) or len(durations) != frames or any(type(ms) is not int or ms < 20 or ms > 5000 or ms % 10 for ms in durations):
+            raise SystemExit(f"{name}: durations_ms must match frames, in 10ms steps (20..5000)")
+        if type(loop) is not bool or not isinstance(purpose, str) or not purpose.strip():
+            raise SystemExit(f"{name}: loop and purpose are required")
+        if name in required:
+            spec = required[name]
+            if (frames, durations, loop) != (spec[1], spec[2], spec[3]):
+                raise SystemExit(f"{name}: required state timing differs from the app production preset")
+        elif loop:
+            raise SystemExit(f"{name}: idle variants must play once")
+        parsed.append((name, frames, durations, loop, purpose))
+    if set(required) - seen:
+        raise SystemExit("missing required states: " + ", ".join(sorted(set(required) - seen)))
+    STATES[:] = parsed
+    STATE_NAMES[:] = [entry[0] for entry in parsed]
+    for target, index in ((FRAME_COUNTS, 1), (DURATIONS, 2), (LOOPS, 3), (PURPOSES, 4)):
+        target.clear()
+        target.update({entry[0]: entry[index] for entry in parsed})
+    EXPECTED_EXTRACTION_METHODS.clear()
+    EXPECTED_EXTRACTION_METHODS.update({name: "stable-slots" for name in STATE_NAMES})
+
+
+def state_records(entries=None) -> list[dict[str, object]]:
+    return [dict(state=n, frames=f, durations_ms=d, loop=l, purpose=p)
+            for n, f, d, l, p in (STATES if entries is None else entries)]
+
+
+def load_run_states(directory: Path) -> None:
+    """Read the run request beside an artifact directory; standalone legacy use keeps presets."""
+    for root in (directory, directory.parent):
+        request = root / "pet_request.json"
+        if request.is_file():
+            configure_states(json.loads(request.read_text(encoding="utf-8"))["states"])
+            return
+    configure_states(state_records(REQUIRED_STATES + [_POOL_BY_NAME[n] for n in SELECTED_IDLE_VARIANTS]))

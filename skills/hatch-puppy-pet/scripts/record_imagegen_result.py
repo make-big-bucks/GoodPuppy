@@ -7,7 +7,6 @@ import argparse
 import hashlib
 import json
 import math
-import os
 import re
 import shutil
 from datetime import datetime, timezone
@@ -66,19 +65,6 @@ def completed_job_ids(manifest: dict[str, object]) -> set[str]:
     }
 
 
-def is_relative_to(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-    except ValueError:
-        return False
-    return True
-
-
-def default_generated_images_root() -> Path:
-    codex_home = Path(os.environ.get("CODEX_HOME") or "~/.codex").expanduser().resolve()
-    return codex_home / "generated_images"
-
-
 def validate_source_path(
     *,
     source: Path,
@@ -87,19 +73,7 @@ def validate_source_path(
 ) -> str:
     if allow_synthetic_test_source:
         return "synthetic-test"
-    if is_relative_to(source, run_dir):
-        raise SystemExit(
-            "source image is inside the pet run directory; record the original "
-            "$imagegen output from $CODEX_HOME/generated_images/.../ig_*.png instead"
-        )
-    generated_root = default_generated_images_root()
-    if not is_relative_to(source, generated_root) or not source.name.startswith("ig_"):
-        raise SystemExit(
-            "source image does not look like a built-in $imagegen output; expected "
-            f"{generated_root}/.../ig_*.png. Do not ingest locally drawn or "
-            "post-processed row strips as visual job outputs."
-        )
-    return "built-in-imagegen"
+    return "imagegen-tool-output"
 
 
 def load_run_chroma_key(run_dir: Path) -> tuple[int, int, int] | None:
@@ -242,6 +216,7 @@ def main() -> None:
     parser.add_argument("--job-id", required=True)
     parser.add_argument("--source", required=True)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--source-tool", default="imagegen", help="Actual generation tool that returned this original file")
     parser.add_argument(
         "--skip-background-check",
         action="store_true",
@@ -280,6 +255,8 @@ def main() -> None:
     with locked_manifest(manifest_path) as manifest:
         job = find_job(manifest, args.job_id)
 
+        if args.job_id == "base" and any(j.get("kind") == "row-strip" and j.get("status") == "complete" for j in job_list(manifest)):
+            raise SystemExit("base is locked after row generation; start a new run to redesign the character")
         missing_deps = [
             dep
             for dep in job.get("depends_on", [])
@@ -295,6 +272,8 @@ def main() -> None:
         if not isinstance(output_raw, str):
             raise SystemExit(f"job {args.job_id} has no output_path")
         output = run_dir / output_raw
+        if output.resolve() == source:
+            raise SystemExit("source must be the original tool output, not the decoded destination")
         if output.exists() and not args.force:
             raise SystemExit(f"{output} already exists; pass --force to replace it")
 
@@ -304,6 +283,7 @@ def main() -> None:
 
         job["status"] = "complete"
         job["source_path"] = str(source)
+        job["source_tool"] = args.source_tool
         job["source_provenance"] = source_provenance
         job["source_sha256"] = file_sha256(source)
         job["output_sha256"] = file_sha256(output)
@@ -329,6 +309,9 @@ def main() -> None:
             job=job,
             metadata=metadata,
         )
+
+    for filename in ("visual-review.json", "run-summary.json"):
+        (run_dir / "qa" / filename).unlink(missing_ok=True)
 
     print(
         json.dumps(

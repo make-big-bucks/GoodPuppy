@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+from puppy_states import load_run_states, STATE_NAMES
+from visual_review import accepted_review
+from render_preview import render
 import hashlib
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -29,22 +31,6 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def is_relative_to(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-    except ValueError:
-        return False
-    return True
-
-
-def default_codex_home() -> Path:
-    return Path(os.environ.get("CODEX_HOME") or "~/.codex").expanduser().resolve()
-
-
-def default_generated_images_root() -> Path:
-    return default_codex_home() / "generated_images"
-
-
 def manifest_path(raw: object, *, run_dir: Path, field: str, job_id: str) -> Path:
     if not isinstance(raw, str) or not raw:
         raise SystemExit(f"job {job_id} has no {field}")
@@ -61,11 +47,9 @@ def validate_hash(job: dict[str, object], *, source: Path, output: Path, job_id:
             f"job {job_id} is missing source_sha256; ingest visual outputs with "
             "record_imagegen_result.py instead of editing imagegen-jobs.json"
         )
-    if not source.is_file():
-        raise SystemExit(f"job {job_id} source image no longer exists: {source}")
     if not output.is_file():
         raise SystemExit(f"job {job_id} decoded output is missing: {output}")
-    if file_sha256(source) != expected_hash:
+    if source.is_file() and file_sha256(source) != expected_hash:
         raise SystemExit(f"job {job_id} source image hash does not match imagegen-jobs.json")
     if file_sha256(output) != expected_hash:
         raise SystemExit(
@@ -109,22 +93,10 @@ def validate_completed_job_source(
         validate_hash(job, source=source, output=output, job_id=job_id)
         return
 
-    if job.get("source_provenance") != "built-in-imagegen":
-        raise SystemExit(
-            f"job {job_id} was not recorded as a built-in $imagegen output; "
-            "use record_imagegen_result.py with the selected $CODEX_HOME/generated_images/.../ig_*.png file"
-        )
-    if is_relative_to(source, run_dir):
-        raise SystemExit(
-            f"job {job_id} source image is inside the pet run directory; "
-            "do not use locally generated row artifacts as visual sources"
-        )
-    generated_root = default_generated_images_root()
-    if not is_relative_to(source, generated_root) or not source.name.startswith("ig_"):
-        raise SystemExit(
-            f"job {job_id} source image is not a built-in $imagegen output under "
-            f"{generated_root}/.../ig_*.png"
-        )
+    if job.get("source_provenance") not in {"built-in-imagegen", "imagegen-tool-output"}:
+        raise SystemExit(f"job {job_id} was not recorded as a generation tool output")
+    if job.get("source_provenance") == "imagegen-tool-output" and not job.get("source_tool"):
+        raise SystemExit(f"job {job_id} lacks generation tool attribution")
     validate_hash(job, source=source, output=output, job_id=job_id)
 
 
@@ -133,6 +105,9 @@ def require_complete_jobs(run_dir: Path, *, allow_synthetic_test_sources: bool) 
     jobs = manifest.get("jobs")
     if not isinstance(jobs, list):
         raise SystemExit("invalid imagegen-jobs.json: jobs must be a list")
+    ids = [job.get("id") for job in jobs if isinstance(job, dict)]
+    if len(ids) != len(set(ids)) or set(ids) != {"base", *STATE_NAMES}:
+        raise SystemExit("job manifest does not match the run state snapshot")
     incomplete = [
         str(job.get("id"))
         for job in jobs
@@ -171,6 +146,7 @@ def main() -> None:
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--allow-slot-extraction", action="store_true")
     parser.add_argument("--skip-package", action="store_true")
+    parser.add_argument("--package", action="store_true", help="Package only after an up-to-date visual pass")
     parser.add_argument(
         "--package-dir",
         default="",
@@ -181,6 +157,7 @@ def main() -> None:
 
     scripts_dir = Path(__file__).resolve().parent
     run_dir = Path(args.run_dir).expanduser().resolve()
+    load_run_states(run_dir)
     request = load_json(run_dir / "pet_request.json")
     pet_id = str(request.get("pet_id") or "")
     display_name = str(request.get("display_name") or "")
@@ -273,8 +250,14 @@ def main() -> None:
         ]
     )
 
+    preview = render(run_dir)
+    visual_pass = accepted_review(run_dir)
     package_dir = None
-    if not args.skip_package:
+    if args.package and not args.skip_package:
+        if args.allow_synthetic_test_sources:
+            raise SystemExit("synthetic test runs cannot be packaged for delivery")
+        if not visual_pass:
+            raise SystemExit("visual review missing, failed or stale; inspect qa/preview.html and record visual_review.py first")
         package_command = [
             sys.executable,
             str(scripts_dir / "package_custom_pet.py"),
@@ -286,7 +269,8 @@ def main() -> None:
             description,
             "--gif-dir",
             str(gif_dir),
-            "--force",
+            "--run-dir",
+            str(run_dir),
         ]
         if args.package_dir:
             package_command.extend(["--output-dir", str(Path(args.package_dir).expanduser().resolve())])
@@ -298,7 +282,11 @@ def main() -> None:
         )
 
     summary = {
-        "ok": True,
+        "ok": visual_pass,
+        "machine_ok": True,
+        "visual_qa": "pass" if visual_pass else "pending",
+        "status": "packaged" if package_dir else ("reviewed" if visual_pass else "awaiting_visual_review"),
+        "preview": str(preview),
         "run_dir": str(run_dir),
         "gifs": str(gif_dir),
         "validation": str(gif_dir / "validation.json"),

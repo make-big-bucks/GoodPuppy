@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from puppy_states import load_run_states
+
 import argparse
 import json
 import shutil
@@ -49,16 +51,16 @@ def append_repair_note(
     prompt_path = run_dir / "prompts" / "rows" / f"{state}.md"
     if not prompt_path.exists():
         raise SystemExit(f"row prompt not found: {prompt_path}")
-    existing = prompt_path.read_text(encoding="utf-8")
+    existing = prompt_path.read_text(encoding="utf-8").split("\n\nRepair attempt ", 1)[0]
     note = f"""
 
 Repair attempt {attempt}:
 - The previous `{state}` strip failed QA: {reason}
 - Regenerate the entire row, not just one pose.
-- Fill every requested frame slot with one complete centered full-body pet pose.
+- Fill every requested frame slot with one complete pose or the state-specific door-only endpoint.
 - Keep large gaps of pure chroma key only between slots; do not leave a requested slot empty.
 - Avoid pose overlap, clipping, edge slivers, extra partial sprites, and detached fragments from neighboring poses.
-- Use the canonical base image and any original references listed in `imagegen-jobs.json` as grounding inputs.
+- Use the canonical base image and the layout guide listed in `imagegen-jobs.json` as grounding inputs.
 - Do not redesign the pet. Keep the exact same head shape, face design, markings, body proportions, palette, outline weight, materials, and props as the approved base pet.
 - If the contact sheet shows identity drift, repair only this row while preserving the canonical base identity.
 """
@@ -169,6 +171,7 @@ def main() -> None:
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir).expanduser().resolve()
+    load_run_states(run_dir)
     manifest_path = run_dir / "imagegen-jobs.json"
 
     if args.states:
@@ -191,6 +194,15 @@ def main() -> None:
 
     queued: list[dict[str, object]] = []
     with locked_manifest(manifest_path) as manifest:
+        request = load_json(run_dir / "pet_request.json")
+        limit = int(request.get("max_repairs", 2))
+        by_id = {job["id"]: job for job in job_list(manifest)}
+        for repair in repairs:
+            state = str(repair["state"])
+            if state not in by_id or not (run_dir / "prompts" / "rows" / f"{state}.md").is_file():
+                raise SystemExit(f"missing repair job or prompt: {state}")
+            if int(by_id[state].get("repair_attempt", 0)) >= limit:
+                raise SystemExit(f"{state}: repair budget exhausted ({limit}); revise the plan before spending more generation calls")
         for repair in repairs:
             state = str(repair["state"])
             reason = str(repair["reason"])
@@ -199,6 +211,9 @@ def main() -> None:
             append_repair_note(run_dir, state, attempt, reason, extra_note=args.note)
             queued.append({"state": state, "reason": reason, **queued_repair})
 
+    if queued:
+        for filename in ("visual-review.json", "run-summary.json"):
+            (run_dir / "qa" / filename).unlink(missing_ok=True)
     print(json.dumps({"ok": True, "queued": queued}, indent=2))
 
 

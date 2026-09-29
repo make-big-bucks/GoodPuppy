@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from puppy_states import load_run_states
+
 import argparse
 import json
 from pathlib import Path
@@ -53,7 +55,10 @@ def validate_gif(gif_dir: Path, state: str, min_used_pixels: int) -> dict[str, o
             transparent = has_transparency(opened)
             # In a GIF, loop=0 means loop forever; no loop extension means play once.
             loop_info = opened.info.get("loop")
-            first = opened.convert("RGBA")
+            decoded_frames = []
+            for frame_index in range(frames):
+                opened.seek(frame_index)
+                decoded_frames.append(opened.convert("RGBA"))
             durations = gif_frame_durations(opened)
     except Exception as exc:  # noqa: BLE001
         return {
@@ -85,9 +90,15 @@ def validate_gif(gif_dir: Path, state: str, min_used_pixels: int) -> dict[str, o
             f"{state}: per-frame durations {durations} do not match expected {expected_durations}"
         )
 
-    visible = sum(first.getchannel("A").histogram()[1:])
-    if visible < min_used_pixels:
-        errors.append(f"{state}: first frame is empty or too sparse ({visible} visible pixels)")
+    for index, frame in enumerate(decoded_frames):
+        alpha = frame.getchannel("A")
+        visible = sum(alpha.histogram()[1:])
+        if visible < min_used_pixels:
+            errors.append(f"{state}: frame {index} is empty or too sparse ({visible} visible pixels)")
+        if alpha.getextrema()[0] > 0:
+            errors.append(f"{state}: frame {index} has no transparent background pixels")
+    if len({frame.tobytes() for frame in decoded_frames}) < 2:
+        errors.append(f"{state}: animation is entirely static")
 
     return {
         "state": state,
@@ -115,6 +126,7 @@ def main() -> None:
     args = parser.parse_args()
 
     gif_dir = Path(args.gif_dir).expanduser().resolve()
+    load_run_states(gif_dir)
     states = [validate_gif(gif_dir, state, args.min_used_pixels) for state in STATE_NAMES]
     errors = [error for state in states for error in state["errors"]]
     warnings = [warning for state in states for warning in state["warnings"]]

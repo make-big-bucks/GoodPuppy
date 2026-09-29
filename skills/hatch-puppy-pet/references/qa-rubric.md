@@ -1,81 +1,49 @@
-# QA Rubric
+# Review criteria
 
-Do not accept the pet until all checks pass.
+## Machine checks
 
-## Geometry
+Require valid 240×240 GIFs, expected frames, durations and loop flags. Inspect every
+decoded frame for visible content and actual background transparency, not just a GIF
+metadata flag. Entirely identical sequences fail. Door-only enter/leave endpoints are
+valid. Run states must agree across request, jobs, frames and package.
 
-- Every GIF is exactly `240x240`.
-- Each GIF has the exact expected frame count from `scripts/puppy_states.py`.
-- Every GIF is a transparent GIF (reserved transparent palette index).
-- `gifs/validation.json` (from `validate_gifs.py`) has no errors.
-- `qa/review.json` (from `inspect_frames.py`) has no errors.
-- `frames/frames-manifest.json` records component extraction for production rows,
-  unless slot extraction was intentionally accepted after visual inspection.
+Default extraction preserves full slot coordinates. Edge pixels, relative area changes
+and near-key pixels need interpretation: a large door, squash or airborne pose can be
+intentional. Do not normalize away motion to improve a numerical score. Legacy
+component/slot recentering needs explicit review and is not the production default.
 
-## Character Consistency
+## Visual checks
 
-- Same silhouette and proportions across every state.
-- Same face and expression language.
-- Same material, palette, lighting, and prop design.
-- No frame introduces a new unintended character or object beyond the state's
-  explicitly allowed prop (see `STATE_REQUIREMENTS` in `scripts/prepare_pet_run.py`).
-- No GIF contains a second pet, a friend, or a hand — every state is single-character.
+Inspect `qa/contact-sheet.png` for identity and composition, then `qa/preview.html`
+for actual GIF motion, not just the first frame of an image attachment.
 
-## Sprite Style
+- Same character, anatomy, palette, material and permanent accessories across states;
+  expressions and poses may change, no new limbs to perform animal-style gestures.
+- Clear actions with meaningful anticipation, emphasis and recovery. Idle is subtle
+  but visibly alive, emotion/work states distinct, personality recognizable.
+- Stable intended scale and rest anchor across states; intentional flight and rightward
+  cuddle survive extraction. No unexpected recentering, scale jumps or baseline pops.
+- Smooth loop seams and `idle → action → idle` handoffs; leave intentionally ends with
+  the door. Matching door design across enter/leave. No unexpected prop-side changes.
+- Complete poses within slots, no neighboring fragments, copied guides, rectangular
+  backgrounds, chroma halos or erased character colors. Check light AND dark backgrounds.
+- Readable at 240px and smaller preview sizes; no distracting noise, tiny illegible
+  detail or constantly exaggerated idle. Mirrored cuddle faces the partner correctly.
 
-- Art reads as a Codex digital pet sprite, not a polished illustration or glossy app icon.
-- Silhouette is compact and chunky enough to read inside a `240x240` cell.
-- Outlines are dark and simple, with visible stepped/pixel-style edges.
-- Palette is limited, with flat cel shading and minimal highlights or shadow steps.
-- No painterly texture, realistic fur/material detail, soft gradients, high-detail
-  antialiasing, or tiny accessories that disappear at pet size.
+Record concrete observations through `visual_review.py`. A JSON pass documents a review,
+it does not perform one. If actual motion cannot be inspected, leave acceptance pending.
 
-## Animation Completeness
+## Repair and regression
 
-- Each state uses the exact expected number of frames.
-- Looping states loop without an obvious pop between the last and first frame.
-- Directional states (`cuddle`, `kicked`, `enter`, `leave`) read as the intended
-  direction/motion; `cuddle` must press against the RIGHT slot edge (the app mirrors
-  the other side), and `drag-lift` must read direction-neutral.
-- Prop states (`enter`/`leave` door, `feed` food pack, `message` paper plane,
-  `cast` wand, `busy` desk/laptop) show exactly the one allowed prop, opaque and
-  pixel-style; `enter` first frame and `leave` last frame may be door-only, and
-  that is not a missing-sprite failure.
-- State-specific actions are recognizable at pet size.
-- Poses are generated animation variants, not repeated copies of the same source image.
+Classify source generation versus extraction versus export failure before regenerating.
+Repair one failed row; preserve the original and bounded attempt history. Replace the
+previous repair note, do not accumulate contradictory instructions. Base redesign
+requires a new run. Default budget: two row repairs, then reconsider the approach.
 
-## App Fitness
-
-- The first `idle` frame works as a static reduced-motion pet.
-- No important detail is too small to read.
-- No frame is clipped by the cell.
-- Emotion/work/interaction states are distinct from ordinary idle.
-- Contact sheets must show whole sprite poses inside cells, not cropped tiles from a
-  larger reference image.
-- Contact sheets must not be accepted if every used frame is just the reference image
-  with small geometric transforms.
-- Used frames must not have white or opaque rectangular backgrounds unless the pet
-  intentionally fills the whole cell and the user accepts that tradeoff.
-- The chroma key must be visually absent from the character. If extraction removes
-  character regions, choose a different key and regenerate the affected base/rows.
-- Contact sheets must not show edge slivers or partial neighboring sprites inside cells.
-- Contact sheets must not show darker/lighter versions of the chroma key as shadows,
-  dust, smears, glows, landing marks, or motion effects. These are background
-  extraction failures and should trigger row repair.
-- If `qa/review.json` reports edge pixels, sparse frames, size outliers, or
-  slot-extraction fallback, inspect the row visually and repair it when the issue is visible.
-- If `qa/review.json` reports chroma-adjacent non-transparent pixels, repair the row
-  unless those pixels are an intentional character color and the selected key was
-  manually accepted.
-
-## Repair Policy
-
-Repair the smallest failing scope first:
-
-1. Single bad frame.
-2. One row/state.
-3. Full regeneration only when identity or layout is broadly broken.
-
-The normal production path should queue targeted repair jobs for failing states.
-Manual repair should preserve the same run directory and regenerate only the affected
-row prompt/image unless the base character is wrong.
+For workflow changes, run the bundled unittest suite with synthetic fixtures explicitly
+marked as tests. These validate geometry, configuration, export and review gates, not
+art quality. For visual effectiveness, periodically evaluate real generated characters
+covering quadruped, biped robot, limbless soft body, winged, long body and asymmetric
+accessory designs. Record first-pass success, retries, generation calls, identity drift,
+action recognizability and actual integration results. Do not claim those benchmarks
+were run when only deterministic fixtures were tested.

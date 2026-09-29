@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -15,116 +16,9 @@ from PIL import Image
 from PIL import ImageDraw
 
 from puppy_states import CELL_HEIGHT, CELL_WIDTH, STATES
+from character_profile import STYLES, ACTIONS, validate_profile, select_states, character_notes
 
 CELL = {"width": CELL_WIDTH, "height": CELL_HEIGHT}
-
-TRANSPARENCY_ARTIFACT_RULES = [
-    "Prefer pose, expression, and silhouette changes over decorative effects.",
-    "Effects are allowed only when they are state-relevant, opaque, hard-edged, pixel-style, fully inside the same frame slot, and physically touching or overlapping the pet silhouette.",
-    "Allowed attached effects can include a tear touching the face, a small smoke puff touching the pet or prop, or tiny stars overlapping the pet during a dizzy reaction.",
-    "Do not draw detached effects: floating stars, loose sparkles, floating punctuation, floating icons, falling tear drops, separated smoke clouds, loose dust, disconnected outline bits, or stray pixels. The only exception is a prop explicitly allowed by this state's state-specific requirements, which must still be opaque, hard-edged, pixel-style, and inside the same frame slot.",
-    "Do not draw wave marks, motion arcs, speed lines, action streaks, afterimages, blur, smears, halos, glows, auras, floor patches, cast shadows, contact shadows, drop shadows, oval floor shadows, landing marks, or impact bursts.",
-    "Do not include text, labels, frame numbers, visible grids, guide marks, speech bubbles, thought bubbles, UI panels, code snippets, scenery, checkerboard transparency, white backgrounds, or black backgrounds.",
-    "Do not use the chroma-key color or chroma-key-adjacent colors in the pet, prop, effects, highlights, shadows, or outlines.",
-    "Reject any pose that is cropped, overlaps another pose, crosses into a neighboring frame slot, or creates a separate disconnected component that is not attached to the pet and not a prop explicitly allowed by this state's state-specific requirements.",
-    "This is a single-character animation: never draw a second pet, a friend, a hand, or another actor in the frame, even for interaction states.",
-]
-
-STATE_REQUIREMENTS = {
-    "drag-lift": [
-        "Show the pet held aloft by an invisible grip: body hangs upright in mid-air, all four limbs dangle and paddle, head tilts up and wiggles between frames.",
-        "Use a symmetric front or 3/4 view with no left/right travel so the pose reads the same for any drag direction.",
-        "Do not draw a hand, a leash, a claw, speed lines, dust clouds, floor shadows, motion trails, or detached motion effects.",
-    ],
-    "message": [
-        "Allowed prop: one small opaque pixel-style paper plane. It starts held in the mouth or a paw (touching the pet) and may detach only in the final 1-2 frames as it is tossed up toward the top of the slot.",
-        "Sequence: pick up the plane, rear the head back, toss it upward, then settle watching it go; the last frame may show the pet alone after the plane leaves the slot.",
-        "Do not draw speech bubbles, thought bubbles, envelopes, hearts, punctuation, symbols, or any floating UI or icon other than the allowed paper plane.",
-    ],
-    "cuddle": [
-        "Show the pet scooting toward and pressing against the RIGHT edge of its frame slot: body leans and squashes against that edge, cheek squished, eyes happily closed.",
-        "Generate only this rightward lean; the app mirrors the GIF at runtime for the other side, so left/right symmetry of details matters less than a clear rightward press.",
-        "Do not draw hearts, sparkles, motion lines, a wall, or a second character; only the single pet appears.",
-    ],
-    "cast": [
-        "Allowed prop: one small opaque pixel-style magic wand held in a paw for the entire animation, never detached from the pet.",
-        "Sequence: raise the wand, two quick flourish waves, then lower it; a single tiny opaque spark is allowed only while touching the wand tip.",
-        "Do not draw beams, glows, auras, trailing sparkles, floating symbols, or the target of the spell.",
-    ],
-    "feed": [
-        "Allowed prop: one small opaque pixel-style food pack sitting on the ground directly in front of the pet inside the same frame slot; it may be separate from the pet in early frames.",
-        "Sequence: the pack appears, the pet dips its head in and eats it bite by bite (pack shrinking each frame), the pack is gone, and the pet looks up satisfied.",
-        "Do not draw floating crumbs, a feeding hand, sparkles, symbols, or a second character.",
-    ],
-    "kicked": [
-        "Show being kicked through a tumbling, airborne body-pose sequence that lands dazed; convey the launch with body rotation and position only.",
-        "Do not draw speed lines, motion arcs, impact bursts, dust, motion trails, or a kicking character.",
-        "Tiny dizzy stars are allowed only if attached to or overlapping the head inside the same frame slot, opaque and pixel-style.",
-    ],
-    "enter": [
-        "Allowed prop: one simple opaque pixel-style door (a flat rectangular door with a frame, no scenery around it). The first frame shows only the closed door, no pet.",
-        "Sequence: the door opens, the pet steps out of the doorway a bit more each frame (pet overlapping the door while emerging), the door shrinks away or closes behind, and the final frame shows the pet standing alone in a near-idle pose so the app can hand off to idle smoothly.",
-        "Do not draw walls, floors, scenery, light rays, speed lines, dust, or shadows around the door.",
-    ],
-    "greet": [
-        "Show the greeting through paw and head pose only: paw down, paw raised, head tilt, return.",
-        "Do not draw wave marks, motion arcs, lines, sparkles, symbols, or floating effects around the paw.",
-    ],
-    "leave": [
-        "Allowed prop: one simple opaque pixel-style door (same design language as the enter door). The final frame shows only the closed door, no pet.",
-        "Sequence: the door appears beside the pet, the door opens, the pet walks into the doorway and disappears deeper each frame (pet overlapping the door while leaving), and the last frame shows only the closed door.",
-        "Do not draw walls, floors, scenery, light rays, speed lines, dust, or shadows around the door.",
-    ],
-    "idle-stretch": [
-        "Show one long satisfying stretch through body pose only: front paws slide forward, chest dips, rump rises, then rise back to a near-idle pose.",
-        "Do not draw motion lines, dust, floor shadows, or detached effects; the last frame should hand off cleanly to idle.",
-    ],
-    "idle-shake": [
-        "Show one quick full-body shake from head to tail through pose and fur/body ruffle only, ending composed near the idle pose.",
-        "Do not draw motion lines, droplets, dust, loose fur tufts, or detached effects.",
-    ],
-    "idle-sniff": [
-        "Show curious sniffing through head and body pose only: nose lowers toward the ground, sniffs side to side, then looks back up.",
-        "Do not draw scent trails, wavy smell lines, floating symbols, or detached effects.",
-    ],
-    "idle-tail-chase": [
-        "Show one playful spin chasing the tail through body rotation poses only, stopping slightly dizzy and recovering.",
-        "Tiny dizzy stars are allowed only if attached to or overlapping the head inside the same frame slot, opaque and pixel-style; do not draw motion arcs or speed lines.",
-    ],
-    "idle-scratch": [
-        "Show the pet sitting briefly and scratching behind one ear with a hind leg, then settling back toward the idle pose.",
-        "Do not draw motion lines, dust, loose fur, or detached effects.",
-    ],
-    "happy": [
-        "Show happiness through bouncy posture, raised ears or tail, and a bright face only.",
-        "Do not draw hearts, sparkles, music notes, exclamation marks, or floating symbols.",
-    ],
-    "sad": [
-        "Show sadness through a slumped body, drooping ears, and a downcast face only.",
-        "Tears are allowed only if touching the face and kept inside the same frame slot, opaque and pixel-style.",
-        "Do not draw rain clouds, droplets falling away from the body, floating symbols, or a separate puddle.",
-    ],
-    "busy": [
-        "Show deep do-not-disturb focus: body hunched with the back half-turned toward the viewer, head down, paws tapping steadily, never looking up.",
-        "Allowed prop: one tiny opaque pixel-style desk or laptop touching/overlapping the pet's paws or body for the entire loop, never detached.",
-        "Do not draw papers, readable code, screen glow, sweat drops, motion lines, or floating symbols.",
-    ],
-    "bored": [
-        "Show boredom through a slack, swaying, sighing posture and slow head movement only.",
-        "Tiny idle/dizzy stars are allowed only if attached to or overlapping the head inside the same frame slot, opaque and pixel-style; otherwise draw no floating symbols, no zzz text, and no thought bubbles.",
-    ],
-}
-
-DIGITAL_PET_STYLE = (
-    "Codex digital pet sprite style: pixel-art-adjacent low-resolution mascot sprite, "
-    "compact chibi proportions, chunky whole-body silhouette, thick dark 1-2 px outline, "
-    "visible stepped/pixel edges, limited palette, flat cel shading with at most one "
-    "small highlight and one shadow step, simple readable face, tiny limbs, and no "
-    "detail that disappears at 240x240. Avoid polished illustration, painterly "
-    "rendering, anime key art, 3D render, vector app-icon polish, glossy lighting, "
-    "soft gradients, realistic fur or material texture, anti-aliased high-detail "
-    "edges, and complex tiny accessories."
-)
 
 CHROMA_KEY_CANDIDATES = [
     ("magenta", "#FF00FF"),
@@ -297,7 +191,7 @@ def create_layout_guide(path: Path, state: str, frames: int) -> dict[str, object
 
         safe_left = left + LAYOUT_GUIDE_SAFE_MARGIN_X
         safe_top = LAYOUT_GUIDE_SAFE_MARGIN_Y
-        safe_right = right - LAYOUT_GUIDE_SAFE_MARGIN_X
+        safe_right = right - (3 if state == "cuddle" else LAYOUT_GUIDE_SAFE_MARGIN_X)
         safe_bottom = height - 1 - LAYOUT_GUIDE_SAFE_MARGIN_Y
         draw.rectangle(
             (safe_left, safe_top, safe_right, safe_bottom),
@@ -332,6 +226,7 @@ def create_layout_guide(path: Path, state: str, frames: int) -> dict[str, object
         "cell_height": CELL_HEIGHT,
         "safe_margin_x": LAYOUT_GUIDE_SAFE_MARGIN_X,
         "safe_margin_y": LAYOUT_GUIDE_SAFE_MARGIN_Y,
+        "right_margin": 3 if state == "cuddle" else LAYOUT_GUIDE_SAFE_MARGIN_X,
         "usage": "layout guide input only; do not copy visible guide lines into generated sprite strips",
     }
 
@@ -421,83 +316,38 @@ def write_text(path: Path, text: str) -> None:
     path.write_text(text.rstrip() + "\n", encoding="utf-8")
 
 
-def resolved_style_notes(raw_style_notes: str) -> str:
-    raw_style_notes = raw_style_notes.strip()
-    if not raw_style_notes:
-        return DIGITAL_PET_STYLE
-    return f"{DIGITAL_PET_STYLE} Additional user style notes: {raw_style_notes}."
+def resolved_style_notes(raw_style_notes: str, preset: str = "auto") -> str:
+    return STYLES[preset] + (" User direction: " + raw_style_notes.strip() if raw_style_notes.strip() else "")
 
 
 def base_pet_prompt(args: argparse.Namespace) -> str:
-    pet_notes = args.pet_notes or "the pet shown in the reference image(s)"
-    style_notes = resolved_style_notes(args.style_notes)
-    chroma_key = args.chroma_key["hex"]
-    chroma_name = args.chroma_key["name"]
-    return f"""Create a single clean reference sprite for a GoodPuppy desktop pet named {args.display_name}.
-
-Pet: {pet_notes}.
-Style contract: {style_notes}
-
-Use this prompt as an authoritative sprite-production spec. Do not expand it into a polished illustration, painterly character image, anime key art, 3D render, vector mascot, glossy app icon, realistic animal portrait, or marketing artwork.
-
-Output one centered full-body pet sprite pose only, on a perfectly flat pure {chroma_name} {chroma_key} chroma-key background. The pet must be fully visible, readable as a tiny desktop pet, and suitable for animation into a 240x240 sprite cell. Do not include scenery, text, labels, borders, checkerboard transparency, detached effects, shadows, glows, or extra props not present in the reference unless explicitly requested. Do not use {chroma_key}, pure {chroma_name}, or colors close to that chroma key in the pet, prop, highlights, or effects."""
+    return f"""Create one full-body GoodPuppy reference character: {args.pet_notes}.
+{character_notes(args.character_profile)}
+Style: {resolved_style_notes(args.style_notes, args.style_preset)}
+Preserve distinctive identity and existing anatomy. Design for readability at 240x240.
+One centered neutral pose, complete silhouette, opaque character on perfectly flat {args.chroma_key['hex']} background.
+Do not use this key or adjacent colors in the character. No scenery, cast shadows, text, guide marks or detached effects.
+Use broad readable details. This selected image becomes the canonical identity for every animation.
+"""
 
 
-def row_prompt(
-    args: argparse.Namespace, state: str, frames: int, purpose: str
-) -> str:
-    pet_notes = args.pet_notes or "the same pet from the approved base reference"
-    style_notes = resolved_style_notes(args.style_notes)
-    chroma_key = args.chroma_key["hex"]
-    chroma_name = args.chroma_key["name"]
-    state_requirements = STATE_REQUIREMENTS.get(state, [])
-    state_requirement_text = ""
-    if state_requirements:
-        state_requirement_text = "\n\nState-specific requirements:\n" + "\n".join(
-            f"- {requirement}" for requirement in state_requirements
-        )
-    transparency_artifact_text = "\n".join(
-        f"- {requirement}" for requirement in TRANSPARENCY_ARTIFACT_RULES
-    )
-    return f"""Create a single horizontal sprite strip for the GoodPuppy desktop pet `{args.pet_id}` in the state `{state}`.
-
-Use the attached reference image(s) for pet identity and the attached base pet image as the canonical design. Use the attached layout guide image only for frame count, slot spacing, centering, and safe padding. Simplify any high-resolution reference details into the Codex digital pet sprite style. Do not simply copy the still reference pose. Generate distinct animation poses that create a readable cycle.
-
-Identity lock:
-- Do not redesign the pet. Only change pose/action for the `{state}` animation.
-- Preserve the exact head shape, ear/horn/limb shape, face design, markings, palette, outline weight, body proportions, prop design, and overall silhouette from the canonical base pet.
-- Keep every frame recognizably the same individual pet, not a related variant.
-- If the pet has a prop or accessory, preserve its size, side, palette, and attachment style unless the row action requires a small pose-only adjustment.
-- Prefer a subtler animation over any change that mutates the pet identity.
-
-Output exactly {frames} separate animation frames arranged left-to-right in one single row. Each frame must show the same pet: {pet_notes}.
-
-Style contract: {style_notes}
-
-Use this prompt as an authoritative sprite-production spec. Do not expand it into a polished illustration, painterly character image, anime key art, 3D render, vector mascot, glossy app icon, realistic animal portrait, or marketing artwork.
-
-Animation action: {purpose}.
-{state_requirement_text}
-
-Transparency and artifact rules:
-{transparency_artifact_text}
-
-Layout requirements:
-- Exactly {frames} full-body frames, left to right, in one horizontal row.
-- The attached layout guide shows the {frames} frame boxes and inner safe area for this row. Follow its slot count, spacing, centering, and padding.
-- Do not reproduce the layout guide itself: no visible boxes, guide lines, center marks, labels, guide colors, or guide background may appear in the output.
-- Treat the image as {frames} equal-width invisible frame slots. Fill every slot: each requested slot must contain exactly one complete full-body pose.
-- Spread the {frames} poses evenly across the whole image width. Do not leave any requested slot blank or create large empty gaps between poses.
-- Center one complete pose in each slot. No pose may cross into the neighboring slot.
-- Use a perfectly flat pure {chroma_name} {chroma_key} chroma-key background across the whole image.
-- Do not draw visible grid lines, borders, labels, numbers, text, watermarks, or checkerboard transparency.
-- Do not include scenery or a background environment.
-- Keep the rendering sprite-like: chunky silhouette, dark pixel-style outline, limited palette, flat shading, minimal tiny detail.
-- Do not use {chroma_key}, pure {chroma_name}, or colors close to that chroma key in the pet, props, highlights, shadows, motion marks, dust, landing marks, or effects.
-- Do not draw shadows, glows, smears, dust, or landing marks using darker/lighter versions of the chroma-key color.
-- Keep every frame self-contained with safe padding. No pet body part should be clipped by the frame slot.
-- Avoid motion blur. Use clear pose changes readable at 240x240.
-- Preserve the same silhouette, face, proportions, palette, material, and props across every frame."""
+def row_prompt(args: argparse.Namespace, state: str, frames: int, purpose: str) -> str:
+    action = ACTIONS.get(state, purpose)
+    personal = args.character_profile.get('actions', {}).get(state, '')
+    cycle = 'Close the loop smoothly: last-to-first is part of the animation.' if next(row[3] for row in STATES if row[0] == state) else 'Use anticipation, action, reaction and recovery; finish near idle except leave, whose final pose is door-only.'
+    anchor = 'Right-side contact anchor; approach the right edge without clipping.' if state == 'cuddle' else 'Keep a consistent standing baseline or floating rest center; preserve intentional travel and deformation.'
+    return f"""Generate the {state} animation for {args.pet_id}: exactly {frames} equal square frame slots, left to right in ONE horizontal strip.
+Canonical base is the identity authority; layout guide controls slot geometry only. Do not copy guide pixels.
+{character_notes(args.character_profile)}
+Style: {resolved_style_notes(args.style_notes, args.style_preset)}
+Identity invariants: same facial construction, markings, palette, material and permanent accessories. Pose, expression and squash/stretch may change. Use only existing anatomy; never invent paws, ears, wings or limbs to perform an action.
+Action: {action}
+Character-specific choreography: {personal or 'Express the stated personality through timing and pose.'}
+{cycle}
+{anchor}
+Use one camera scale across this row AND other states. Do not enlarge small poses or center every pose independently. Keep complete subjects within their slots; door-only endpoints are intentional. Do not spread a character and prop toward opposite slot edges.
+Background: perfectly flat {args.chroma_key['hex']}, absent from character and props. All visible art must survive 1-bit transparency. Opaque clean contours, no cast shadows, blur, glow, trails, text, scenery or detached decoration. Only the state's declared prop may separate; permanent accessories remain part of identity. Single character, never a second actor or hand.
+"""
 
 
 def make_jobs(
@@ -507,7 +357,7 @@ def make_jobs(
         {"path": rel(Path(str(ref["copied_path"])), run_dir), "role": "pet reference"}
         for ref in copied_refs
     ]
-    identity_reference_paths = [CANONICAL_BASE_PATH, "decoded/base.png"]
+    identity_reference_paths = [CANONICAL_BASE_PATH]
     jobs: list[dict[str, object]] = [
         {
             "id": "base",
@@ -531,7 +381,6 @@ def make_jobs(
                 "status": "pending",
                 "prompt_file": f"prompts/rows/{state}.md",
                 "input_images": [
-                    *reference_inputs,
                     {
                         "path": f"{LAYOUT_GUIDE_DIR}/{state}.png",
                         "role": f"layout guide for {frames} frame slots; use for spacing only, do not copy guide lines",
@@ -540,7 +389,6 @@ def make_jobs(
                         "path": CANONICAL_BASE_PATH,
                         "role": "canonical identity reference",
                     },
-                    {"path": "decoded/base.png", "role": "approved base pet"},
                 ],
                 "output_path": f"decoded/{state}.png",
                 "depends_on": ["base"],
@@ -577,6 +425,10 @@ def main() -> None:
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--pet-notes", default="")
     parser.add_argument("--style-notes", default="")
+    parser.add_argument("--style-preset", choices=list(STYLES), default=None)
+    parser.add_argument("--character-profile", help="JSON art direction and per-character idle variants")
+    parser.add_argument("--idle-variants", default=None, help="Comma-separated pool names; empty string selects none")
+    parser.add_argument("--max-repairs", type=int, default=2)
     parser.add_argument(
         "--chroma-key",
         default="auto",
@@ -584,6 +436,12 @@ def main() -> None:
     )
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
+
+    args.character_profile = validate_profile(json.loads(Path(args.character_profile).read_text(encoding="utf-8")) if args.character_profile else {})
+    args.style_preset = args.style_preset or args.character_profile.get("style_preset", "auto")
+    select_states(args.character_profile, args.idle_variants)
+    if args.max_repairs < 0:
+        raise SystemExit("--max-repairs must be nonnegative")
 
     raw_reference_paths = [
         Path(raw_path).expanduser().resolve() for raw_path in args.reference
@@ -595,13 +453,15 @@ def main() -> None:
     args.pet_notes = infer_pet_notes(args, raw_reference_paths)
     args.pet_id = slugify(args.pet_id or args.pet_name or args.display_name)
     if not args.pet_id:
-        raise SystemExit("pet id must contain at least one letter or digit")
+        args.pet_id = "pet-" + hashlib.sha256(args.pet_name.encode()).hexdigest()[:8]
 
     run_dir = (
         Path(args.output_dir).expanduser().resolve()
         if args.output_dir
         else default_output_dir(args.pet_id).resolve()
     )
+    if (run_dir / "imagegen-jobs.json").exists():
+        raise SystemExit("run already prepared; resume with pet_job_status.py, or choose a new run directory")
     if run_dir.exists() and any(run_dir.iterdir()) and not args.force:
         raise SystemExit(
             f"{run_dir} already exists and is not empty; pass --force to reuse it"
@@ -661,7 +521,11 @@ def main() -> None:
         "chroma_key": args.chroma_key,
         "pet_notes": args.pet_notes,
         "style_notes": args.style_notes,
-        "house_style": DIGITAL_PET_STYLE,
+        "style_preset": args.style_preset,
+        "character_profile": args.character_profile,
+        "max_repairs": args.max_repairs,
+        "pilot_states": ["idle", args.character_profile.get("pilot_state", "enter")],
+        "schema_version": 2,
         "primary_generation_skill": "$imagegen",
     }
     (run_dir / "pet_request.json").write_text(
