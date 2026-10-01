@@ -14,6 +14,8 @@ describe("authentication operation ownership", () => {
     const f = fixture(); let finish!: (value: any) => void;
     f.login.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
     const first = f.flow.run("signin", { email: "a", password: "b" }, f.view);
+    const logout = vi.fn(async () => {});
+    expect(await f.flow.exclusive(logout)).toBe(false); expect(logout).not.toHaveBeenCalled();
     f.close();
     const replacement = { isCurrent: () => true, busy: vi.fn(), message: vi.fn(), close: vi.fn() };
     await f.flow.run("signup", { email: "a", password: "b" }, replacement);
@@ -25,6 +27,18 @@ describe("authentication operation ownership", () => {
     await f.flow.run("signup", { email: "a", password: "b" }, replacement);
     expect(replacement.busy).toHaveBeenLastCalledWith(false);
     expect(replacement.message).toHaveBeenLastCalledWith("注册成功，请检查邮箱确认账号");
+  });
+  it("blocks login while logout or binding holds the shared gate and releases after failure", async () => {
+    const f = fixture(); let fail!: (error: Error) => void;
+    const old = f.flow.exclusive(() => new Promise((_, reject) => { fail = reject; }));
+    const rejection = expect(old).rejects.toThrow("logout failed");
+    await f.flow.run("signin", { email: "a", password: "b" }, f.view);
+    expect(f.login).not.toHaveBeenCalled();
+    expect(await f.flow.exclusive(async () => {})).toBe(false);
+    fail(new Error("logout failed")); await rejection;
+    f.login.mockResolvedValue({ data: { session: null }, error: null });
+    await f.flow.run("signup", { email: "a", password: "b" }, f.view);
+    expect(f.login).toHaveBeenCalledTimes(1);
   });
   it("does not adopt or report success for an account replaced before the auth response", async () => {
     const f = fixture(); f.setUser("other");

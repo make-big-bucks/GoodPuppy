@@ -16,6 +16,12 @@ export function createAuthFlow(deps: {
 }) {
   let pending = false;
   return {
+    /** 注销/绑定也占用同一门禁，弹层失效不能提前释放正在执行的 SDK 操作。 */
+    async exclusive(work: () => Promise<void>) {
+      if (pending) return false;
+      pending = true;
+      try { await work(); return true; } finally { pending = false; }
+    },
     async run(action: Action, values: Values, view: View) {
       if (!view.isCurrent()) return;
       if (pending) { view.message("上一次账号操作仍在处理中，请稍后重试"); return; }

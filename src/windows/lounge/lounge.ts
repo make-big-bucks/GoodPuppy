@@ -475,22 +475,25 @@ function openLogoutConfirmDialog() {
   const loggedOut = onLogout;
   logoutBtn.onclick = () => {
     void operation.run(async () => {
-      setButtonLoading(logoutBtn, true);
-      logoutBtn.disabled = true;
-      try {
-        if (!client) throw new Error("缺少登录会话");
-        if (exitRoom) await exitRoom();
-        operation.assertCurrent();
-        const { error } = await client.auth.signOut();
-        if (error) throw error;
-        // SIGNED_OUT 会同步清界面；不要关闭其后可能打开的弹层。
-        if (operation.isCurrent()) { closeModal(); closeSettings(); }
-        if (supabaseClient === client && !selfAuthId) loggedOut?.();
-      } catch (error) {
-        if (operation.isCurrent()) showToast(getErrorMessage(error, "退出登录失败"), "error");
-      } finally {
-        if (operation.isCurrent()) { setButtonLoading(logoutBtn, false); logoutBtn.disabled = false; }
-      }
+      const started = await authFlow.exclusive(async () => {
+        setButtonLoading(logoutBtn, true);
+        logoutBtn.disabled = true;
+        try {
+          if (!client) throw new Error("缺少登录会话");
+          if (exitRoom) await exitRoom();
+          operation.assertCurrent();
+          const { error } = await client.auth.signOut();
+          if (error) throw error;
+          // SIGNED_OUT 会同步清界面；不要关闭其后可能打开的弹层。
+          if (operation.isCurrent()) { closeModal(); closeSettings(); }
+          if (supabaseClient === client && !selfAuthId) loggedOut?.();
+        } catch (error) {
+          if (operation.isCurrent()) showToast(getErrorMessage(error, "退出登录失败"), "error");
+        } finally {
+          if (operation.isCurrent()) { setButtonLoading(logoutBtn, false); logoutBtn.disabled = false; }
+        }
+      });
+      if (!started && operation.isCurrent()) setModalMessage("上一次账号操作仍在处理中，请稍后重试");
     });
   };
 }
@@ -549,32 +552,35 @@ function openBindAccountDialog() {
   form.onsubmit = (event) => {
     event.preventDefault();
     void operation.run(async () => {
-      if (!client) return;
+      const started = await authFlow.exclusive(async () => {
+        if (!client) return;
 
-      const email = emailInput.value.trim();
-      const password = passwordInput.value;
-      if (!email || !password) {
-        setModalMessage("请填写邮箱和密码");
-        return;
-      }
+        const email = emailInput.value.trim();
+        const password = passwordInput.value;
+        if (!email || !password) {
+          setModalMessage("请填写邮箱和密码");
+          return;
+        }
 
-      setModalBusy(true);
-      setModalMessage("正在绑定...");
-      try {
-        const { data, error } = await client.auth.updateUser({ email, password });
-        operation.assertCurrent();
-        if (error) throw error;
+        setModalBusy(true);
+        setModalMessage("正在绑定...");
+        try {
+          const { data, error } = await client.auth.updateUser({ email, password });
+          operation.assertCurrent();
+          if (error) throw error;
 
-        currentUserIsAnonymous = Boolean(data.user?.is_anonymous);
-        currentUserEmail = data.user?.email ?? currentUserEmail;
-        renderAuthState(Boolean(selfAuthId));
-        closeModal();
-        showToast(currentUserIsAnonymous ? "请检查邮箱完成绑定" : "账号已绑定");
-      } catch (error) {
-        if (operation.isCurrent()) setModalMessage(getErrorMessage(error, "绑定失败"));
-      } finally {
-        if (operation.isCurrent()) setModalBusy(false);
-      }
+          currentUserIsAnonymous = Boolean(data.user?.is_anonymous);
+          currentUserEmail = data.user?.email ?? currentUserEmail;
+          renderAuthState(Boolean(selfAuthId));
+          closeModal();
+          showToast(currentUserIsAnonymous ? "请检查邮箱完成绑定" : "账号已绑定");
+        } catch (error) {
+          if (operation.isCurrent()) setModalMessage(getErrorMessage(error, "绑定失败"));
+        } finally {
+          if (operation.isCurrent()) setModalBusy(false);
+        }
+      });
+      if (!started && operation.isCurrent()) setModalMessage("上一次账号操作仍在处理中，请稍后重试");
     });
   };
 }

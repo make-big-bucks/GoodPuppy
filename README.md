@@ -110,7 +110,7 @@ python3 -m unittest discover -s skills/hatch-puppy-pet/tests -v
 
 macOS 上可补 Windows Rust 交叉检查：安装相应 Rust 目标并将 `llvm-rc` 所在目录加入 PATH，运行 `cargo check --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc --all-targets --locked`；这不替代 Windows 实际链接、运行和窗口验收。
 
-会客厅侧栏拖动在失焦或隐藏时自动结束；弹层支持 Escape 关闭与 Tab 焦点切换，账号操作在处理中防止重复提交。聊天记录按时间与 ID 分页，长期阅读采用有界窗口；阅读旧页时新消息先提示，点击“新消息”返回最新记录。Windows 旧位置记录会回退自动摆位并重新记忆，macOS 保留旧逻辑位置。上线提醒按光标所在屏幕的可用区域定位，只保留有限且未过期的队列，注销会取消在途提醒。
+会客厅侧栏拖动在失焦或隐藏时自动结束；弹层支持 Escape 关闭与 Tab 焦点切换，登录、注册、领养、注销和绑定共用在途保护，关闭弹层也不会启动并发账号操作。聊天记录按时间与 ID 分页，长期阅读采用有界窗口；阅读旧页时新消息先提示，点击“新消息”返回最新记录。Windows 旧位置记录会回退自动摆位并重新记忆，macOS 保留旧逻辑位置。上线提醒按光标所在屏幕的可用区域定位，只保留有限且未过期的队列，注销会取消在途提醒。
 
 角色资源由 `public/pets/<id>/pet.json` 自动注册，构建与资源验收共用 `tools/petRegistry.mjs`（`default` 为保留别名），构建检查状态与皮肤文件；自己的皮肤来自账号资料，换肤在保存成功后应用，失败保留选择供重试；大小、摆放模式和位置属于本机偏好，气泡关闭状态按账号/房间/发送者隔离。
 
