@@ -25,7 +25,8 @@ function fixture() {
       listeners.set(event, handler); return () => listeners.delete(event);
     }, callback),
     emitToWindow: send,
-    getWindowBounds: async () => ({ x: 100, y: 100, width: 150, height: 120 }),
+    getWindowBounds: async () => ({ x: 100, y: 100, width: 150, height: 120, scaleFactor: 1 }),
+    getPetWindowBounds: async () => ({ x: 100, y: 100, width: 150, height: 120, scaleFactor: 1 }),
     getWindowPosition: async () => ({ x: 100, y: 100 }), getWindowSize: async () => ({ width: 150, height: 120 }),
     getMonitors: async () => [{ x: 0, y: 0, width: 1920, height: 1080 }], getPetMonitorWorkArea: async () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
     spawnPetWindow: vi.fn(async (options) => { managed.set(options.label, options.instanceId); }),
@@ -42,6 +43,14 @@ const member = { userId: "a", petId: "default", skin: "default", status: null };
 beforeEach(() => vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} }));
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe("remote window lifecycle schedules", () => {
+  it("places bubbles from the actual target geometry rather than predicted spawn bounds", async () => {
+    const f = fixture();
+    vi.spyOn(f.bridge, "getPetWindowBounds").mockResolvedValue({ x: 900, y: 300, width: 180, height: 120, scaleFactor: 2 });
+    f.coordinator.onPresenceChange([member]); await f.coordinator.whenIdle();
+    expect(f.bridge.spawnBubbleWindow).toHaveBeenCalledWith(expect.objectContaining({ x: 915, y: 120 }));
+    expect(f.bridge.getPetWindowBounds).toHaveBeenCalledWith("pet-a", f.managed.get("pet-a"));
+    f.setRoom(null); f.coordinator.onClearRemotePets(); await f.coordinator.whenIdle();
+  });
   it("does not replay a recovered duplicate message or its animation", async () => {
     const f = fixture(); f.coordinator.onPresenceChange([member]); await f.coordinator.whenIdle();
     const message = { id: "known", from: "a", info: "hello", created_at: "2026-10-01T00:00:00Z" };

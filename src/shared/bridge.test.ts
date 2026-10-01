@@ -18,6 +18,12 @@ describe("native bridge error contract", () => {
     invoke.mockRejectedValueOnce(new Error("window unavailable"));
     await expect(bridge.getWindowPosition()).rejects.toThrow("window unavailable");
   });
+  it("binds target geometry reads to the target label and instance", async () => {
+    const bridge = (await import("./bridge.js")).default;
+    invoke.mockResolvedValueOnce({ x: 200, y: 100, width: 180, height: 144, scaleFactor: 2 });
+    expect(await bridge.getPetWindowBounds("pet-friend", "instance-a")).toMatchObject({ width: 180, scaleFactor: 2 });
+    expect(invoke).toHaveBeenCalledWith("get_window_geometry", { targetLabel: "pet-friend", instanceId: "instance-a" });
+  });
   it("queries the target pet monitor with its instance and propagates stale-target failure", async () => {
     const bridge = (await import("./bridge.js")).default;
     invoke.mockResolvedValueOnce({ x: 960, y: 20, width: 1280, height: 700 });

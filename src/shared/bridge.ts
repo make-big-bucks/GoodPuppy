@@ -43,8 +43,12 @@ const goodPuppy: GoodPuppyBridge = {
   recordDiagnostic(event) { return inTauri ? invoke<void>("record_diagnostic", { event }) : Promise.resolve(); },
   getDiagnosticReport() { return inTauri ? invoke<string>("get_diagnostic_report") : Promise.resolve(""); },
   getWindowBounds() {
-    if (!appWindow) return Promise.resolve({ x: 0, y: 0, width: 150, height: 120 });
-    return invoke<WindowPoint & WindowSize>("get_window_geometry", { instanceId: windowInstance });
+    if (!appWindow) return Promise.resolve({ x: 0, y: 0, width: 150, height: 120, scaleFactor: 1 });
+    return invoke<WindowPoint & WindowSize & { scaleFactor: number }>("get_window_geometry", { instanceId: windowInstance });
+  },
+  getPetWindowBounds(label, instanceId) {
+    if (!appWindow) return this.getWindowBounds();
+    return invoke("get_window_geometry", { targetLabel: label, instanceId });
   },
   async getWindowPosition() {
     const { x, y } = await this.getWindowBounds();

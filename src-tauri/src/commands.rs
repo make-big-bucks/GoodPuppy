@@ -41,6 +41,8 @@ pub(crate) fn set_pet_hit_shape(
 
 #[derive(serde::Serialize)]
 pub(crate) struct WindowGeometry {
+    #[serde(rename = "scaleFactor")]
+    scale_factor: f64,
     x: f64,
     y: f64,
     width: f64,
@@ -49,10 +51,20 @@ pub(crate) struct WindowGeometry {
 
 #[tauri::command]
 pub(crate) async fn get_window_geometry(
-    window: WebviewWindow,
+    mut window: WebviewWindow,
     instance_id: Option<String>,
+    target_label: Option<String>,
 ) -> Result<WindowGeometry, String> {
     let app = window.app_handle().clone();
+    if let Some(label) = target_label {
+        require_role(window.label(), "main")?;
+        if label != "main" {
+            require_remote_label(&label, "pet-")?;
+        }
+        window = app
+            .get_webview_window(&label)
+            .ok_or("target pet window is unavailable")?;
+    }
     let check = app.clone();
     on_main_thread(&app, move || {
         if window.label() != "main"
@@ -69,6 +81,7 @@ pub(crate) async fn get_window_geometry(
             return Err("invalid window scale factor".into());
         }
         Ok(WindowGeometry {
+            scale_factor: scale,
             x: position.x as f64 / scale,
             y: position.y as f64 / scale,
             width: size.width as f64 / scale,

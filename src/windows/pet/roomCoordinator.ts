@@ -121,11 +121,11 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
 
   // ── Bubble placement（独立气泡窗口的上/下避让，纯函数驱动）─────────────────
   /** 按实际父宠物窗口选屏，并校验实例，再计算气泡几何与朝向。 */
-  async function computeBubble(petPos: WindowPoint, petSize: { width: number; height: number }, parentLabel = COORDINATOR_LABEL, instanceId?: string): Promise<BubblePlacementPayload> {
-    const work = await bridge.getPetMonitorWorkArea(parentLabel, instanceId);
+  async function computeBubble(parentLabel = COORDINATOR_LABEL, instanceId?: string): Promise<BubblePlacementPayload> {
+    const [work, actual] = await Promise.all([bridge.getPetMonitorWorkArea(parentLabel, instanceId), bridge.getPetWindowBounds(parentLabel, instanceId)]);
     const size = getBubbleWindowSize();
     const r = computeBubbleWindowPosition({
-      pet: { x: petPos.x, y: petPos.y, width: petSize.width, height: petSize.height },
+      pet: { x: actual.x, y: actual.y, width: actual.width, height: actual.height },
       bubble: size,
       workArea: work,
     });
@@ -133,18 +133,18 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
   }
 
   /** 重新摆放某成员的气泡窗口（pet 移动/重排后）。气泡窗口收到后自行 setWindowBounds。 */
-  async function placeRemoteBubble(userId: string, petPos: WindowPoint) {
+  async function placeRemoteBubble(userId: string) {
     const entry = remotes.get(userId);
     if (!entry) return;
-    const b = await computeBubble(petPos, getPetWindowSize(), petWindowLabel(userId), entry.instanceId);
+    const b = await computeBubble(petWindowLabel(userId), entry.instanceId);
     if (remotes.get(userId) !== entry || entry.signal.aborted) return;
     void emitToBubble(userId, BUBBLE_PLACEMENT, b);
   }
 
   /** 重新摆放自己的气泡窗口（self 移动/缩放后）。 */
-  async function placeSelfBubble(petPos: WindowPoint) {
+  async function placeSelfBubble() {
     const signal = lifecycle.signal;
-    const b = await computeBubble(petPos, getPetWindowSize(deps.getScale()));
+    const b = await computeBubble();
     if (signal.aborted) return;
     void emitToSelfBubble(BUBBLE_PLACEMENT, b);
   }
@@ -157,8 +157,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
     const signal = lifecycle.signal;
     await readiness.ready;
     selfBubbleInstance ??= await bridge.getManagedWindowInstance(BUBBLE_SELF_LABEL) ?? crypto.randomUUID();
-    const base = readSelfPos() ?? (await selfBounds()).pos;
-    const b = await computeBubble(base, getPetWindowSize(deps.getScale()));
+    const b = await computeBubble();
     if (signal.aborted || !deps.getCurrentRoomId()) return;
     const instanceId = selfBubbleInstance;
     const cancel = new AbortController();
@@ -181,7 +180,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
   /** self 窗口缩放后重排自己的气泡窗口（renderer 缩放路径调用）。 */
   async function refreshSelfBubble() {
     if (!selfBubbleInstance) return;
-    await placeSelfBubble((await selfBounds()).pos);
+    await placeSelfBubble();
   }
 
   /** 自己是否有消息（决定右键「查看对话」vs「写消息」；消息已搬到 bubble-self，
@@ -297,7 +296,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
           const petSize = getPetWindowSize();
           await bridge.spawnPetWindow({ instanceId: entry.instanceId, label: petWindowLabel(userId), ...pos, ...petSize });
           if (signal.aborted || !desiredUsers.has(userId)) { await closeEntry(userId, entry); continue; }
-          const b = await computeBubble(pos, petSize, petWindowLabel(userId), entry.instanceId);
+          const b = await computeBubble(petWindowLabel(userId), entry.instanceId);
           if (signal.aborted || !desiredUsers.has(userId)) { await closeEntry(userId, entry); continue; }
           await bridge.spawnBubbleWindow({ instanceId: entry.instanceId, label: bubbleWindowLabel(userId),
             parentLabel: petWindowLabel(userId), isSelf: false, x: b.x, y: b.y, width: b.width, height: b.height });
@@ -323,7 +322,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
       else {
         if (changed) await emitTo(userId, PET_STATE, { petId: latest.petId, skin: latest.skin, status: latest.status });
         if (returning) await emitTo(userId, PET_INTERACTION, { state: "enter", mirrored: false });
-        if (mode === "semi") { await emitTo(userId, PET_ARRANGE, entry.pos); await placeRemoteBubble(userId, entry.pos); }
+        if (mode === "semi") { await emitTo(userId, PET_ARRANGE, entry.pos); await placeRemoteBubble(userId); }
       }
     }
   }
@@ -335,7 +334,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
     await emitTo(userId, PET_MODE, { draggable: isDraggableForRemote() });
     await emitTo(userId, PET_ARRANGE, entry.pos);
     await emitToBubble(userId, PET_HISTORY, { messages: roomMessageCache.filter((m) => m.from === userId), scope: messageScope(userId) });
-    await placeRemoteBubble(userId, entry.pos);
+    await placeRemoteBubble(userId);
   }
 
   async function resolveLeaveDuration(userId: string, petId: string, expected: RemoteEntry) {
@@ -446,7 +445,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
       entry.pos = pos;
       await emitTo(userId, PET_ARRANGE, pos);
       await emitTo(userId, PET_MODE, { draggable: isDraggableForRemote() });
-      await placeRemoteBubble(userId, pos);
+      await placeRemoteBubble(userId);
     }
   }
   function requestArrangement() {
@@ -484,7 +483,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
     if (entry) entry.pos = { x: payload.x, y: payload.y };
     if (roomId && mode === "free") writeRemotePos(roomId, payload.userId, { x: payload.x, y: payload.y });
     // 拖动跨阈值可能让气泡需上↔下翻面；macOS 子窗口已跟手平移，这里只在翻面时纠正。
-    void placeRemoteBubble(payload.userId, { x: payload.x, y: payload.y });
+    void placeRemoteBubble(payload.userId);
   });
 
   listen<PetInteractRequestPayload>(PET_INTERACT_REQUEST, (payload) => {
@@ -503,7 +502,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
   const storedSelf = readSelfPos();
   function handleSelfMoved(pos: WindowPoint) {
     writeSelfPos(pos);
-    void placeSelfBubble(pos);
+    void placeSelfBubble();
     if (mode === "semi") requestArrangement();
   }
 
