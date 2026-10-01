@@ -4,7 +4,7 @@ import { bindDialogFocus } from "../../shared/dialogFocus.js";
 import { createResumeMonitor } from "../../shared/resumeMonitor.js";
 import { createAuthFlow } from "./authFlow.js";
 import { createRefreshController } from "../../shared/refreshController.js";
-import { sendRoomInvitation } from "./loungeMutations.js";
+import { saveDisplayName, saveRoomMetadata, sendRoomInvitation } from "./loungeMutations.js";
 import { createOperationLifetime } from "../../shared/operationLifetime.js";
 import { fetchLoungeData, type LoungeData, type LoungeDataContext } from "./loungeData.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -796,14 +796,7 @@ async function inviteMember(targetGpId: string) {
 }
 
 async function updateDisplayName(displayName: string) {
-  const mutation = captureMutation();
-  const value = displayName.trim();
-  if (!value) throw new Error("请输入用户名");
-
-  const { error } = await mutation.client.from("profiles").update({ display_name: value }).eq("id", mutation.userId);
-  mutation.assertCurrent();
-  if (error) throw error;
-
+  await saveDisplayName(captureMutation(), displayName);
   await loadPanelData();
 }
 
@@ -820,19 +813,8 @@ function openDisplayNameEditor() {
   });
 }
 
-async function updateSelectedRoomMetadata(roomId: string, { roomName, description }: RoomMetadataUpdate) {
-  const mutation = captureMutation();
-
-  const { error } = await mutation.client
-    .from("rooms")
-    .update({
-      room_name: roomName.trim() || "未命名房间",
-      description: description.trim(),
-    })
-    .eq("id", roomId);
-  mutation.assertCurrent();
-  if (error) throw error;
-
+async function updateSelectedRoomMetadata(roomId: string, values: RoomMetadataUpdate) {
+  await saveRoomMetadata(captureMutation(), roomId, values);
   await loadPanelData();
 }
 

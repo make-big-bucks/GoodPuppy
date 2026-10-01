@@ -43,3 +43,24 @@ export async function sendRoomInvitation(mutation: MutationContext, targetGpId: 
   mutation.assertCurrent();
   if (error) throw error;
 }
+
+export async function saveDisplayName(mutation: MutationContext, displayName: string) {
+  mutation.assertCurrent();
+  const value = displayName.trim();
+  if (!value) throw new Error("请输入用户名");
+  const { data, error } = await mutation.client.from("profiles").update({ display_name: value })
+    .eq("id", mutation.userId).select("id").single();
+  mutation.assertCurrent();
+  if (error) throw error;
+  if (data?.id !== mutation.userId) throw new Error("用户名未保存，请重试");
+}
+
+export async function saveRoomMetadata(mutation: MutationContext, roomId: string, values: { roomName: string; description: string }) {
+  mutation.assertCurrent();
+  const { data, error } = await mutation.client.from("rooms").update({
+    room_name: values.roomName.trim() || "未命名房间", description: values.description.trim(),
+  }).eq("id", roomId).select("id").single();
+  mutation.assertCurrent();
+  if (error) throw error;
+  if (data?.id !== roomId) throw new Error("房间资料未保存，请重试");
+}
