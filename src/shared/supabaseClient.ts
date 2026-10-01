@@ -1,3 +1,4 @@
+import { createBoundedFetch } from "./boundedFetch.js";
 import { createClient } from "@supabase/supabase-js";
 import appConfig from "./appConfig.js";
 import type { SupabaseConfig } from "../types";
@@ -40,5 +41,6 @@ export function createAppSupabaseClient(config: SupabaseConfig = appConfig.supab
 
   return createClient(url, publishableKey, {
     auth: CLIENT_AUTH_OPTIONS,
+    global: { fetch: createBoundedFetch() },
   });
 }

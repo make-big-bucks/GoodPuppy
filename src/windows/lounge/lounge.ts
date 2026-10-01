@@ -1,3 +1,5 @@
+import { createRefreshController } from "../../shared/refreshController.js";
+import { fetchLoungeData, type LoungeData, type LoungeDataContext } from "./loungeData.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import { renderRoomList, renderPendingRequests } from "./views/room-list.js";
@@ -96,6 +98,7 @@ function requiredQuery<T extends Element>(root: ParentNode, selector: string) {
   return element;
 }
 
+let authRevision = 0;
 let supabaseClient: SupabaseClient | null = null;
 let selfAuthId: string | null = null;
 let currentUserIsAnonymous = false;
@@ -622,109 +625,48 @@ function renderAll() {
   });
 }
 
-async function loadPanelData() {
-  if (!supabaseClient || !selfAuthId) return;
-
-  // 冷启动（窗口内还没有任何数据）才显示骨架屏；后续刷新静默更新，避免每次操作后闪屏。
-  const coldStart = !hasLoadedOnce;
-  if (coldStart) showPanelSkeleton();
-
-  try {
-    const [profileResult, myRoomsResult, requestsResult] = await Promise.all([
-      supabaseClient
-        .from("profiles")
-        .select("id, gp_id, display_name, pet_id, skin")
-        .eq("id", selfAuthId)
-        .maybeSingle(),
-      supabaseClient
-        .from("room_members")
-        .select("room_id, rooms!inner(id, room_name, description, invite_code, created_by)")
-        .eq("user_id", selfAuthId),
-      supabaseClient.rpc("get_pending_room_invitations"),
-    ]);
-
-    if (profileResult.error) throw profileResult.error;
-    if (myRoomsResult.error) throw myRoomsResult.error;
-    if (requestsResult.error) throw requestsResult.error;
-
-    // 新用户注册后 profiles 行尚不存在，自动创建默认行（gp_id 由数据库触发器生成）
-    // 用 ignoreDuplicates 避免与 pet 窗口 ensureProfile() 的竞态冲突
-    let profileData = profileResult.data as LoungeProfile | null;
-    if (!profileData) {
-      const { error: upsertError } = await supabaseClient
-        .from("profiles")
-        .upsert({ id: selfAuthId, display_name: "", pet_id: "default" }, { onConflict: "id", ignoreDuplicates: true });
-      if (upsertError) throw upsertError;
-      const { data: fetched, error: fetchError } = await supabaseClient
-        .from("profiles")
-        .select("id, gp_id, display_name, pet_id, skin")
-        .eq("id", selfAuthId)
-        .single();
-      if (fetchError) throw fetchError;
-      profileData = fetched as LoungeProfile | null;
-    }
-
-    renderProfile(profileData);
-
-    const myRooms = (myRoomsResult.data as RoomMembershipRow[] | null) || [];
-    const roomIds = myRooms.map((item) => item.room_id);
-    let allMembers: LoungeMemberRow[] = [];
-    let allPresence: LoungePresenceRow[] = [];
-
-    if (roomIds.length > 0) {
-      const [membersResult, presenceResult] = await Promise.all([
-        supabaseClient
-          .from("room_members")
-          .select("room_id, user_id, joined_at, profiles!room_members_user_id_fkey(id, gp_id, display_name, pet_id, skin)")
-          .in("room_id", roomIds),
-        supabaseClient
-          .from("presence")
-          .select("current_room_id, user_id, is_online, last_seen")
-          .in("current_room_id", roomIds),
-      ]);
-
-      if (membersResult.error) throw membersResult.error;
-      if (presenceResult.error) throw presenceResult.error;
-      allMembers = (membersResult.data as LoungeMemberRow[] | null) || [];
-      allPresence = (presenceResult.data as LoungePresenceRow[] | null) || [];
-    }
-
-    rooms = myRooms.map((item) => ({
-      id: item.room_id,
-      room_name: item.rooms?.room_name || "未命名房间",
-      description: item.rooms?.description || "",
-      invite_code: item.rooms?.invite_code || "",
-      created_by: item.rooms?.created_by || "",
-      members: buildMemberViewModels(
-        allMembers.filter((member) => member.room_id === item.room_id),
-        allPresence,
-        selfAuthId,
-        item.room_id,
-        getActiveRoomId?.() || null,
-      ),
-    }));
-
-    pendingRequests = mapPendingRoomInvitationRows((requestsResult.data as PendingRoomInvitationRow[] | null) || []);
-
-    if (!selectedRoomId || !rooms.some((room) => room.id === selectedRoomId)) {
-      selectedRoomId = rooms[0]?.id || null;
-    }
-
-    // 上线提醒：用本次拉取的 presence 行重置快照基线，并清除已退出房间的订阅开关。
-    seedNotifierSnapshot(allPresence);
+let panelSnapshot: LoungeData | null = null;
+const panelRefresh = createRefreshController<LoungeDataContext, LoungeData>({
+  load: async (context, signal) => {
+    if (!hasLoadedOnce) showPanelSkeleton();
+    return fetchLoungeData(context, signal);
+  },
+  commit: (snapshot) => {
+    panelSnapshot = snapshot;
+    renderProfile(snapshot.profile);
+    rebuildRoomViews();
+    pendingRequests = mapPendingRoomInvitationRows(snapshot.invitations);
+    if (!selectedRoomId || !rooms.some((room) => room.id === selectedRoomId)) selectedRoomId = rooms[0]?.id ?? null;
+    seedNotifierSnapshot(snapshot.allPresence);
     syncNotifierRooms();
-
-    renderAll();
     hasLoadedOnce = true;
-    if (coldStart) hidePanelState();
-  } catch (error) {
-    if (coldStart) {
-      showPanelError({ offline: isOfflineError(error), onRetry: () => void loadPanelData() });
-    } else {
-      showToast(getErrorMessage(error, "加载失败"), "error");
-    }
-  }
+    hidePanelState();
+    renderAll();
+  },
+  error: (error) => {
+    if (!hasLoadedOnce) showPanelError({ offline: isOfflineError(error), onRetry: () => void loadPanelData() });
+    else showToast(getErrorMessage(error, "加载失败"), "error");
+  },
+});
+function rebuildRoomViews() {
+  const snapshot = panelSnapshot;
+  if (!snapshot) return;
+  rooms = snapshot.myRooms.map((item) => ({
+    id: item.room_id,
+    room_name: item.rooms?.room_name || "未命名房间",
+    description: item.rooms?.description || "",
+    invite_code: item.rooms?.invite_code || "",
+    created_by: item.rooms?.created_by || "",
+    members: buildMemberViewModels(
+      snapshot.allMembers.filter((member) => member.room_id === item.room_id),
+      snapshot.allPresence,
+      selfAuthId,
+      item.room_id,
+      getActiveRoomId?.() || null,
+    ),
+  }));
 }
+function loadPanelData() { return panelRefresh.refresh(); }
 
 function openInputModal({
   title,
@@ -1000,6 +942,7 @@ async function handleRoomTransition(roomId: string, type: "enter" | "exit") {
 
 function subscribeToRequests() {
   if (!supabaseClient || !selfAuthId) return;
+  const version = authRevision;
 
   if (requestChannel) {
     void supabaseClient.removeChannel(requestChannel);
@@ -1022,6 +965,7 @@ function subscribeToRequests() {
         filter: `to_id=eq.${selfAuthId}`,
       },
       () => {
+        if (version !== authRevision) return;
         void loadPanelData();
       },
     )
@@ -1039,6 +983,7 @@ function subscribeToRequests() {
         filter: `from_id=eq.${selfAuthId}`,
       },
       () => {
+        if (version !== authRevision) return;
         void loadPanelData();
       },
     )
@@ -1047,6 +992,7 @@ function subscribeToRequests() {
 
 function subscribeToRoomMembers() {
   if (!supabaseClient || !selfAuthId) return;
+  const version = authRevision;
 
   if (roomMembersChannel) {
     void supabaseClient.removeChannel(roomMembersChannel);
@@ -1064,6 +1010,7 @@ function subscribeToRoomMembers() {
         table: "room_members",
       },
       () => {
+        if (version !== authRevision) return;
         void loadPanelData();
       },
     )
@@ -1084,6 +1031,7 @@ function knownMemberIds(): Set<string> {
 
 function subscribeToProfilesChanges() {
   if (!supabaseClient || !selfAuthId) return;
+  const version = authRevision;
 
   if (profilesChannel) {
     void supabaseClient.removeChannel(profilesChannel);
@@ -1101,6 +1049,7 @@ function subscribeToProfilesChanges() {
         table: "profiles",
       },
       (payload) => {
+        if (version !== authRevision) return;
         const changedId = (payload.new as { id?: string } | null)?.id;
         if (changedId && knownMemberIds().has(changedId)) {
           void loadPanelData();
@@ -1112,6 +1061,7 @@ function subscribeToProfilesChanges() {
 
 function subscribeToPresenceChanges() {
   if (!supabaseClient || !selfAuthId) return;
+  const version = authRevision;
 
   if (presenceChannel) {
     void supabaseClient.removeChannel(presenceChannel);
@@ -1128,6 +1078,7 @@ function subscribeToPresenceChanges() {
         table: "presence",
       },
       (payload) => {
+        if (version !== authRevision) return;
         // 先用旧快照做上线检测，再 loadPanelData 刷新数据（其内部会重置快照基线）。
         const row = payload.new as LoungePresenceRow | null;
         if (row?.user_id) notifyPresenceChange(row);
@@ -1313,6 +1264,8 @@ export function initLoungePanel({
   selfAuthId = nextSelfAuthId;
   currentUserIsAnonymous = Boolean(nextSelfAuthId && nextIsAnonymous);
   currentUserEmail = nextSelfAuthId ? nextEmail : null;
+  authRevision += 1;
+  panelRefresh.setContext(selfAuthId ? { client: supabase, userId: selfAuthId } : null);
   getActiveRoomId = nextGetActiveRoomId;
   onEnterRoom = nextOnEnterRoom;
   onExitRoom = nextOnExitRoom;
@@ -1362,58 +1315,37 @@ function startOnlineNotifier() {
 }
 
 export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, isAnonymous: nextIsAnonymous, email: nextEmail }: UpdatePanelAuthOptions) {
-  const wasLoggedIn = Boolean(selfAuthId);
-  const isLoggedIn = Boolean(nextSelfAuthId);
-
+  const previousClient = supabaseClient;
+  const changed = selfAuthId !== nextSelfAuthId || previousClient !== supabase;
+  if (changed) {
+    authRevision += 1;
+    panelRefresh.setContext(nextSelfAuthId ? { client: supabase, userId: nextSelfAuthId } : null);
+    for (const channel of [requestChannel, sentRequestChannel, presenceChannel, roomMembersChannel, profilesChannel]) {
+      if (channel && previousClient) void previousClient.removeChannel(channel).catch(console.error);
+    }
+    requestChannel = sentRequestChannel = presenceChannel = roomMembersChannel = profilesChannel = null;
+    disposeOnlineNotifier();
+    panelSnapshot = null;
+    rooms = []; pendingRequests = []; selectedRoomId = null; pendingTransition = null;
+    hasLoadedOnce = false;
+    renderProfile(null);
+    closeModal(); closeSettings();
+  }
   supabaseClient = supabase;
   selfAuthId = nextSelfAuthId;
   currentUserIsAnonymous = Boolean(nextSelfAuthId && nextIsAnonymous);
   currentUserEmail = nextSelfAuthId ? nextEmail : null;
-
-  if (isLoggedIn) {
-    subscribeToRequests();
-    subscribeToPresenceChanges();
-    subscribeToRoomMembers();
-    subscribeToProfilesChanges();
+  renderAuthState(Boolean(selfAuthId));
+  if (changed && selfAuthId) {
+    subscribeToRequests(); subscribeToPresenceChanges(); subscribeToRoomMembers(); subscribeToProfilesChanges();
     startOnlineNotifier();
-    renderAuthState(true);
     void loadPanelData();
-  } else if (wasLoggedIn) {
-    if (requestChannel && supabaseClient) {
-      void supabaseClient.removeChannel(requestChannel);
-      requestChannel = null;
-    }
-    if (sentRequestChannel && supabaseClient) {
-      void supabaseClient.removeChannel(sentRequestChannel);
-      sentRequestChannel = null;
-    }
-    if (presenceChannel && supabaseClient) {
-      void supabaseClient.removeChannel(presenceChannel);
-      presenceChannel = null;
-    }
-    if (roomMembersChannel && supabaseClient) {
-      void supabaseClient.removeChannel(roomMembersChannel);
-      roomMembersChannel = null;
-    }
-    if (profilesChannel && supabaseClient) {
-      void supabaseClient.removeChannel(profilesChannel);
-      profilesChannel = null;
-    }
-    console.warn("[online-notify] auth logout → disposeOnlineNotifier");
-    disposeOnlineNotifier();
-    rooms = [];
-    pendingRequests = [];
-    selectedRoomId = null;
-    pendingTransition = null;
-    hasLoadedOnce = false; // 登出后重置，下次登录重新走首屏骨架
-    hidePanelState();
-    renderAuthState(false);
-    renderProfile(null);
-    renderAll();
-  }
+  } else if (!selfAuthId) hidePanelState();
+  renderAll();
 }
 
 export function refreshLoungePanelActiveRoom() {
+  rebuildRoomViews();
   renderAll();
   if (selfAuthId) void loadPanelData();
 }
@@ -1462,3 +1394,13 @@ export function closeLoungePanel() {
     if (p) p.hidden = true;
   }
 }
+
+setInterval(() => {
+  if (selfAuthId && document.visibilityState === "visible" && panelSnapshot) {
+    const before = rooms.map((room) => room.members.map((member) => member.isOnline).join()).join();
+    rebuildRoomViews();
+    const after = rooms.map((room) => room.members.map((member) => member.isOnline).join()).join();
+    if (before !== after) renderAll();
+  }
+}, 10_000);
+window.addEventListener("beforeunload", () => panelRefresh.dispose());
