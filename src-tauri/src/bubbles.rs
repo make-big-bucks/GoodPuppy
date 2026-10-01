@@ -27,7 +27,7 @@ pub(crate) struct BubbleRegistry {
     parent_of: HashMap<String, String>,
     /// parent pet label → its bubble labels.
     children_of: HashMap<String, Vec<String>>,
-    /// bubble label → (offset_x, offset_y) from parent top-left, logical px.
+    /// bubble label → (offset_x, offset_y) from parent top-left, desktop units (Windows physical pixels, macOS logical points).
     offset_of: HashMap<String, (f64, f64)>,
     /// parent pet labels that already have a `Moved` follow listener attached.
     #[cfg_attr(not(any(target_os = "windows", target_os = "macos")), allow(dead_code))]
@@ -38,7 +38,7 @@ pub(crate) type Bubbles = Arc<std::sync::Mutex<BubbleRegistry>>;
 
 /// Register a freshly spawned bubble: remember its parent and initial offset so
 /// the parent-`Moved` follow can glue it in place. `parent_origin` is the parent
-/// window's top-left in logical px at spawn time.
+/// window's top-left in the platform desktop units at spawn time.
 pub(crate) fn register_bubble(
     bubbles: &Bubbles,
     label: &str,
@@ -113,8 +113,12 @@ pub(crate) fn ensure_parent_follow_listener<R: Runtime>(
                 .get_webview_window(&parent_label)
                 .and_then(|w| w.scale_factor().ok())
                 .unwrap_or(1.0);
-            let parent_x = pos.x as f64 / scale;
-            let parent_y = pos.y as f64 / scale;
+            let (parent_x, parent_y) = follow_coordinates(
+                pos.x as f64,
+                pos.y as f64,
+                scale,
+                cfg!(target_os = "windows"),
+            );
             let children: Vec<(String, (f64, f64))> = {
                 let reg = bubbles.lock().unwrap();
                 reg.children_of
@@ -129,8 +133,14 @@ pub(crate) fn ensure_parent_follow_listener<R: Runtime>(
             };
             for (label, (ox, oy)) in children {
                 if let Some(child) = app.get_webview_window(&label) {
-                    use tauri::LogicalPosition;
-                    let _ = child.set_position(LogicalPosition::new(parent_x + ox, parent_y + oy));
+                    #[cfg(target_os = "windows")]
+                    let _ = child.set_position(tauri::PhysicalPosition::new(
+                        (parent_x + ox).round() as i32,
+                        (parent_y + oy).round() as i32,
+                    ));
+                    #[cfg(target_os = "macos")]
+                    let _ = child
+                        .set_position(tauri::LogicalPosition::new(parent_x + ox, parent_y + oy));
                 }
             }
         }
@@ -145,14 +155,27 @@ pub(crate) fn ensure_parent_follow_listener<R: Runtime>(
 ) {
 }
 
+fn follow_coordinates(x: f64, y: f64, scale: f64, physical: bool) -> (f64, f64) {
+    if physical {
+        (x, y)
+    } else {
+        (x / scale, y / scale)
+    }
+}
+fn window_follow_origin<R: Runtime>(window: &WebviewWindow<R>) -> Option<(f64, f64)> {
+    let position = window.outer_position().ok()?;
+    let scale = window.scale_factor().ok()?;
+    Some(follow_coordinates(
+        position.x as f64,
+        position.y as f64,
+        scale,
+        cfg!(target_os = "windows"),
+    ))
+}
+
 /// Recompute a bubble window's stored offset from its parent after an explicit
 /// reposition, so the parent-`Moved` follow keeps the bubble glued in its new spot.
-pub(crate) fn refresh_bubble_offset<R: Runtime>(
-    window: &WebviewWindow<R>,
-    bubbles: &Bubbles,
-    x: f64,
-    y: f64,
-) {
+pub(crate) fn refresh_bubble_offset<R: Runtime>(window: &WebviewWindow<R>, bubbles: &Bubbles) {
     let label = window.label().to_string();
     if !is_bubble_window_label(&label) {
         return;
@@ -167,12 +190,10 @@ pub(crate) fn refresh_bubble_offset<R: Runtime>(
     let Some(parent) = window.app_handle().get_webview_window(&parent_label) else {
         return;
     };
-    let Some((px, py)) = parent.outer_position().ok().and_then(|p| {
-        parent
-            .scale_factor()
-            .ok()
-            .map(|s| (p.x as f64 / s, p.y as f64 / s))
-    }) else {
+    let Some((px, py)) = window_follow_origin(&parent) else {
+        return;
+    };
+    let Some((x, y)) = window_follow_origin(window) else {
         return;
     };
     let mut reg = bubbles.lock().unwrap();
@@ -182,6 +203,17 @@ pub(crate) fn refresh_bubble_offset<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn follow_uses_one_desktop_plane_even_when_parent_and_child_scales_differ() {
+        let parent = follow_coordinates(2000.0, 200.0, 2.0, true);
+        let child = follow_coordinates(2040.0, 80.0, 1.0, true);
+        assert_eq!((child.0 - parent.0, child.1 - parent.1), (40.0, -120.0));
+        assert_eq!(follow_coordinates(2000.0, 200.0, 1.0, true), parent);
+        assert_eq!(
+            follow_coordinates(2000.0, 200.0, 2.0, false),
+            (1000.0, 100.0)
+        );
+    }
     #[test]
     fn destruction_releases_parent_listener_and_all_child_offsets() {
         let bubbles = Arc::new(std::sync::Mutex::new(BubbleRegistry::default()));

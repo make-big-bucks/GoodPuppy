@@ -108,8 +108,7 @@ pub(crate) async fn set_window_bounds(
     }
     // A bubble being repositioned (e.g. flipped above↔below the pet) changes its
     // offset from the parent; refresh it so the Windows `Moved` follow stays exact.
-    // macOS auto-follow re-derives the offset from the child's own frame, so this
-    // bookkeeping is Windows-only but harmless to keep updated everywhere.
+    // 两个平台都按实际父子位置更新平台桌面单位下的偏移。
     let bubbles = bubbles.inner().clone();
     let win = window.clone();
     let app = window.app_handle().clone();
@@ -122,7 +121,7 @@ pub(crate) async fn set_window_bounds(
         }
         position_overlay_window(&win, x, y, width, height)?;
         // 位置真正应用后才提交跟随偏移；失败不能污染下一次父窗口移动。
-        refresh_bubble_offset(&win, &bubbles, x, y);
+        refresh_bubble_offset(&win, &bubbles);
         Ok(())
     })
     .await
@@ -285,19 +284,6 @@ pub(crate) async fn spawn_bubble_window(
         .build()
         .map_err(|e| e.to_string())?;
 
-    // Record parent/offset so Windows can follow on `Moved` (macOS auto-follows).
-    let parent_origin = parent
-        .outer_position()
-        .ok()
-        .and_then(|p| {
-            parent
-                .scale_factor()
-                .ok()
-                .map(|s| (p.x as f64 / s, p.y as f64 / s))
-        })
-        .unwrap_or((x, y));
-    register_bubble(&bubbles, &label, &parent_label, x, y, parent_origin);
-
     watch_resources(
         &window,
         shapes.inner().clone(),
@@ -306,12 +292,23 @@ pub(crate) async fn spawn_bubble_window(
     );
     let win = window.clone();
     let parent_for_main = parent.clone();
+    let follow_bubbles = bubbles.inner().clone();
     on_main_thread(&app, move || {
         configure_floating_overlay(&win);
         if is_self {
             configure_self_panel(&win);
         }
         position_overlay_window(&win, x, y, width, height)?;
+        // 注册表与真实位置在同一主线程提交，初始偏移也按平台桌面单位计算。
+        register_bubble(
+            &follow_bubbles,
+            win.label(),
+            parent_for_main.label(),
+            0.0,
+            0.0,
+            (0.0, 0.0),
+        );
+        refresh_bubble_offset(&win, &follow_bubbles);
         add_child_window(&parent_for_main, &win)?;
         win.show().map_err(|error| error.to_string())
     })
