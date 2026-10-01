@@ -76,6 +76,10 @@ const goodPuppy: GoodPuppyBridge = {
     }
     return monitorRect(monitor, true);
   },
+  getPetMonitorWorkArea(label, instanceId) {
+    if (!inTauri) return this.getMonitorWorkArea();
+    return invoke("get_pet_monitor_work_area", { label, instanceId });
+  },
   async getCursorMonitorWorkArea() {
     // 上线提醒 toast 的目标屏：取光标当前所在屏的「可用区」（扣除菜单栏/dock/taskbar），
     // 回退到当前窗口所在屏 / 主屏。workArea 为物理像素，换算成逻辑像素以与窗口坐标一致。

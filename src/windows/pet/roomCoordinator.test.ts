@@ -26,7 +26,7 @@ function fixture() {
     }, callback),
     emitToWindow: send,
     getWindowPosition: async () => ({ x: 100, y: 100 }), getWindowSize: async () => ({ width: 150, height: 120 }),
-    getMonitors: async () => [{ x: 0, y: 0, width: 1920, height: 1080 }], getMonitorWorkArea: async () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
+    getMonitors: async () => [{ x: 0, y: 0, width: 1920, height: 1080 }], getPetMonitorWorkArea: async () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
     spawnPetWindow: vi.fn(async (options) => { managed.set(options.label, options.instanceId); }),
     spawnBubbleWindow: vi.fn(async (options) => { managed.set(options.label, options.instanceId); }),
     closeBubbleWindow: vi.fn(async (label, instance) => { if (managed.get(label) === instance) managed.delete(label); }),

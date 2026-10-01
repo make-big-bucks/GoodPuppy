@@ -417,6 +417,69 @@ fn require_role(actual: &str, expected: &str) -> Result<(), String> {
         Err("window role is not allowed to perform this operation".into())
     }
 }
+
+#[derive(serde::Serialize)]
+pub(crate) struct LogicalWorkArea {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+fn logical_work_area(x: f64, y: f64, width: f64, height: f64, scale: f64) -> LogicalWorkArea {
+    LogicalWorkArea {
+        x: x / scale,
+        y: y / scale,
+        width: width / scale,
+        height: height / scale,
+    }
+}
+/// 根据实际目标窗口选屏；不能把不同 DPI 的逻辑矩形混成同一全局坐标系来猜屏幕。
+#[tauri::command]
+pub(crate) async fn get_pet_monitor_work_area(
+    app: AppHandle,
+    caller: WebviewWindow,
+    label: String,
+    instance_id: Option<String>,
+) -> Result<LogicalWorkArea, String> {
+    require_role(caller.label(), "main")?;
+    if label != "main" {
+        require_remote_label(&label, "pet-")?;
+    }
+    let handle = app.clone();
+    on_main_thread(&app, move || {
+        if let Some(expected) = instance_id {
+            if handle
+                .state::<WindowInstances>()
+                .lock()
+                .unwrap()
+                .get(&label)
+                != Some(&expected)
+            {
+                return Err("stale target window instance".into());
+            }
+        }
+        let window = handle
+            .get_webview_window(&label)
+            .ok_or("target pet window is unavailable")?;
+        let monitor = window
+            .current_monitor()
+            .map_err(|e| e.to_string())?
+            .ok_or("target monitor is unavailable")?;
+        let scale = window.scale_factor().map_err(|e| e.to_string())?;
+        if !scale.is_finite() || scale <= 0.0 {
+            return Err("invalid target scale factor".into());
+        }
+        let area = monitor.work_area();
+        Ok(logical_work_area(
+            area.position.x as f64,
+            area.position.y as f64,
+            area.size.width as f64,
+            area.size.height as f64,
+            scale,
+        ))
+    })
+    .await
+}
 fn require_remote_label(label: &str, prefix: &str) -> Result<(), String> {
     let suffix = label.strip_prefix(prefix).unwrap_or("");
     if suffix.is_empty()
@@ -506,6 +569,16 @@ pub(crate) async fn set_self_visible(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn target_work_area_uses_the_target_window_scale_and_preserves_negative_origins() {
+        let secondary = logical_work_area(1920.0, 40.0, 2560.0, 1400.0, 2.0);
+        assert_eq!(
+            (secondary.x, secondary.y, secondary.width, secondary.height),
+            (960.0, 20.0, 1280.0, 700.0)
+        );
+        let left = logical_work_area(-1920.0, 0.0, 1920.0, 1040.0, 1.0);
+        assert_eq!((left.x, left.width), (-1920.0, 1920.0));
+    }
     #[test]
     fn panel_identity_and_dynamic_roles_are_enforced() {
         assert!(validate_bubble_pair("bubble-self", "main", true).is_ok());

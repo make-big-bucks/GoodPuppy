@@ -14,9 +14,13 @@ pub(crate) fn start(app: AppHandle) {
             if crate::diagnostics::get_diagnostic_report(app.clone(), main).is_ok() {
                 return Err("diagnostic export role guard missing".into());
             }
-            let lounge = app.get_webview_window("lounge").ok_or("lounge unavailable")?;
+            let lounge = app
+                .get_webview_window("lounge")
+                .ok_or("lounge unavailable")?;
             let report = crate::diagnostics::get_diagnostic_report(app.clone(), lounge)?;
-            if !report.contains("app-start") { return Err("persistent startup diagnostic missing".into()); }
+            if !report.contains("app-start") {
+                return Err("persistent startup diagnostic missing".into());
+            }
             Ok(())
         });
         match &result {
@@ -46,6 +50,28 @@ async fn run(app: &AppHandle) -> Result<(), String> {
             120.0,
         )
         .await?;
+        let area = commands::get_pet_monitor_work_area(
+            app.clone(),
+            main.clone(),
+            "pet-smoke".into(),
+            Some(instance.clone()),
+        )
+        .await?;
+        let area = serde_json::to_value(area).map_err(|e| e.to_string())?;
+        if area["width"].as_f64().unwrap_or(0.0) <= 0.0 {
+            return Err("target monitor work area unavailable".into());
+        }
+        if commands::get_pet_monitor_work_area(
+            app.clone(),
+            main.clone(),
+            "pet-smoke".into(),
+            Some("stale-instance".into()),
+        )
+        .await
+        .is_ok()
+        {
+            return Err("target monitor stale-instance guard missing".into());
+        }
         commands::spawn_bubble_window(
             app.clone(),
             main.clone(),

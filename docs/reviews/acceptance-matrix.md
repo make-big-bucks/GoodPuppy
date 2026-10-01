@@ -23,7 +23,7 @@
 | [17](2026-10-01-project-diagnosis.md#item-17) | 会客厅异步归属 | 本地通过 | 捕获账号/目标、refreshController、弹层实例与换肤账号队列回归。 |
 | [18](2026-10-01-project-diagnosis.md#item-18) | 刷新风暴与租约 | 本地通过 | 刷新合并、缓存在线过期更新、连接健康同步和暂停后补完整快照。 |
 | [19](2026-10-01-project-diagnosis.md#item-19) | 通知资源调度 | 本地通过 | notificationScheduler 取消/上限/TTL，真实 toast 投递与销毁回归。 |
-| [20](2026-10-01-project-diagnosis.md#item-20) | 显示器坐标与可用区 | 部分 | 目标屏可用区与越界测试已补；混合 DPI 的全局坐标语义及实际双屏布局仍需统一/验收。 |
+| [20](2026-10-01-project-diagnosis.md#item-20) | 显示器坐标与可用区 | 部分 | 实际父窗口选屏、工作区与实例校验已通过单元/原生回归，避免逻辑矩形重叠误选屏；混合 DPI 的全局坐标单位及实际双屏布局仍需统一/验收。 |
 | [21](2026-10-01-project-diagnosis.md#item-21) | 原生命令实际完成 | 本地通过 | window_tasks 等待实际主线程结果和 Destroyed，实例防过期回归。 |
 | [22](2026-10-01-project-diagnosis.md#item-22) | Windows 父子窗口 | 待平台 | owner 与跟随代码已补；Windows 实机验收缺失。 |
 | [23](2026-10-01-project-diagnosis.md#item-23) | Windows 窗口权限 | 本地通过 | capability 与 AST 调用权限回归；真实 Windows 运行归入平台门禁。 |

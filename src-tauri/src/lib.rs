@@ -17,6 +17,7 @@ use commands::{
     close_bubble_window, close_pet_window, close_toast_window, focus_pet_panel,
     get_managed_window_instance, set_pet_hit_shape, set_self_visible, set_window_bounds,
     spawn_bubble_window, spawn_pet_window, spawn_toast_window,
+    get_pet_monitor_work_area,
 };
 use cursor::spawn_cursor_monitor;
 use hit_test::HitShapes;
@@ -86,6 +87,7 @@ pub fn run() {
             spawn_toast_window,
             close_toast_window,
             set_pet_hit_shape,
+            get_pet_monitor_work_area,
             diagnostics::record_diagnostic,
             diagnostics::get_diagnostic_report
         ])

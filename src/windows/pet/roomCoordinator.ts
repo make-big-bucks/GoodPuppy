@@ -120,9 +120,9 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
   }
 
   // ── Bubble placement（独立气泡窗口的上/下避让，纯函数驱动）─────────────────
-  /** 按目标宠物中心选择屏幕，再用可用区计算气泡几何与朝向。 */
-  async function computeBubble(petPos: WindowPoint, petSize: { width: number; height: number }): Promise<BubblePlacementPayload> {
-    const work = await bridge.getMonitorWorkArea({ x: petPos.x + petSize.width / 2, y: petPos.y + petSize.height / 2 });
+  /** 按实际父宠物窗口选屏，并校验实例，再计算气泡几何与朝向。 */
+  async function computeBubble(petPos: WindowPoint, petSize: { width: number; height: number }, parentLabel = COORDINATOR_LABEL, instanceId?: string): Promise<BubblePlacementPayload> {
+    const work = await bridge.getPetMonitorWorkArea(parentLabel, instanceId);
     const size = getBubbleWindowSize();
     const r = computeBubbleWindowPosition({
       pet: { x: petPos.x, y: petPos.y, width: petSize.width, height: petSize.height },
@@ -136,7 +136,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
   async function placeRemoteBubble(userId: string, petPos: WindowPoint) {
     const entry = remotes.get(userId);
     if (!entry) return;
-    const b = await computeBubble(petPos, getPetWindowSize());
+    const b = await computeBubble(petPos, getPetWindowSize(), petWindowLabel(userId), entry.instanceId);
     if (remotes.get(userId) !== entry || entry.signal.aborted) return;
     void emitToBubble(userId, BUBBLE_PLACEMENT, b);
   }
@@ -297,7 +297,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
           const petSize = getPetWindowSize();
           await bridge.spawnPetWindow({ instanceId: entry.instanceId, label: petWindowLabel(userId), ...pos, ...petSize });
           if (signal.aborted || !desiredUsers.has(userId)) { await closeEntry(userId, entry); continue; }
-          const b = await computeBubble(pos, petSize);
+          const b = await computeBubble(pos, petSize, petWindowLabel(userId), entry.instanceId);
           if (signal.aborted || !desiredUsers.has(userId)) { await closeEntry(userId, entry); continue; }
           await bridge.spawnBubbleWindow({ instanceId: entry.instanceId, label: bubbleWindowLabel(userId),
             parentLabel: petWindowLabel(userId), isSelf: false, x: b.x, y: b.y, width: b.width, height: b.height });

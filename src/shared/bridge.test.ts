@@ -9,6 +9,14 @@ beforeEach(() => {
   vi.stubGlobal("window", { __TAURI_INTERNALS__: {} });
 });
 describe("native bridge error contract", () => {
+  it("queries the target pet monitor with its instance and propagates stale-target failure", async () => {
+    const bridge = (await import("./bridge.js")).default;
+    invoke.mockResolvedValueOnce({ x: 960, y: 20, width: 1280, height: 700 });
+    expect(await bridge.getPetMonitorWorkArea("pet-user", "instance-a")).toMatchObject({ x: 960, width: 1280 });
+    expect(invoke).toHaveBeenCalledWith("get_pet_monitor_work_area", { label: "pet-user", instanceId: "instance-a" });
+    invoke.mockRejectedValueOnce(new Error("stale target"));
+    await expect(bridge.getPetMonitorWorkArea("pet-user", "old")).rejects.toThrow("stale target");
+  });
   it("returns native dragging rejection to the presenter's cleanup path", async () => {
     startDragging.mockRejectedValueOnce(new Error("drag denied"));
     const bridge = (await import("./bridge.js")).default;
