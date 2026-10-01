@@ -37,13 +37,18 @@ export interface PetHitShape {
 }
 
 /** bridge.ts 暴露的桥接 API，挂在 window.goodPuppy。 */
+export type WindowGeometry = WindowPoint & WindowSize & {
+  scaleFactor: number;
+  workArea: (WindowPoint & WindowSize) | null;
+};
+
 export interface GoodPuppyBridge {
   recordDiagnostic(event: DiagnosticEvent): Promise<void>;
   getDiagnosticReport(): Promise<string>;
   /** 主线程一次读取当前窗口外框位置、尺寸与比例，返回逻辑单位。 */
-  getWindowBounds(): Promise<WindowPoint & WindowSize & { scaleFactor: number }>;
+  getWindowBounds(): Promise<WindowGeometry>;
   /** 协调者读取目标宠物实际外框，动态窗口必须匹配实例。 */
-  getPetWindowBounds(label: string, instanceId?: string): Promise<WindowPoint & WindowSize & { scaleFactor: number }>;
+  getPetWindowBounds(label: string, instanceId?: string): Promise<WindowGeometry>;
   getWindowPosition(): Promise<WindowPoint>;
   /** 当前窗口外尺寸（逻辑像素）。 */
   getWindowSize(): Promise<WindowSize>;

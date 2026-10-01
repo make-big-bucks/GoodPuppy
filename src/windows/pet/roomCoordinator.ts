@@ -122,7 +122,9 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
   // ── Bubble placement（独立气泡窗口的上/下避让，纯函数驱动）─────────────────
   /** 按实际父宠物窗口选屏，并校验实例，再计算气泡几何与朝向。 */
   async function computeBubble(parentLabel = COORDINATOR_LABEL, instanceId?: string): Promise<BubblePlacementPayload> {
-    const [work, actual] = await Promise.all([bridge.getPetMonitorWorkArea(parentLabel, instanceId), bridge.getPetWindowBounds(parentLabel, instanceId)]);
+    const actual = await bridge.getPetWindowBounds(parentLabel, instanceId);
+    const work = actual.workArea;
+    if (!work) throw new Error("目标显示器可用区不可用");
     const size = getBubbleWindowSize();
     const r = computeBubbleWindowPosition({
       pet: { x: actual.x, y: actual.y, width: actual.width, height: actual.height },

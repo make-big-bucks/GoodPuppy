@@ -14,7 +14,7 @@ import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import appConfig from "./appConfig.js";
-import type { GoodPuppyBridge, PetHitShape, WindowPoint, WindowSize } from "../types";
+import type { GoodPuppyBridge, PetHitShape, WindowPoint, WindowSize, WindowGeometry } from "../types";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 const appWindow = inTauri ? getCurrentWindow() : null;
@@ -43,8 +43,8 @@ const goodPuppy: GoodPuppyBridge = {
   recordDiagnostic(event) { return inTauri ? invoke<void>("record_diagnostic", { event }) : Promise.resolve(); },
   getDiagnosticReport() { return inTauri ? invoke<string>("get_diagnostic_report") : Promise.resolve(""); },
   getWindowBounds() {
-    if (!appWindow) return Promise.resolve({ x: 0, y: 0, width: 150, height: 120, scaleFactor: 1 });
-    return invoke<WindowPoint & WindowSize & { scaleFactor: number }>("get_window_geometry", { instanceId: windowInstance });
+    if (!appWindow) return Promise.resolve({ x: 0, y: 0, width: 150, height: 120, scaleFactor: 1, workArea: null });
+    return invoke<WindowGeometry>("get_window_geometry", { instanceId: windowInstance });
   },
   getPetWindowBounds(label, instanceId) {
     if (!appWindow) return this.getWindowBounds();

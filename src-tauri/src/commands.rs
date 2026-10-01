@@ -43,6 +43,8 @@ pub(crate) fn set_pet_hit_shape(
 pub(crate) struct WindowGeometry {
     #[serde(rename = "scaleFactor")]
     scale_factor: f64,
+    #[serde(rename = "workArea")]
+    work_area: Option<LogicalWorkArea>,
     x: f64,
     y: f64,
     width: f64,
@@ -80,8 +82,22 @@ pub(crate) async fn get_window_geometry(
         if !scale.is_finite() || scale <= 0.0 {
             return Err("invalid window scale factor".into());
         }
+        let work_area = window
+            .current_monitor()
+            .map_err(|error| error.to_string())?
+            .map(|monitor| {
+                let area = monitor.work_area();
+                logical_work_area(
+                    area.position.x as f64,
+                    area.position.y as f64,
+                    area.size.width as f64,
+                    area.size.height as f64,
+                    scale,
+                )
+            });
         Ok(WindowGeometry {
             scale_factor: scale,
+            work_area,
             x: position.x as f64 / scale,
             y: position.y as f64 / scale,
             width: size.width as f64 / scale,

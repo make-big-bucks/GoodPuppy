@@ -25,8 +25,8 @@ function fixture() {
       listeners.set(event, handler); return () => listeners.delete(event);
     }, callback),
     emitToWindow: send,
-    getWindowBounds: async () => ({ x: 100, y: 100, width: 150, height: 120, scaleFactor: 1 }),
-    getPetWindowBounds: async () => ({ x: 100, y: 100, width: 150, height: 120, scaleFactor: 1 }),
+    getWindowBounds: async () => ({ x: 100, y: 100, width: 150, height: 120, scaleFactor: 1, workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+    getPetWindowBounds: async () => ({ x: 100, y: 100, width: 150, height: 120, scaleFactor: 1, workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
     getWindowPosition: async () => ({ x: 100, y: 100 }), getWindowSize: async () => ({ width: 150, height: 120 }),
     getMonitors: async () => [{ x: 0, y: 0, width: 1920, height: 1080 }], getPetMonitorWorkArea: async () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
     spawnPetWindow: vi.fn(async (options) => { managed.set(options.label, options.instanceId); }),
@@ -45,10 +45,12 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe("remote window lifecycle schedules", () => {
   it("places bubbles from the actual target geometry rather than predicted spawn bounds", async () => {
     const f = fixture();
-    vi.spyOn(f.bridge, "getPetWindowBounds").mockResolvedValue({ x: 900, y: 300, width: 180, height: 120, scaleFactor: 2 });
+    const separateRead = vi.spyOn(f.bridge, "getPetMonitorWorkArea");
+    vi.spyOn(f.bridge, "getPetWindowBounds").mockResolvedValue({ x: 900, y: 300, width: 180, height: 120, scaleFactor: 2, workArea: { x: 0, y: 0, width: 1920, height: 1080 } });
     f.coordinator.onPresenceChange([member]); await f.coordinator.whenIdle();
     expect(f.bridge.spawnBubbleWindow).toHaveBeenCalledWith(expect.objectContaining({ x: 915, y: 120 }));
     expect(f.bridge.getPetWindowBounds).toHaveBeenCalledWith("pet-a", f.managed.get("pet-a"));
+    expect(separateRead).not.toHaveBeenCalled();
     f.setRoom(null); f.coordinator.onClearRemotePets(); await f.coordinator.whenIdle();
   });
   it("does not replay a recovered duplicate message or its animation", async () => {
