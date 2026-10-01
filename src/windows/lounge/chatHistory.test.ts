@@ -53,7 +53,7 @@ describe("assemblePage", () => {
     const rows = [makeRow("c", "2026-06-19T03:00:00Z"), makeRow("b", "2026-06-19T02:00:00Z"), makeRow("a", "2026-06-19T01:00:00Z")];
     const page = assemblePage(rows);
     expect(page.messages.map((m) => m.id)).toEqual(["a", "b", "c"]);
-    expect(page.nextCursor).toBe("2026-06-19T01:00:00Z");
+    expect(page.nextCursor).toEqual({ createdAt: "2026-06-19T01:00:00Z", id: "a" });
   });
 
   it("reports hasMore only when a full page is returned", () => {
@@ -99,4 +99,24 @@ describe("date formatting", () => {
     expect(isSameDay(new Date(2026, 5, 19, 1, 0).toISOString(), new Date(2026, 5, 19, 23, 0).toISOString())).toBe(true);
     expect(isSameDay(new Date(2026, 5, 19, 1, 0).toISOString(), new Date(2026, 5, 20, 1, 0).toISOString())).toBe(false);
   });
+});
+
+it("preserves both timestamp and UUID at a page boundary with identical timestamps", () => {
+  const rows = Array.from({ length: PAGE_SIZE }, (_, i) => makeRow(String(PAGE_SIZE - i), "2026-10-01T00:00:00.000001Z"));
+  expect(assemblePage(rows).nextCursor).toEqual({ createdAt: "2026-10-01T00:00:00.000001Z", id: "1" });
+});
+
+it("sends the timestamp-and-ID keyset condition through the real query builder", async () => {
+  const { createClient } = await import("@supabase/supabase-js");
+  const { fetchMessagePage } = await import("./chatHistory.js");
+  let requested = "";
+  const client = createClient("https://example.test", "sb_publishable_test", {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: async (input) => { requested = String(input); return new Response("[]", { headers: { "Content-Type": "application/json" } }); } },
+  });
+  const cursor = { createdAt: "2026-10-01T00:00:00.000001Z", id: "aaaaaaaa-0000-0000-0000-000000000001" };
+  await fetchMessagePage(client, "room", cursor);
+  const filter = new URL(requested).searchParams.get("or");
+  expect(filter).toContain(`created_at.eq.${cursor.createdAt}`);
+  expect(filter).toContain(`id.lt.${cursor.id}`);
 });

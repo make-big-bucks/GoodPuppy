@@ -96,7 +96,7 @@ export interface GoodPuppyBridge {
   /** 创建一只上线提醒 toast 窗口（label `toast-<seq>`），不透明圆角卡片置顶不抢焦点。 */
   spawnToastWindow(opts: { instanceId?: string; label: string; x: number; y: number; width: number; height: number }): Promise<void>;
   /** 销毁某只 toast 窗口（自动消失 / 手动关闭 / 点击进入后）。 */
-  closeToastWindow(label: string): Promise<void>;
+  closeToastWindow(label: string, instanceId?: string): Promise<void>;
   /** 向指定窗口定向发送一个跨窗口事件（协调者 → 呈现者，或呈现者 → 协调者）。 */
   emitToWindow(label: string, event: string, payload?: unknown): Promise<void>;
   /** 订阅本窗口收到的跨窗口事件（含定向到本窗口的事件）；返回取消订阅函数。 */

@@ -1,3 +1,4 @@
+import { createNotificationScheduler } from "./notificationScheduler.js";
 // 房间上线提醒的有副作用编排层（运行在常驻 Lounge webview）：订阅开关持久化、
 // 复用 DB presence 订阅做上线检测、按槽位 spawn/回收 toast 窗口。纯逻辑见
 // `onlineNotifierCore.ts`（单测覆盖）。见
@@ -31,10 +32,6 @@ let deps: OnlineNotifierDeps | null = null;
 let subscribed = new Set<string>();
 const snapshot = new Map<string, string | null>(); // userId -> roomId|null
 const lastNotifiedAt = new Map<string, number>(); // `${roomId}|${userId}` -> ts
-const slots: (string | null)[] = new Array(MAX_VISIBLE).fill(null); // slot -> toast label
-const pendingByLabel = new Map<string, OnlineNotifyPayload>(); // awaiting toast-ready
-const queue: OnlineNotifyPayload[] = [];
-let seq = 0;
 let listenersBound = false;
 
 function platform(): "macos" | "windows" {
@@ -136,83 +133,37 @@ function buildPayload(roomId: string, userId: string): OnlineNotifyPayload | nul
   };
 }
 
-function showOrQueue(payload: OnlineNotifyPayload): void {
-  const slot = slots.indexOf(null);
-  if (slot === -1) {
-    queue.push(payload);
-    return;
-  }
-  void allocate(slot, payload);
-}
-
-async function allocate(slot: number, payload: OnlineNotifyPayload): Promise<void> {
-  const label = `toast-${seq++}`;
-  console.warn("[online-notify] spawn", label, "slot", slot, "room", payload.roomId);
-  slots[slot] = label;
-  pendingByLabel.set(label, payload);
-
-  try {
+const listeners: Array<{ ready: Promise<void> }> = [];
+const scheduler = createNotificationScheduler<OnlineNotifyPayload>({
+  key: (payload) => `${payload.roomId}|${payload.userId}`,
+  valid: (payload) => Boolean(deps?.getSelfId() && deps.getSelfId() !== payload.userId
+    && deps.getActiveRoomId() !== payload.roomId && subscribed.has(payload.roomId)
+    && deps.getRooms().some((room) => room.id === payload.roomId)),
+  create: async (label, instanceId, slot, _payload, signal) => {
+    await Promise.all(listeners.map((listener) => listener.ready));
     const workArea = await window.goodPuppy.getCursorMonitorWorkArea();
-    if (slots[slot] !== label || !pendingByLabel.has(label)) return;
-    const pos = computeToastPosition({
-      workArea,
-      platform: platform(),
-      index: slot,
-      card: { width: TOAST_W, height: TOAST_H },
-    });
-    await window.goodPuppy.spawnToastWindow({ label, x: pos.x, y: pos.y, width: TOAST_W, height: TOAST_H });
-    if (slots[slot] !== label || !pendingByLabel.has(label)) await window.goodPuppy.closeToastWindow(label);
-  } catch (error) {
-    console.error("online notification failed:", error);
-    if (slots[slot] === label) freeSlot(label);
-  }
+    if (signal.aborted) return;
+    const pos = computeToastPosition({ workArea, platform: platform(), index: slot, card: { width: TOAST_W, height: TOAST_H } });
+    await window.goodPuppy.spawnToastWindow({ label, instanceId, ...pos, width: TOAST_W, height: TOAST_H });
+  },
+  close: (label, instanceId) => window.goodPuppy.closeToastWindow(label, instanceId),
+  deliver: (label, instanceId, payload) => window.goodPuppy.emitToWindow(label, "toast-data", { instanceId, payload }),
+  maxVisible: MAX_VISIBLE,
+});
+function showOrQueue(payload: OnlineNotifyPayload) { scheduler.enqueue(payload); }
+export function dismissAllToasts() { scheduler.clear(); }
+export function isCurrentToast(label: string, instanceId: string, roomId: string) {
+  return scheduler.matches(label, instanceId, (payload) => payload.roomId === roomId);
 }
-
-function freeSlot(label: string): void {
-  console.warn("[online-notify] freeSlot/close", label);
-  const slot = slots.indexOf(label);
-  if (slot !== -1) slots[slot] = null;
-  pendingByLabel.delete(label);
-  void window.goodPuppy.closeToastWindow(label);
-
-  const next = queue.shift();
-  if (next) {
-    const free = slots.indexOf(null);
-    if (free !== -1) void allocate(free, next);
-    else queue.unshift(next);
-  }
-}
-
-export function dismissAllToasts(): void {
-  console.warn("[online-notify] dismissAllToasts", slots.filter(Boolean));
-  queue.length = 0;
-  for (let i = 0; i < slots.length; i += 1) {
-    const label = slots[i];
-    if (label) {
-      pendingByLabel.delete(label);
-      void window.goodPuppy.closeToastWindow(label);
-      slots[i] = null;
-    }
-  }
-}
-
-// toast 回传监听器整会话只绑定一次（与 lounge 的 toast-enter-room 监听同理），
-// 引用的是模块级状态，登入登出间一直有效；不再随每次 init 重绑（那样会因 lounge
-// 缺 allow-unlisten 而抛错并泄漏监听器）。
-function bindListeners(): void {
+function bindListeners() {
   if (listenersBound) return;
   listenersBound = true;
-  const bridge = window.goodPuppy;
-  bridge.onAppEvent<{ label?: string }>("toast-ready", ({ label }) => {
-    console.warn("[online-notify] toast-ready recv", label);
-    if (!label) return;
-    const payload = pendingByLabel.get(label);
-    if (payload) void bridge.emitToWindow(label, "toast-data", payload);
-  });
-  bridge.onAppEvent<{ label?: string; reason?: string }>("toast-dismiss", ({ label, reason }) => {
-    console.warn("[online-notify] toast-dismiss recv", label, "reason", reason);
-    if (label) freeSlot(label);
-  });
+  listeners.push(window.goodPuppy.onAppEvent<{ label?: string; instanceId?: string }>("toast-ready", (payload) => {
+    if (payload?.label && payload.instanceId) void scheduler.ready(payload.label, payload.instanceId);
+  }));
+  listeners.push(window.goodPuppy.onAppEvent<{ label?: string; instanceId?: string }>("toast-dismiss", (payload) => {
+    if (payload?.label && payload.instanceId) scheduler.dismiss(payload.label, payload.instanceId);
+  }));
 }
 
 export function initOnlineNotifier(nextDeps: OnlineNotifierDeps): void {

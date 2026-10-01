@@ -238,9 +238,9 @@ const goodPuppy: GoodPuppyBridge = {
       height: Math.round(opts.height),
     });
   },
-  closeToastWindow(label: string) {
+  closeToastWindow(label: string, instanceId?: string) {
     if (!inTauri) return Promise.resolve();
-    return windowCommand<void>("close_toast_window", { label });
+    return windowCommand<void>("close_toast_window", { label, instanceId });
   },
   emitToWindow(label: string, event: string, payload?: unknown) {
     if (!inTauri) return Promise.resolve();

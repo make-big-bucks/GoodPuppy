@@ -6,7 +6,7 @@ import { renderRoomList, renderPendingRequests } from "./views/room-list.js";
 import type { PendingTransition } from "./views/room-list.js";
 import { renderRoomDetail } from "./views/room-detail.js";
 import { renderProfileCard } from "./views/profile-card.js";
-import { openChatHistory } from "./views/chat-history-dialog.js";
+import { openChatHistory, closeChatHistory } from "./views/chat-history-dialog.js";
 import { showToast } from "./views/toast.js";
 import { showPanelSkeleton, showPanelError, hidePanelState, panelIsInError, isOfflineError } from "./views/panelState.js";
 import { initShowcase, openShowcase } from "./views/pet-showcase.js";
@@ -21,6 +21,7 @@ import {
   isRoomSubscribed,
   setRoomSubscribed,
   dismissAllToasts,
+  isCurrentToast,
 } from "./onlineNotifier.js";
 import type {
   ConnectionRequestRow,
@@ -1296,9 +1297,9 @@ let toastEnterListenerBound = false;
 function bindOnlineNotifier() {
   if (toastEnterListenerBound) return;
   toastEnterListenerBound = true;
-  window.goodPuppy.onAppEvent<{ roomId?: string }>("toast-enter-room", ({ roomId }) => {
-    console.warn("[online-notify] toast-enter-room recv", roomId);
-    if (!roomId) return;
+  window.goodPuppy.onAppEvent<{ roomId?: string; label?: string; instanceId?: string }>("toast-enter-room", (payload) => {
+    const { roomId, label, instanceId } = payload ?? {};
+    if (!roomId || !label || !instanceId || !isCurrentToast(label, instanceId, roomId)) return;
     dismissAllToasts();
     if (getActiveRoomId?.() === roomId) return;
     selectedRoomId = roomId;
@@ -1329,7 +1330,7 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, is
     rooms = []; pendingRequests = []; selectedRoomId = null; pendingTransition = null;
     hasLoadedOnce = false;
     renderProfile(null);
-    closeModal(); closeSettings();
+    closeModal(); closeSettings(); closeChatHistory();
   }
   supabaseClient = supabase;
   selfAuthId = nextSelfAuthId;

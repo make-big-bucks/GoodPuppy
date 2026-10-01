@@ -11,7 +11,7 @@ pub(crate) fn start(app: AppHandle) {
         let result = run(&app).await;
         match &result {
             Ok(()) => eprintln!(
-                "[native-smoke] PASS: ready snapshots, hidden-focus guard, stale-close guard and same-label recreation"
+                "[native-smoke] PASS: ready snapshots, hidden-focus guard, stale-close guard, same-label recreation and toast delivery"
             ),
             Err(error) => eprintln!("[native-smoke] FAIL: {error}"),
         }
@@ -156,6 +156,7 @@ async fn run(app: &AppHandle) -> Result<(), String> {
             }
         }
     }
+    exercise_toast(app).await?;
     Ok(())
 }
 
@@ -220,4 +221,54 @@ async fn exercise_presenter(
     .map_err(|error| error.to_string())?;
     app.unlisten(listener);
     applied.map_err(|error| format!("presenter snapshot not applied: {error}"))
+}
+
+async fn exercise_toast(app: &AppHandle) -> Result<(), String> {
+    let lounge = app
+        .get_webview_window("lounge")
+        .ok_or("lounge unavailable")?;
+    let response = app.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let ready = app.listen_any("toast-ready", move |event| {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(event.payload()) else { return; };
+        if value["label"] == "toast-smoke" && value["instanceId"] == "toast-smoke-instance" {
+            let _ = response.emit_to("toast-smoke", "toast-data", serde_json::json!({"instanceId":"toast-smoke-instance","payload":{
+                "roomId":"smoke-room","roomName":"Native check","userId":"smoke-user","displayName":"Probe","petId":"default","skin":"default","autoDismissMs":0
+            }}));
+        }
+    });
+    let applied = app.listen_any("toast-applied", move |event| {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(event.payload()) else {
+            return;
+        };
+        if value["label"] == "toast-smoke" && value["instanceId"] == "toast-smoke-instance" {
+            let _ = tx.send(());
+        }
+    });
+    commands::spawn_toast_window(
+        app.clone(),
+        lounge.clone(),
+        "toast-smoke".into(),
+        Some("toast-smoke-instance".into()),
+        300.0,
+        300.0,
+        340.0,
+        104.0,
+    )
+    .await?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        rx.recv_timeout(std::time::Duration::from_secs(10))
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    app.unlisten(ready);
+    app.unlisten(applied);
+    result.map_err(|error| format!("toast data delivery failed: {error}"))?;
+    commands::close_toast_window(
+        app.clone(),
+        lounge,
+        "toast-smoke".into(),
+        Some("toast-smoke-instance".into()),
+    )
+    .await
 }

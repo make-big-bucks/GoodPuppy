@@ -360,11 +360,15 @@ pub(crate) async fn close_toast_window(
     app: AppHandle,
     caller: WebviewWindow,
     label: String,
+    instance_id: Option<String>,
 ) -> Result<(), String> {
     require_role(caller.label(), "lounge")?;
     require_remote_label(&label, "toast-")?;
+    if !matches_instance(&app, &label, instance_id.as_deref()) {
+        return Ok(());
+    }
     if let Some(window) = app.get_webview_window(&label) {
-        destroy_window(window, None).await?;
+        destroy_window(window, instance_id).await?;
     }
     Ok(())
 }

@@ -9,6 +9,7 @@ import type { OnlineNotifyPayload } from "../../types";
 
 const bridge = window.goodPuppy;
 const label = bridge.getWindowLabel();
+const instanceId = bridge.getWindowInstance();
 
 const card = document.querySelector<HTMLElement>(".toast-card");
 const avatarSlot = document.querySelector<HTMLElement>(".toast-avatar");
@@ -26,9 +27,9 @@ function dismiss(reason: "timeout" | "close" | "enter") {
   dismissed = true;
   if (dismissTimer) clearTimeout(dismissTimer);
   if (reason === "enter" && currentRoomId) {
-    void bridge.emitToWindow("lounge", "toast-enter-room", { roomId: currentRoomId, label });
+    void bridge.emitToWindow("lounge", "toast-enter-room", { roomId: currentRoomId, label, instanceId });
   } else {
-    void bridge.emitToWindow("lounge", "toast-dismiss", { label, reason });
+    void bridge.emitToWindow("lounge", "toast-dismiss", { label, reason, instanceId });
   }
 }
 
@@ -45,7 +46,8 @@ function render(payload: OnlineNotifyPayload) {
   if (roomEl) roomEl.textContent = `在「${payload.roomName}」`;
 
   // 起渐入动画；计时仅在窗口可见后开始（spawn 后窗口已 show，可见即生效）。
-  requestAnimationFrame(() => card?.classList.add("is-visible"));
+  card?.classList.add("is-visible");
+  void bridge.emitToWindow("lounge", "toast-applied", { label, instanceId }).catch(console.error);
 
   if (payload.autoDismissMs > 0) {
     dismissTimer = setTimeout(() => dismiss("timeout"), payload.autoDismissMs);
@@ -55,9 +57,8 @@ function render(payload: OnlineNotifyPayload) {
 enterBtn?.addEventListener("click", () => dismiss("enter"));
 closeBtn?.addEventListener("click", () => dismiss("close"));
 
-bridge.onAppEvent<OnlineNotifyPayload>("toast-data", (payload) => {
-  if (payload) render(payload);
+const data = bridge.onAppEvent<{ instanceId: string; payload: OnlineNotifyPayload }>("toast-data", (envelope) => {
+  if (!dismissed && envelope?.instanceId === instanceId) render(envelope.payload);
 });
-
-// 通知 Lounge：本 toast 已就绪可接收内容（避免 spawn 后立即 emit 的竞态）。
-void bridge.emitToWindow("lounge", "toast-ready", { label });
+void data.ready.then(() => bridge.emitToWindow("lounge", "toast-ready", { label, instanceId })).catch(console.error);
+window.addEventListener("beforeunload", () => { data(); if (dismissTimer) clearTimeout(dismissTimer); });

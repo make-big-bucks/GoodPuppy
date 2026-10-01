@@ -31,13 +31,15 @@ export interface SenderIdentity {
   isDeleted: boolean;
 }
 
+export type MessageCursor = { createdAt: string; id: string };
+
 export interface MessagePage {
   /** 升序（旧 → 新）排列，方便直接 append/prepend。 */
   messages: ChatMessage[];
   /** 是否可能还有更早的历史。 */
   hasMore: boolean;
-  /** 下一页向更早翻页时使用的游标（最早一条的 created_at）。 */
-  nextCursor: string | null;
+  /** 时间与 ID 联合游标，保留数据库的微秒精度。 */
+  nextCursor: MessageCursor | null;
 }
 
 // 一组柔和、在浅色背景上可读的发送者强调色。颜色仅用于名字文本。
@@ -109,7 +111,7 @@ export function rowProfile(row: ChatMessageRow): LoungeProfile | null {
 export function assemblePage(rows: ChatMessageRow[]): MessagePage {
   const hasMore = rows.length === PAGE_SIZE;
   const ascending = [...rows].reverse();
-  const nextCursor = rows.length > 0 ? rows[rows.length - 1].created_at : null;
+  const nextCursor = rows.length > 0 ? { createdAt: rows[rows.length - 1].created_at, id: rows[rows.length - 1].id } : null;
   return {
     messages: ascending.map(rowToMessage),
     hasMore,
@@ -126,7 +128,8 @@ const PAGE_SELECT = "id, content, created_at, sender_id, profiles!messages_sende
 export async function fetchMessagePage(
   supabase: SupabaseClient,
   roomId: string,
-  before?: string | null,
+  before?: MessageCursor | null,
+  signal?: AbortSignal,
 ): Promise<{ page: MessagePage; rows: ChatMessageRow[] }> {
   let query = supabase
     .from("messages")
@@ -137,7 +140,11 @@ export async function fetchMessagePage(
     .order("id", { ascending: false })
     .limit(PAGE_SIZE);
 
-  if (before) query = query.lt("created_at", before);
+  if (before) {
+    if (!/^[0-9a-f-]{36}$/i.test(before.id) || !/^\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2})$/.test(before.createdAt)) throw new Error("无效消息游标");
+    query = query.or(`created_at.lt.${before.createdAt},and(created_at.eq.${before.createdAt},id.lt.${before.id})`);
+  }
+  if (signal) query = query.abortSignal(signal);
 
   const { data, error } = await query;
   if (error) throw error;
@@ -160,9 +167,9 @@ export function formatDayLabel(iso: string, now: Date = new Date()): string {
   const date = new Date(iso);
   const today = startOfDay(now);
   const target = startOfDay(date);
-  const oneDay = 24 * 60 * 60 * 1000;
+  const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1);
   if (target === today) return "今天";
-  if (target === today - oneDay) return "昨天";
+  if (target === startOfDay(yesterday)) return "昨天";
   const md = `${date.getMonth() + 1}月${date.getDate()}日`;
   return date.getFullYear() === now.getFullYear() ? md : `${date.getFullYear()}年${md}`;
 }

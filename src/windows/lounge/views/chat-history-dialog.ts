@@ -1,3 +1,5 @@
+import { subscribeChannel } from "../../../shared/realtimeSubscription.js";
+import { createChatWindow } from "../chatWindow.js";
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import type { LoungeProfile, LoungeRoom } from "../../../types";
 import {
@@ -9,6 +11,7 @@ import {
   rowProfile,
   type ChatMessage,
   type ChatMessageRow,
+  type MessageCursor,
 } from "../chatHistory.js";
 
 type OpenChatHistoryOptions = {
@@ -23,6 +26,7 @@ const NEAR_BOTTOM_PX = 80;
 const closeIcon = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
 
 let activeClose: (() => void) | null = null;
+export function closeChatHistory() { activeClose?.(); }
 
 export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryOptions) {
   // 同一时间只允许一个聊天记录覆盖层。
@@ -38,13 +42,15 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
     });
   }
 
-  const seenIds = new Set<string>();
-  let messages: ChatMessage[] = [];
-  let oldestCursor: string | null = null;
+  const store = createChatWindow();
+  const abort = new AbortController();
+  let oldestCursor: MessageCursor | null = null;
   let hasMore = true;
   let loadingOlder = false;
   let disposed = false;
   let channel: RealtimeChannel | null = null;
+  let latestRevision = 0;
+  let firstConnection = true;
 
   // ---- DOM ----
   const backdrop = document.createElement("div");
@@ -52,6 +58,8 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
 
   const panel = document.createElement("div");
   panel.className = "chat-history-panel";
+  panel.setAttribute("role", "dialog"); panel.setAttribute("aria-modal", "true"); panel.setAttribute("aria-label", "聊天记录");
+  const previousFocus = document.activeElement as HTMLElement | null;
 
   const header = document.createElement("div");
   header.className = "chat-history-header";
@@ -130,6 +138,7 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
     const isSelf = message.senderId === selfAuthId;
     const row = document.createElement("div");
     row.className = `chat-row${isSelf ? " is-self" : ""}`;
+    row.dataset.messageId = message.id;
 
     const col = document.createElement("div");
     col.className = "chat-col";
@@ -159,6 +168,9 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
   }
 
   function renderAll() {
+    const messages = store.messages;
+    const senders = new Set(messages.map((message) => message.senderId));
+    for (const id of profileCache.keys()) if (!senders.has(id)) profileCache.delete(id);
     log.querySelectorAll(".chat-row, .chat-day, .chat-history-empty").forEach((el) => el.remove());
     if (messages.length === 0) {
       const empty = document.createElement("div");
@@ -177,18 +189,23 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
   }
 
   function appendMessage(message: ChatMessage) {
-    if (seenIds.has(message.id)) return;
-    seenIds.add(message.id);
+    if (disposed) return;
     const stickToBottom = isNearBottom();
-    const prev = messages[messages.length - 1] ?? null;
-    messages.push(message);
-    log.querySelector(".chat-history-empty")?.remove();
-    log.appendChild(buildBubble(message, prev));
-    if (stickToBottom || message.senderId === selfAuthId) {
-      scrollToBottom();
-    } else {
-      jumpBtn.hidden = false;
-    }
+    if (!store.live(message)) { if (store.readingOlder) jumpBtn.hidden = false; return; }
+    const anchor = visibleAnchor();
+    renderAll();
+    if (stickToBottom || message.senderId === selfAuthId) scrollToBottom();
+    else { restoreAnchor(anchor); jumpBtn.hidden = false; }
+  }
+  function visibleAnchor() {
+    const top = log.getBoundingClientRect().top;
+    const row = [...log.querySelectorAll<HTMLElement>(".chat-row")].find((element) => element.getBoundingClientRect().bottom >= top);
+    return row ? { id: row.dataset.messageId, offset: row.getBoundingClientRect().top - top } : null;
+  }
+  function restoreAnchor(anchor: ReturnType<typeof visibleAnchor>) {
+    if (!anchor) return;
+    const row = [...log.querySelectorAll<HTMLElement>(".chat-row")].find((element) => element.dataset.messageId === anchor.id);
+    if (row) log.scrollTop += row.getBoundingClientRect().top - log.getBoundingClientRect().top - anchor.offset;
   }
 
   function clearInitialPlaceholders() {
@@ -196,21 +213,23 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
   }
 
   async function loadInitial() {
+    const revision = ++latestRevision;
+    store.startLatest();
     clearInitialPlaceholders();
     log.appendChild(buildInitialSkeleton());
     try {
-      const { page, rows } = await fetchMessagePage(supabase, room.id);
-      if (disposed) return;
+      const { page, rows } = await fetchMessagePage(supabase, room.id, null, abort.signal);
+      if (disposed || revision !== latestRevision) return;
       cacheRowProfiles(rows);
-      for (const m of page.messages) seenIds.add(m.id);
-      messages = page.messages;
+      store.snapshot(page.messages);
+      status.hidden = true; jumpBtn.hidden = true; jumpBtn.textContent = "新消息 ↓";
       hasMore = page.hasMore;
       oldestCursor = page.nextCursor;
       clearInitialPlaceholders();
       renderAll();
       scrollToBottom();
     } catch {
-      if (disposed) return;
+      if (disposed || revision !== latestRevision) return;
       clearInitialPlaceholders();
       const error = document.createElement("div");
       error.className = "chat-history-error";
@@ -231,23 +250,22 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
     loadingOlder = true;
     status.hidden = false;
     status.textContent = "正在加载更早的消息…";
-    const prevHeight = log.scrollHeight;
-    const prevTop = log.scrollTop;
+    const anchor = visibleAnchor();
+    const revision = latestRevision;
     try {
-      const { page, rows } = await fetchMessagePage(supabase, room.id, oldestCursor);
-      if (disposed) return;
+      const { page, rows } = await fetchMessagePage(supabase, room.id, oldestCursor, abort.signal);
+      if (disposed || revision !== latestRevision) return;
       cacheRowProfiles(rows);
-      const fresh = page.messages.filter((m) => !seenIds.has(m.id));
-      for (const m of fresh) seenIds.add(m.id);
-      messages = [...fresh, ...messages];
+      store.older(page.messages);
+      if (store.readingOlder) { jumpBtn.hidden = false; jumpBtn.textContent = "返回最新 ↓"; }
       hasMore = page.hasMore;
       oldestCursor = page.nextCursor;
       status.hidden = true;
       renderAll();
       // 保持视口停在原来的位置，避免插入历史后跳动。
-      log.scrollTop = log.scrollHeight - prevHeight + prevTop;
+      restoreAnchor(anchor);
     } catch {
-      if (disposed) return;
+      if (disposed || revision !== latestRevision) return;
       status.textContent = "加载失败";
     } finally {
       loadingOlder = false;
@@ -260,11 +278,11 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
       .from("profiles")
       .select("id, gp_id, display_name")
       .eq("id", senderId)
-      .maybeSingle();
-    if (data) profileCache.set(senderId, data as LoungeProfile);
+      .abortSignal(abort.signal).maybeSingle();
+    if (!disposed && data) profileCache.set(senderId, data as LoungeProfile);
   }
 
-  function subscribeRealtime() {
+  async function subscribeRealtime() {
     channel = supabase
       .channel(`lounge-chat-history-${room.id}`)
       .on(
@@ -279,36 +297,47 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
             senderId: next.sender_id,
             createdAt: next.created_at,
           };
-          if (seenIds.has(message.id)) return;
-          if (!message.senderId || profileCache.has(message.senderId) || message.senderId === selfAuthId) {
-            appendMessage(message);
-          } else {
-            void resolveNewSender(message.senderId).then(() => {
-              if (!disposed) appendMessage(message);
-            });
+          if (disposed) return;
+          appendMessage(message);
+          if (message.senderId && !profileCache.has(message.senderId)) {
+            void resolveNewSender(message.senderId).then(() => { if (!disposed) renderAll(); }).catch(console.error);
           }
         },
-      )
-      .subscribe();
+      );
+    await subscribeChannel(channel, async () => {
+      if (disposed) return;
+      if (firstConnection) { firstConnection = false; return; }
+      if (isNearBottom() && !store.readingOlder) await loadInitial();
+      else { store.holdOlder(); jumpBtn.hidden = false; jumpBtn.textContent = "返回最新 ↓"; }
+    });
   }
 
   function onScroll() {
     if (log.scrollTop < NEAR_BOTTOM_PX) void loadOlder();
-    if (isNearBottom()) jumpBtn.hidden = true;
+    if (isNearBottom() && !store.readingOlder) jumpBtn.hidden = true;
   }
 
   function close() {
     if (disposed) return;
     disposed = true;
+    abort.abort();
     log.removeEventListener("scroll", onScroll);
     document.removeEventListener("keydown", onKeydown);
     if (channel) void supabase.removeChannel(channel);
     backdrop.remove();
+    previousFocus?.focus();
     if (activeClose === close) activeClose = null;
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if (event.key === "Escape") close();
+    if (event.key === "Escape") { event.preventDefault(); close(); }
+    if (event.key === "Tab") {
+      const controls = [...panel.querySelectorAll<HTMLElement>("button, input, textarea, [tabindex]")]
+        .filter((element) => !element.hidden && !element.hasAttribute("disabled") && element.getAttribute("tabindex") !== "-1");
+      const first = controls[0]; const last = controls.at(-1);
+      if (event.shiftKey && (document.activeElement === first || !panel.contains(document.activeElement))) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || !panel.contains(document.activeElement))) { event.preventDefault(); first?.focus(); }
+    }
   }
 
   // ---- wire ----
@@ -318,14 +347,16 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
     if (event.target === backdrop) close();
   });
   jumpBtn.addEventListener("click", () => {
-    scrollToBottom();
+    if (store.readingOlder) void loadInitial();
+    else scrollToBottom();
     jumpBtn.hidden = true;
   });
   log.addEventListener("scroll", onScroll);
   document.addEventListener("keydown", onKeydown);
 
-  void loadInitial();
-  subscribeRealtime();
+  log.appendChild(buildInitialSkeleton());
+  void subscribeRealtime().then(() => { if (!disposed) return loadInitial(); }).catch(() => { if (!disposed) { status.hidden = false; status.textContent = "实时连接失败，请关闭后重试"; } });
+  closeBtn.focus();
 
   return close;
 }
