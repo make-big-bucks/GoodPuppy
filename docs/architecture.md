@@ -19,7 +19,7 @@
 - `roomCoordinator.ts` 管理远程窗口，`windowReadiness.ts` 绑定实例与顺序消息；`windowRequest.ts` 管理请求 ID、取消与回执。
 - `petPresenter.ts` 管理 DOM、拖动、动画暂停与监听释放，`petState.ts` 管理动画分层。`hitTesting.ts` 生成掩模，Rust `cursor.rs` / `hit_test.rs` 独占鼠标穿透。
 - 消息、Presence、互动订阅在各自模块中实现，`realtimeSubscription.ts` 持续观察就绪状态；身份/状态读取认证实例租约快照，广播只作为刷新提示；重连补快照，房间租约跟随连接健康状态。
-- 会客厅数据读取在 `loungeData.ts`，刷新合并在 `refreshController.ts`，`loungeSubscriptions.ts` 独占会话频道、重连刷新和释放，弹层操作在 `operationLifetime.ts` 校验实例，账号资料写入使用捕获身份。`skinSelection.ts` 独占换肤选择与账号写入队列，面板实例与已提交资料回执分开，皮肤通知带账号归属并以资料快照校准。长期聊天记录使用复合游标和有界缓存。
+- 会客厅数据读取在 `loungeData.ts`，刷新合并在 `refreshController.ts`，房间进出在途状态由 `roomTransitions.ts` 独占，`loungeSubscriptions.ts` 独占会话频道、重连刷新和释放，弹层操作在 `operationLifetime.ts` 校验实例，账号资料写入使用捕获身份。`skinSelection.ts` 独占换肤选择与账号写入队列，面板实例与已提交资料回执分开，皮肤通知带账号归属并以资料快照校准。长期聊天记录使用复合游标和有界缓存。
 - 账号皮肤保存在 profiles；大小、模式与窗口位置是设备偏好；气泡关闭游标按账号、房间与发送者隔离。资源从 `public/pets/*/pet.json` 通过 `tools/petRegistry.mjs` 自动注册并在构建时检查。
 - Rust `commands.rs` 校验窗口角色、实例与几何，`window_tasks.rs` 等待实际原生结果，`quit.rs` 统一限时退出握手。布局从主线程几何快照读取，`bubbles.rs` 按平台桌面单位维护实际父子偏移；前端坐标迁移边界见 [坐标契约](reviews/coordinate-contract.md)。
 

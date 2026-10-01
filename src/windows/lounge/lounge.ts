@@ -1,3 +1,4 @@
+import { createRoomTransitions } from "./roomTransitions.js";
 import { createLoungeSubscriptions } from "./loungeSubscriptions.js";
 import { bindDialogFocus } from "../../shared/dialogFocus.js";
 import { createResumeMonitor } from "../../shared/resumeMonitor.js";
@@ -9,7 +10,6 @@ import { fetchLoungeData, type LoungeData, type LoungeDataContext } from "./loun
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { renderRoomList, renderPendingRequests } from "./views/room-list.js";
-import type { PendingTransition } from "./views/room-list.js";
 import { renderRoomDetail } from "./views/room-detail.js";
 import { renderProfileCard } from "./views/profile-card.js";
 import { openChatHistory, closeChatHistory } from "./views/chat-history-dialog.js";
@@ -128,7 +128,11 @@ const pawInputSvg = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><ci
 let rooms: LoungeRoom[] = [];
 let pendingRequests: ConnectionRequestRow[] = [];
 let selectedRoomId: string | null = null;
-let pendingTransition: PendingTransition | null = null;
+const roomTransitions = createRoomTransitions({
+  changed: () => renderAll(),
+  succeeded: (transition) => { if (transition.type === "exit") showToast("已退出房间"); },
+  failed: (error) => showToast(getErrorMessage(error, "操作失败"), "error"),
+});
 let currentProfile: LoungeProfile | null = null;
 // 冷启动判定：窗口内是否已成功加载过一次数据。仅首屏（false 时）走骨架屏/整屏报错。
 let hasLoadedOnce = false;
@@ -664,9 +668,9 @@ function onRoomSelect(id: string) {
 }
 
 function renderAll() {
-  renderRoomList(rooms, selectedRoomId, getActiveRoomId?.() || null, onRoomSelect, pendingTransition);
+  renderRoomList(rooms, selectedRoomId, getActiveRoomId?.() || null, onRoomSelect, roomTransitions.pending);
   renderPendingRequests(pendingRequests);
-  renderRoomDetail(getSelectedRoom(), selfAuthId, getActiveRoomId?.() || null, pendingTransition, {
+  renderRoomDetail(getSelectedRoom(), selfAuthId, getActiveRoomId?.() || null, roomTransitions.pending, {
     isSubscribed: isRoomSubscribed,
     onToggle: (roomId, on) => {
       setRoomSubscribed(roomId, on);
@@ -948,28 +952,17 @@ async function declineRequest(requestId: string) {
 }
 
 async function handleRoomTransition(roomId: string, type: "enter" | "exit") {
-  if (pendingTransition) return;
-
-  const transition = { roomId, type };
-  const version = authRevision;
   const enterRoom = onEnterRoom;
   const exitRoom = onExitRoom;
-  const isCurrent = () => version === authRevision && pendingTransition === transition;
-  pendingTransition = transition;
-  renderAll();
-
-  try {
+  await roomTransitions.run({ roomId, type }, async () => {
     if (type === "exit") {
-      await exitRoom?.();
-      if (isCurrent()) showToast("已退出房间");
+      if (!exitRoom) throw new Error("房间控制器尚未初始化");
+      await exitRoom();
     } else {
-      await enterRoom?.(roomId);
+      if (!enterRoom) throw new Error("房间控制器尚未初始化");
+      await enterRoom(roomId);
     }
-  } catch (error) {
-    if (isCurrent()) showToast(getErrorMessage(error, "操作失败"), "error");
-  } finally {
-    if (isCurrent()) { pendingTransition = null; renderAll(); }
-  }
+  });
 }
 
 // 当前可见房间里的所有成员 user_id（含自己），用于过滤 profiles 变更——
@@ -1076,7 +1069,7 @@ function bindEvents() {
 
     if (btn.matches(".room-quick-action")) {
       const roomId = btn.dataset.roomId;
-      if (!roomId || pendingTransition) return;
+      if (!roomId || roomTransitions.pending) return;
       const isExit = btn.dataset.action === "exit";
       void handleRoomTransition(roomId, isExit ? "exit" : "enter");
       return;
@@ -1084,7 +1077,7 @@ function bindEvents() {
 
     if (btn.matches(".lounge-enter-room")) {
       const room = getSelectedRoom();
-      if (!room || pendingTransition) return;
+      if (!room || roomTransitions.pending) return;
       const isExit = btn.dataset.action === "exit";
       void handleRoomTransition(room.id, isExit ? "exit" : "enter");
       return;
@@ -1168,6 +1161,7 @@ export function initLoungePanel({
   currentUserIsAnonymous = Boolean(nextSelfAuthId && nextIsAnonymous);
   currentUserEmail = nextSelfAuthId ? nextEmail : null;
   authRevision += 1;
+  roomTransitions.invalidate();
   panelRefresh.setContext(selfAuthId ? { client: supabase, userId: selfAuthId } : null);
   getActiveRoomId = nextGetActiveRoomId;
   onEnterRoom = nextOnEnterRoom;
@@ -1185,7 +1179,7 @@ export function initLoungePanel({
     const onlineExpiryTimer = setInterval(expireOnlineProjection, 10_000);
     window.addEventListener("beforeunload", () => {
       clearInterval(onlineExpiryTimer); disposeResumeMonitor();
-      disposeToastEnterListener?.(); subscriptions.dispose(); disposeOnlineNotifier(); panelRefresh.dispose();
+      disposeToastEnterListener?.(); roomTransitions.invalidate(); subscriptions.dispose(); disposeOnlineNotifier(); panelRefresh.dispose();
     }, { once: true });
   }
   if (selfAuthId) {
@@ -1227,7 +1221,7 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, is
     subscriptions.setContext(null);
     disposeOnlineNotifier();
     panelSnapshot = null;
-    rooms = []; pendingRequests = []; selectedRoomId = null; pendingTransition = null;
+    rooms = []; pendingRequests = []; selectedRoomId = null; roomTransitions.invalidate();
     hasLoadedOnce = false;
     renderProfile(null);
     closeModal(); closeSettings(); closeChatHistory(); closeShowcase();
