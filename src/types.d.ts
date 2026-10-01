@@ -18,11 +18,6 @@ export interface WindowSize {
   height: number;
 }
 
-export interface WindowLayout {
-  windowBounds: WindowPoint & WindowSize;
-  workArea: WindowPoint & WindowSize;
-}
-
 /**
  * 本窗口的「可交互命中形状」，由 webview 下发给原生，供光标监视器原生侧判定鼠标穿透
  * （像素级，免去逐帧 IPC 往返）。坐标均为窗口内容区 CSS 逻辑像素。见 bridge.publishHitShape。
@@ -45,7 +40,6 @@ export interface GoodPuppyBridge {
   getWindowPosition(): Promise<WindowPoint>;
   /** 当前窗口外尺寸（逻辑像素）。 */
   getWindowSize(): Promise<WindowSize>;
-  getWindowLayout(): Promise<WindowLayout>;
   /** 指定逻辑坐标所在显示器的可用区域；不传坐标时取当前窗口所在屏。 */
   getMonitorWorkArea(point?: WindowPoint): Promise<WindowPoint & WindowSize>;
   /** 当前所有已连接显示器的整屏矩形（逻辑像素），用于校验存档窗口位置是否仍可见

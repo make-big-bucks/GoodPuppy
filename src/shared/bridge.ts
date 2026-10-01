@@ -41,11 +41,6 @@ const goodPuppy: GoodPuppyBridge = {
     const logical = physical.toLogical(scale);
     return { width: logical.width, height: logical.height };
   },
-  async getWindowLayout() {
-    const pos = await this.getWindowPosition();
-    const bounds = { x: pos.x, y: pos.y, width: 150, height: 220 };
-    return { windowBounds: bounds, workArea: bounds };
-  },
   async getMonitorWorkArea(point) {
     // 浏览器 fallback：用 screen 的可用区域（无法精确到 taskbar/dock 时退化为整屏）。
     if (!appWindow) {

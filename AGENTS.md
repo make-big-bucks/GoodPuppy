@@ -9,7 +9,7 @@ GoodPuppy 是一个透明、置顶的桌面宠物应用：
 - 前端：Vite + 原生 TypeScript/CSS，多页面入口在 `windows/*.html`，窗口代码在 `src/windows/`。
 - 桌面壳：Tauri v2，Rust 代码在 `src-tauri/src/`。
 - 后端服务：Supabase，数据模型说明见 `docs/database.md`。
-- 架构决策：重要技术取舍记录在 `docs/adr/`，改动架构前先阅读相关 ADR。
+- 当前架构与模块所有者见 `docs/architecture.md`；重要技术取舍记录在 `docs/adr/`，改动架构前先阅读相关 ADR。
 
 ## 常用命令
 
@@ -25,20 +25,18 @@ npm run tauri build
 说明：
 
 - `npm run dev` 只启动 Vite 前端开发服务器。
-- `npm run tauri dev` 启动完整桌面应用。
-- `npm run test` 运行 Vitest 单元测试。
+- `npm run tauri dev` 启动完整桌面应用；`npm run test:native` 用独立应用标识验证窗口与退出回执。
+- `npm run test` 运行 Vitest 单元测试；`npm run verify` 执行完整本地质量检查。
 - `npm run build` 验证前端生产构建。
 - `npm run tauri build` 产出安装包，耗时更长，只在需要验证发布构建时运行。
 
 ## 代码结构
 
 - `windows/pet.html`：透明桌宠主窗口 DOM 结构，加载 `src/windows/pet/main.ts`。
-- `windows/login.html`：登录窗口 DOM 结构，加载 `src/windows/login/login-main.ts`。
 - `windows/lounge.html`：会客厅窗口 DOM 结构，加载 `src/windows/lounge/lounge-main.ts`。
 - `src/shared/bridge.ts`：Tauri API 与浏览器 fallback 的桥接层。
 - `src/shared/`：跨窗口共享配置、桥接、Supabase client、基础样式和设计 token。
 - `src/windows/pet/renderer.ts`：宠物渲染和主交互逻辑。
-- `src/windows/login/auth.ts`：Supabase 登录与身份初始化。
 - `src/windows/lounge/lounge.ts`：会客厅、房间、邀请和请求相关 UI/数据逻辑。
 - `src/windows/pet/petState.ts`：`PetAnimator` 分层动画状态机（瞬时层 > 状态层 > 基础层），每只 pet 一个实例。见 `docs/adr/0008-分层动画状态机与实时事件.md`。
 - `src/windows/pet/animationCatalog.ts`：动画「行为事实」与形象注册表（状态分层、互动路由、`pet.json` 加载、皮肤路径解析）；资源放 `public/pets/<id>/`，皮肤变体放 `public/pets/<id>/skins/<skin>/`。
@@ -46,7 +44,7 @@ npm run tauri build
 - `src/windows/pet/presence.ts`：房间在线状态；payload 携带持续状态（情绪/工作）、`pet_id` 与 `skin`（换肤）。
 - `tools/generate-skins.mjs`：离线换肤生成器（`npm run gen:skins`），配置 `tools/skins.json`。见 `docs/adr/0010-离线调色板换肤.md`。
 - `src/windows/pet/hitTesting.ts`：透明窗口命中测试逻辑。
-- `src/shared/cursorEventsController.ts`：鼠标穿透与交互切换控制。
+- `src/windows/pet/petPresenter.ts`：呈现、拖动与命中形状下发；原生 `cursor.rs` / `hit_test.rs` 独占穿透切换。
 - `src-tauri/src/lib.rs`：Tauri 主进程、托盘、窗口层级和原生光标采样。
 - `docs/adr/`：已采纳架构决策。
 
@@ -76,7 +74,7 @@ npm run tauri build
 
 - `src/windows/pet/petState.ts`
 - `src/windows/pet/hitTesting.ts`
-- `src/shared/cursorEventsController.ts`
+- `src/windows/pet/roomManager.ts` 与 `roomCoordinator.ts`
 - 任何可从 DOM/网络调用中抽离的纯逻辑
 
 ## 文档要求
@@ -95,6 +93,6 @@ npm run tauri build
 
 ## 环境约定
 
-- Node.js 版本：22+。
+- Node.js 版本：22（与 package.json、.nvmrc 和 CI 保持一致）。
 - Rust：使用当前 Tauri v2 工具链。
 - Vite 开发服务器端口固定为 `1420`，需与 `src-tauri/tauri.conf.json` 中的 `devUrl` 保持一致。

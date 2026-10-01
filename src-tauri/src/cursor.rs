@@ -1,6 +1,6 @@
 //! 原生光标监视：采样光标在每个覆盖层窗口内容坐标系下的位置，依据该窗口发布的
 //! 命中形状（见 `hit_test`）逐 tick 切换鼠标穿透；并在左键释放时发出 drag-end 信号。
-//! 见 `src/shared/cursorEventsController.ts` 与相关 ADR。
+//! webview 的 petPresenter 下发命中形状，本模块独占穿透切换；见 ADR-0015。
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},

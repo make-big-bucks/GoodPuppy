@@ -4,6 +4,8 @@ A transparent, always-on-top desktop pet built with Tauri v2.
 
 正常托盘和系统退出共用三秒清理握手，标记离线并保留所在房间，启动时自动恢复；主动退出房间或注销会清除记录。如果没有可恢复的房间，桌面宠物和自己的气泡窗口保持隐藏，进入房间后才显示，退出房间后收起，强制终止时依靠在线租约过期。
 
+开发入口见 [当前架构](docs/architecture.md)，技术演进见 [ADR 索引](docs/adr/README.md)。
+
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) (v22; the project includes `.nvmrc` / `.node-version`)
