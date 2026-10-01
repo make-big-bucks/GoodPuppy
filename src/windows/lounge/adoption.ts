@@ -8,7 +8,9 @@ export async function saveAdoptedProfile(client: SupabaseClient, userId: string,
     .upsert({ id: userId, display_name: name, pet_id: "default" }, { onConflict: "id", ignoreDuplicates: true });
   assertCurrent();
   if (insertError) throw insertError;
-  const { error: updateError } = await client.from("profiles").update({ display_name: name }).eq("id", userId);
+  const { data, error: updateError } = await client.from("profiles").update({ display_name: name })
+    .eq("id", userId).select("id").single();
   assertCurrent();
   if (updateError) throw updateError;
+  if (data?.id !== userId) throw new Error("领养资料未保存，请重试");
 }
