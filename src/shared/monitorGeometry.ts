@@ -3,7 +3,7 @@ import type { WindowPoint, WindowSize } from "../types";
 type Rect = WindowPoint & WindowSize;
 type MonitorGeometry = { position: WindowPoint; size: WindowSize; scaleFactor: number; workArea: { position: WindowPoint; size: WindowSize } };
 
-/** 与窗口桥接保持同一逻辑坐标约定，整屏用于选择屏幕，可用区用于摆放窗口。 */
+/** 每屏按自身比例转逻辑单位；Windows 混合 DPI 下不能视作统一全局平面，见坐标验收契约。 */
 export function monitorRect(monitor: MonitorGeometry, usable = false): Rect {
   const scale = monitor.scaleFactor > 0 ? monitor.scaleFactor : 1;
   const source = usable ? monitor.workArea : monitor;
