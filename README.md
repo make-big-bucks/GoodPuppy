@@ -108,7 +108,7 @@ python3 -m unittest discover -s skills/hatch-puppy-pet/tests -v
 
 安装 `skills/hatch-puppy-pet/requirements-test.txt` 中的 Python 测试依赖后，运行 `npm run verify`，覆盖依赖方向门禁、类型检查、生产构建、前端/Rust 和资产流水线测试。原生窗口与隔离数据库分别运行 `test:native`、`test:db`；CI 在 macOS/Windows 和 PostgreSQL 17 中执行对应检查。安装包按平台使用 `build:mac` 或 `build:windows`，生产数据库迁移单独审查与应用。
 
-会客厅弹层支持 Escape 关闭与 Tab 焦点切换，账号操作在处理中防止重复提交。聊天记录按时间与 ID 分页，长期阅读采用有界窗口；阅读旧页时新消息先提示，点击“新消息”返回最新记录。上线提醒只保留有限且未过期的队列，注销会取消在途提醒。
+会客厅侧栏拖动在失焦或隐藏时自动结束；弹层支持 Escape 关闭与 Tab 焦点切换，账号操作在处理中防止重复提交。聊天记录按时间与 ID 分页，长期阅读采用有界窗口；阅读旧页时新消息先提示，点击“新消息”返回最新记录。上线提醒只保留有限且未过期的队列，注销会取消在途提醒。
 
 角色资源由 `public/pets/<id>/pet.json` 自动注册，构建与资源验收共用 `tools/petRegistry.mjs`（`default` 为保留别名），构建检查状态与皮肤文件；自己的皮肤来自账号资料，换肤在保存成功后应用，失败保留选择供重试；大小、摆放模式和位置属于本机偏好，气泡关闭状态按账号/房间/发送者隔离。
 

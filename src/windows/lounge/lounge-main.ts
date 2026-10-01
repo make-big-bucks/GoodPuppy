@@ -84,9 +84,14 @@ function initResizeHandle() {
   const MIN_W = 240;
   const MAX_W = 480;
 
+  let stopResize: (() => void) | null = null;
+  window.addEventListener("beforeunload", () => stopResize?.(), { once: true });
+
   handle.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
+    stopResize?.();
+    const events = new AbortController();
 
     const startX = e.clientX;
     const startW = (document.querySelector(".sidebar") as HTMLElement).offsetWidth;
@@ -103,12 +108,18 @@ function initResizeHandle() {
       handle.classList.remove("is-resizing");
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      events.abort();
+      stopResize = null;
     };
 
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    stopResize = onUp;
+    window.addEventListener("mousemove", onMove, { signal: events.signal });
+    window.addEventListener("mouseup", onUp, { signal: events.signal });
+    // 切应用/隐藏窗口可能收不到 mouseup，必须释放拖动样式和监听。
+    window.addEventListener("blur", onUp, { signal: events.signal });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "visible") onUp();
+    }, { signal: events.signal });
   });
 }
 
