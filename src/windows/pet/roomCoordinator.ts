@@ -372,8 +372,8 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
     const selfId = deps.getSelfAuthId();
     if (!(action in INTERACTIONS) || !selfId) return;
     const payload: InteractionPayload = { action, actorId: selfId, targetId };
-    sendInteraction(payload);
-    applyInteraction(payload);
+    // 服务端广播包含真实 actorId，自己与远程成员共用这一条播放路径。
+    void sendInteraction(payload).catch(console.error);
   }
 
   // ── Mode switching ────────────────────────────────────────────────────────

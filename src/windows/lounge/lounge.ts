@@ -410,8 +410,10 @@ function openLoginDialog() {
       if (userId) {
         const { error: profileError } = await supabaseClient
           .from("profiles")
-          .upsert({ id: userId, display_name: name, pet_id: "default" }, { onConflict: "id" });
+          .upsert({ id: userId, display_name: name, pet_id: "default" }, { onConflict: "id", ignoreDuplicates: true });
         if (profileError) throw profileError;
+        const { error: nameError } = await supabaseClient.from("profiles").update({ display_name: name }).eq("id", userId);
+        if (nameError) throw nameError;
       }
       closeModal();
       onLoginSuccess?.();
@@ -793,27 +795,9 @@ function openInputModal({
 async function createRoom(roomName: string) {
   if (!supabaseClient || !selfAuthId) return;
 
-  // Pre-generate UUID client-side so we can insert room_members before SELECTing
-  // the room. rooms_select RLS requires the user to be in room_members, so doing
-  // .insert().select().single() on rooms would return 0 rows (user not a member yet).
   const roomId = crypto.randomUUID();
-
-  const { error: roomError } = await supabaseClient
-    .from("rooms")
-    .insert({
-      id: roomId,
-      room_name: roomName,
-      created_by: selfAuthId,
-    });
-
-  if (roomError) throw roomError;
-
-  const { error: memberError } = await supabaseClient.from("room_members").insert({
-    room_id: roomId,
-    user_id: selfAuthId,
-  });
-
-  if (memberError) throw memberError;
+  const { error } = await supabaseClient.rpc("create_room", { p_room_name: roomName, p_room_id: roomId });
+  if (error) throw error;
 
   selectedRoomId = roomId;
   showToast("房间已创建");
@@ -862,13 +846,10 @@ async function inviteMember(targetGpId: string) {
     if (existing) throw new Error("对方已经是房间成员");
   }
 
-  const { error } = await supabaseClient.from("connection_requests").insert({
-    from_id: selfAuthId,
-    to_id: target.id,
-    status: "pending",
-    room_id: selectedRoomId,
+  if (!selectedRoomId) throw new Error("请选择房间");
+  const { error } = await supabaseClient.rpc("invite_room_member", {
+    p_room_id: selectedRoomId, p_to_user_id: target.id,
   });
-
   if (error) throw error;
 
   showToast("邀请已发送");

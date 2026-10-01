@@ -99,7 +99,7 @@ export async function joinRoom(
   emitPresence();
 
   presenceChannel = supabase.channel(`presence:${roomId}`, {
-    config: { presence: { key: nextSelfId } },
+    config: { private: true, presence: { key: nextSelfId } },
   });
 
   const joinedChannel = presenceChannel;

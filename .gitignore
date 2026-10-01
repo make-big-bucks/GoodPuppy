@@ -9,3 +9,6 @@ tmp/
 output/
 __pycache__/
 runs/
+
+# Supabase CLI local cache
+supabase/.temp/

@@ -15,7 +15,8 @@
     "tauri:dev:peer": "tauri dev --config src-tauri/tauri.peer.conf.json",
     "gen:skins": "node tools/generate-skins.mjs",
     "test": "vitest run",
-    "test:native": "node tools/native-smoke.mjs"
+    "test:native": "node tools/native-smoke.mjs",
+    "test:db": "python3 tools/verify-database.py"
   },
   "keywords": [
     "desktop-pet",
