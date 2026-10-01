@@ -11,9 +11,21 @@ function fixture() {
     send: vi.fn(),
   };
   const client = { channel: vi.fn(() => channel), rpc: vi.fn(async () => ({ error: null })) };
-  return { channel, client, subscribed: () => status("SUBSCRIBED"), broadcast: (payload: unknown) => broadcast({ payload }) };
+  return { channel, client, status: (value: string) => status(value), subscribed: () => status("SUBSCRIBED"), broadcast: (payload: unknown) => broadcast({ payload }) };
 }
 describe("authorized interaction delivery", () => {
+  it("disables sending while disconnected and enables it after reconnect", async () => {
+    const api = await import("./interactions.js"); const f = fixture();
+    const joining = api.joinInteractions(f.client as never, "room-a");
+    f.subscribed(); await joining;
+    f.status("CHANNEL_ERROR");
+    await expect(api.sendInteraction({ action: "feed", actorId: "actor", targetId: "target" })).rejects.toThrow("尚未就绪");
+    expect(f.client.rpc).not.toHaveBeenCalled();
+    f.subscribed(); await Promise.resolve();
+    await api.sendInteraction({ action: "feed", actorId: "actor", targetId: "target" });
+    expect(f.client.rpc).toHaveBeenCalledTimes(1);
+    await api.leaveInteractions();
+  });
   it("waits for private channel readiness and delegates actor identity to the server", async () => {
     const api = await import("./interactions.js");
     const f = fixture();

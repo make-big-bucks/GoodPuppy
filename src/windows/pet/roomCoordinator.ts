@@ -1,4 +1,5 @@
 import type { EventSubscription } from "../../shared/eventSubscription.js";
+import { compareMessagePosition } from "../../shared/messageOrder.js";
 import { createWindowReadiness } from "./windowReadiness.js";
 import { createRemoteWindowQueue } from "./remoteWindowQueue.js";
 // 房间协调者（运行在自己窗口 label "main"）。
@@ -357,12 +358,14 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
   function cacheMessage(msg: LocalMessage) {
     if (roomMessageCache.some((m) => m.id === msg.id)) return;
     roomMessageCache.push(msg);
+    roomMessageCache.sort((a, b) => compareMessagePosition({ id: a.id, createdAt: a.created_at }, { id: b.id, createdAt: b.created_at }));
     if (roomMessageCache.length > ROOM_CACHE_LIMIT) {
       roomMessageCache = roomMessageCache.slice(roomMessageCache.length - ROOM_CACHE_LIMIT);
     }
   }
 
   function routeMessage(msg: LocalMessage) {
+    if (roomMessageCache.some((cached) => cached.id === msg.id)) return;
     cacheMessage(msg);
     if (msg.from === deps.getSelfAuthId()) {
       // 自己消息渲染在自己的气泡窗口 bubble-self（记号棒亦在那里）。

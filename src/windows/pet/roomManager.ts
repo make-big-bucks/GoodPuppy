@@ -1,4 +1,5 @@
 import * as presence from "./presence.js";
+import { compareMessagePosition } from "../../shared/messageOrder.js";
 import { joinInteractions, leaveInteractions } from "./interactions.js";
 import {
   fetchRoomMessages,
@@ -152,7 +153,7 @@ async function activateRoom(session: SessionContext, roomId: string, version: nu
   committed = true;
   const merged = new Map([...history, ...messages].map((message) => [message.id, message]));
   cbs.onMessagesLoaded([...merged.values()].sort((a, b) =>
-    a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)));
+    compareMessagePosition({ id: a.id, createdAt: a.created_at }, { id: b.id, createdAt: b.created_at })));
   cbs.onPresenceChange(users);
   startHeartbeat(session, version);
   cbs.onRoomReady();

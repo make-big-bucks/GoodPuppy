@@ -40,8 +40,9 @@ export async function joinInteractions(
     if (channel === joinedChannel && isInteractionPayload(payload)) handler(payload);
   });
 
-  await subscribeChannel(joinedChannel);
-  if (channel === joinedChannel) ready = true;
+  await subscribeChannel(joinedChannel, undefined, undefined, (connected) => {
+    if (channel === joinedChannel) ready = connected;
+  });
 }
 
 export async function leaveInteractions() {

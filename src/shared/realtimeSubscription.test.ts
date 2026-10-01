@@ -7,6 +7,37 @@ function channel() {
 }
 afterEach(() => vi.useRealTimers());
 describe("realtime subscription readiness", () => {
+  it("observes disconnects after initial success and waits for reconnect preparation", async () => {
+    const ch = channel(); const changes = vi.fn();
+    const preparation = vi.fn(async () => {});
+    const ready = subscribeChannel(ch.value as never, preparation, 100, changes);
+    ch.status("SUBSCRIBED"); await ready;
+    expect(changes).toHaveBeenLastCalledWith(true, undefined);
+    ch.status("CHANNEL_ERROR", new Error("offline"));
+    expect(changes).toHaveBeenLastCalledWith(false, expect.any(Error));
+    ch.status("SUBSCRIBED"); await Promise.resolve();
+    expect(preparation).toHaveBeenLastCalledWith(true);
+    expect(changes).toHaveBeenLastCalledWith(true, undefined);
+  });
+  it("ignores a late reconnect track result after a subsequent disconnect", async () => {
+    const ch = channel(); const changes = vi.fn();
+    let finish!: () => void;
+    const prepare = vi.fn(async () => {}).mockImplementationOnce(async () => {});
+    const ready = subscribeChannel(ch.value as never, prepare, 100, changes);
+    ch.status("SUBSCRIBED"); await ready;
+    prepare.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    ch.status("SUBSCRIBED"); ch.status("CHANNEL_ERROR");
+    finish(); await Promise.resolve();
+    expect(changes).toHaveBeenLastCalledWith(false, expect.any(Error));
+  });
+  it("never revives an initially timed out subscription from a late callback", async () => {
+    vi.useFakeTimers(); const ch = channel(); const changes = vi.fn();
+    const result = expect(subscribeChannel(ch.value as never, undefined, 100, changes)).rejects.toThrow("超时");
+    await vi.advanceTimersByTimeAsync(100); await result;
+    ch.status("SUBSCRIBED"); await Promise.resolve();
+    expect(changes).toHaveBeenCalledTimes(1);
+    expect(changes).toHaveBeenLastCalledWith(false, expect.any(Error));
+  });
   it("waits for subscribed and track before declaring ready, and tracks on reconnect", async () => {
     const ch = channel();
     let finish!: () => void;

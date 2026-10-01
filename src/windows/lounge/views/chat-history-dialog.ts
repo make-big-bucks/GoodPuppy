@@ -309,6 +309,10 @@ export function openChatHistory({ supabase, selfAuthId, room }: OpenChatHistoryO
       if (firstConnection) { firstConnection = false; return; }
       if (isNearBottom() && !store.readingOlder) await loadInitial();
       else { store.holdOlder(); jumpBtn.hidden = false; jumpBtn.textContent = "返回最新 ↓"; }
+    }, undefined, (connected, error) => {
+      if (disposed) return;
+      if (error) { status.hidden = false; status.textContent = "实时连接中断，正在重连…"; }
+      else if (connected && status.textContent === "实时连接中断，正在重连…") status.hidden = true;
     });
   }
 

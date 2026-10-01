@@ -41,6 +41,14 @@ const member = { userId: "a", petId: "default", skin: "default", status: null };
 beforeEach(() => vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} }));
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe("remote window lifecycle schedules", () => {
+  it("does not replay a recovered duplicate message or its animation", async () => {
+    const f = fixture(); f.coordinator.onPresenceChange([member]); await f.coordinator.whenIdle();
+    const message = { id: "known", from: "a", info: "hello", created_at: "2026-10-01T00:00:00Z" };
+    f.coordinator.onMessagesLoaded([message]); f.send.mockClear();
+    f.coordinator.onNewMessage(message);
+    expect(f.send).not.toHaveBeenCalled();
+    f.setRoom(null); f.coordinator.onClearRemotePets(); await f.coordinator.whenIdle();
+  });
   it("cleans a late pet creation after exit without creating its bubble", async () => {
     const f = fixture(); const started = deferred(); const finish = deferred();
     f.bridge.spawnPetWindow.mockImplementationOnce(async (options) => { started.resolve(); await finish.promise; f.managed.set(options.label, options.instanceId); });

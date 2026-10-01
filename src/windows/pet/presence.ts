@@ -21,6 +21,7 @@ type JoinRoomOptions = LocalPresencePatch & {
 };
 
 let presenceChannel: RealtimeChannel | null = null;
+let presenceReady = false;
 let knownUsers = new Map<string, { status: PetStatus; petId: string; skin: string }>();
 let selfId: string | null = null;
 let onPresenceChangeHandler: (users: PresenceUser[]) => void = () => {};
@@ -93,6 +94,7 @@ export async function joinRoom(
 
   const previous = presenceChannel;
   presenceChannel = null;
+  presenceReady = false;
   if (previous) await previous.unsubscribe();
 
   knownUsers.clear();
@@ -104,7 +106,7 @@ export async function joinRoom(
 
   const joinedChannel = presenceChannel;
   joinedChannel.on("presence", { event: "sync" }, () => {
-    if (presenceChannel === joinedChannel) syncOnlineState();
+    if (presenceChannel === joinedChannel && presenceReady) syncOnlineState();
   });
   await subscribeChannel(joinedChannel, async () => {
     if (presenceChannel !== joinedChannel) return;
@@ -112,6 +114,11 @@ export async function joinRoom(
       user_id: nextSelfId, online_at: new Date().toISOString(), ...localPayload,
     });
     if (result !== "ok") throw new Error(`在线状态同步失败：${result}`);
+  }, undefined, (connected) => {
+    if (presenceChannel !== joinedChannel) return;
+    presenceReady = connected;
+    if (!connected) { knownUsers.clear(); emitPresence(); }
+    else syncOnlineState();
   });
 }
 
@@ -119,19 +126,23 @@ export async function updateLocalPresence({ status, petId, skin }: LocalPresence
   if (status !== undefined) localPayload.status = status;
   if (petId !== undefined) localPayload.pet_id = petId || "default";
   if (skin !== undefined) localPayload.skin = skin || "default";
-  if (presenceChannel) {
-    await presenceChannel.track({
+  if (presenceChannel && presenceReady) {
+    const updatingChannel = presenceChannel;
+    const result = await updatingChannel.track({
       user_id: selfId,
       online_at: new Date().toISOString(),
       ...localPayload,
     });
+    if (presenceChannel !== updatingChannel) return;
+    if (result !== "ok") throw new Error(`在线状态同步失败：${result}`);
   }
 }
 
 export async function leaveRoom() {
   const previous = presenceChannel;
   presenceChannel = null;
-  if (previous) await previous.unsubscribe();
+  presenceReady = false;
   knownUsers.clear();
   emitPresence();
+  if (previous) await previous.unsubscribe();
 }

@@ -36,6 +36,7 @@ export async function fetchRoomMessages(
     .eq("room_id", roomId)
     .eq("kind", "text")
     .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
     .limit(ROOM_HISTORY_LIMIT);
   if (error) throw error;
   return (data || []).map(msgToLocal).reverse();
@@ -49,7 +50,7 @@ export async function subscribeToRoomMessages(
 ): Promise<void> {
   await unsubscribeRoomMessages(supabase);
   messagesClient = supabase;
-  messagesChannel = supabase
+  const joinedChannel = supabase
     .channel("room-messages-" + roomId)
     .on(
       "postgres_changes",
@@ -60,11 +61,23 @@ export async function subscribeToRoomMessages(
         filter: `room_id=eq.${roomId}`,
       },
       (payload) => {
+        if (messagesChannel !== joinedChannel) return;
         if (payload.new?.kind !== "text") return;
         onMessage(msgToLocal(payload.new as MessageInsert));
       },
     );
-  await subscribeChannel(messagesChannel);
+  messagesChannel = joinedChannel;
+  let recoveryGeneration = 0;
+  await subscribeChannel(joinedChannel, async (reconnected) => {
+    if (!reconnected || messagesChannel !== joinedChannel) return;
+    const version = recoveryGeneration;
+    const history = await fetchRoomMessages(supabase, roomId);
+    if (messagesChannel !== joinedChannel || version !== recoveryGeneration) return;
+    for (const message of history) onMessage(message);
+  }, undefined, (_ready, error) => {
+    if (!_ready) recoveryGeneration += 1;
+    if (messagesChannel === joinedChannel && error) console.error("房间消息频道：", error);
+  });
 }
 
 export async function unsubscribeRoomMessages(supabase: SupabaseClient): Promise<void> {
