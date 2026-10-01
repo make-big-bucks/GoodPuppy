@@ -166,8 +166,8 @@ async function init() {
       void emit("auth-cleared");
       activeRoomId = null;
     },
-    onSkinSaved: (skin: string) => {
-      void emit("set-skin", { skin });
+    onSkinSaved: (skin: string, userId: string) => {
+      void window.goodPuppy.emitToWindow("main", "set-skin", { skin, userId }).catch(console.error);
     },
   });
 

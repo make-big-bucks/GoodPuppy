@@ -1,15 +1,17 @@
+import { createSkinSelection, type SkinSelectionSnapshot } from "../skinSelection.js";
+import { bindDialogFocus } from "../../../shared/dialogFocus.js";
+import { showToast } from "./toast.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getStateImagePath, loadPetManifest, DEFAULT_SKIN } from "../../../shared/pet/animationCatalog.js";
+import { getStateImagePath, loadPetManifest, DEFAULT_SKIN, resolveSkin } from "../../../shared/pet/animationCatalog.js";
 
 type ShowcaseOptions = {
   petId: string;
   skin: string;
   selfAuthId: string;
   supabase: SupabaseClient;
-  onSkinChange: (skin: string) => void;
+  onSkinChange: (skin: string, userId: string) => void;
 };
 
-const SKIN_STORAGE_KEY = "goodpuppy.skin";
 
 const SKIN_SWATCH_COLORS: Record<string, string> = {
   default: "#cc7a2a",
@@ -29,61 +31,79 @@ let statesEl: HTMLElement | null = null;
 let skinsEl: HTMLElement | null = null;
 let saveBtnEl: HTMLButtonElement | null = null;
 let activePetId = "default";
-// savedSkin = 打开时的皮肤（事实源）；activeSkin = 当前预览选择。点色块只改 activeSkin，
-// 点「保存」才把 activeSkin 落库并视为新的 savedSkin。关闭不保存则 activeSkin 被丢弃。
-let savedSkin = DEFAULT_SKIN;
 let activeSkin = DEFAULT_SKIN;
 let activeState = "idle";
-let skinChangeCb: ((skin: string) => void) | null = null;
-let authId: string | null = null;
-let sbClient: SupabaseClient | null = null;
+let snapshot: SkinSelectionSnapshot | null = null;
+let releaseFocus: (() => void) | null = null;
+let initialized = false;
+const selection = createSkinSelection<ShowcaseOptions>({
+  ownerKey: (context) => context.selfAuthId,
+  load: async (context) => {
+    const manifest = await loadPetManifest(context.petId);
+    return { skins: manifest.skins.map((skin) => skin.id).filter((skin) => resolveSkin(context.petId, skin) === skin), states: Object.keys(manifest.states) };
+  },
+  persist: async (context, skin) => {
+    const { error } = await context.supabase.from("profiles").update({ skin }).eq("id", context.selfAuthId).select("id").single();
+    if (error) throw error;
+  },
+  saved: (context, skin) => context.onSkinChange(skin, context.selfAuthId),
+  render: (next) => {
+    const focused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const skinFocus = focused?.dataset.skin;
+    const stateFocus = focused?.dataset.state;
+    snapshot = next; activeSkin = next.skin;
+    renderStates(next.states); renderSkins(next.skins); updatePreview(); syncSaveButton();
+    const controls = skinFocus ? skinsEl?.querySelectorAll<HTMLButtonElement>("button") : statesEl?.querySelectorAll<HTMLButtonElement>("button");
+    if (skinFocus || stateFocus) [...controls ?? []].find((button) => !button.disabled &&
+      (skinFocus ? button.dataset.skin === skinFocus : button.dataset.state === stateFocus))?.focus();
+  },
+  closed: () => {
+    const backdrop = getBackdrop();
+    if (backdrop) backdrop.hidden = true;
+    snapshot = null;
+    const release = releaseFocus; releaseFocus = null; release?.();
+  },
+  error: (error) => showToast(error instanceof Error ? error.message : "保存皮肤失败，请重试", "error"),
+});
 
 function getBackdrop() {
   return backdropEl ?? (backdropEl = document.querySelector<HTMLElement>(".showcase-backdrop"));
 }
 
 export function initShowcase() {
+  if (initialized) return;
+  initialized = true;
   const backdrop = getBackdrop();
   backdrop?.addEventListener("click", (e) => {
     if (e.target === e.currentTarget) closeShowcase();
   });
   saveBtnEl = backdrop?.querySelector<HTMLButtonElement>(".showcase-save") ?? null;
-  saveBtnEl?.addEventListener("click", () => saveSkin());
+  saveBtnEl?.addEventListener("click", () => { void selection.save(); });
 }
 
 export function openShowcase({ petId, skin, selfAuthId, supabase, onSkinChange }: ShowcaseOptions) {
   const backdrop = getBackdrop();
   if (!backdrop) return;
 
+  selection.close();
   activePetId = petId;
-  savedSkin = skin || DEFAULT_SKIN;
-  activeSkin = savedSkin;
   activeState = "idle";
-  skinChangeCb = onSkinChange;
-  authId = selfAuthId;
-  sbClient = supabase;
-
   previewEl = backdrop.querySelector<HTMLImageElement>(".showcase-gif");
   statesEl = backdrop.querySelector<HTMLElement>(".showcase-states");
   skinsEl = backdrop.querySelector<HTMLElement>(".showcase-skins");
   saveBtnEl = backdrop.querySelector<HTMLButtonElement>(".showcase-save");
-
-  renderStates();
-  updatePreview();
-  renderSkins();
-  syncSaveButton();
-
-  void loadPetManifest(petId).then((manifest) => {
-    if (manifest.skins.length > 0) renderSkins(manifest.skins);
-  });
-
   backdrop.hidden = false;
+  const panel = backdrop.querySelector<HTMLElement>(".showcase-panel");
+  if (panel) {
+    releaseFocus = bindDialogFocus(panel, closeShowcase);
+    panel.setAttribute("aria-label", "宠物动画与皮肤");
+    panel.focus();
+  }
+  selection.open({ petId, skin: resolveSkin(petId, skin), selfAuthId, supabase, onSkinChange });
 }
 
-function closeShowcase() {
-  const backdrop = getBackdrop();
-  if (backdrop) backdrop.hidden = true;
-}
+export function closeShowcase() { selection.close(); }
+export function syncShowcaseSkin(skin: string, userId: string) { selection.syncSaved(userId, resolveSkin(activePetId, skin)); }
 
 function updatePreview() {
   if (previewEl) {
@@ -91,18 +111,25 @@ function updatePreview() {
   }
 }
 
-function renderStates() {
+function renderStates(available: string[]) {
   if (!statesEl) return;
   statesEl.innerHTML = "";
-  for (const entry of STATE_ENTRIES) {
+  const entries = available.map((state) => STATE_ENTRIES.find((entry) => entry.state === state)
+    ?? { state, label: state, icon: iconIdle() });
+  if (!available.includes(activeState)) activeState = "idle";
+  for (const entry of entries) {
+    const owner = snapshot;
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "showcase-state-btn";
+    btn.disabled = Boolean(snapshot?.busy);
     btn.dataset.state = entry.state;
     btn.dataset.tooltip = entry.label;
+    btn.setAttribute("aria-label", entry.label);
     btn.innerHTML = entry.icon;
     if (entry.state === activeState) btn.classList.add("is-active");
     btn.addEventListener("click", () => {
+      if (!snapshot || snapshot !== owner || snapshot.busy) return;
       activeState = entry.state;
       statesEl!.querySelectorAll(".showcase-state-btn").forEach((b) =>
         b.classList.toggle("is-active", (b as HTMLElement).dataset.state === entry.state),
@@ -113,70 +140,29 @@ function renderStates() {
   }
 }
 
-function renderSkins(manifestSkins?: Array<{ id: string }>) {
+function renderSkins(skinIds: string[]) {
   if (!skinsEl) return;
   skinsEl.innerHTML = "";
-
-  const skinIds = manifestSkins
-    ? ["default", ...manifestSkins.map((s) => s.id)]
-    : Object.keys(SKIN_SWATCH_COLORS);
 
   for (const skinId of skinIds) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "showcase-skin-btn";
+    btn.disabled = Boolean(snapshot?.busy || snapshot?.loading);
     btn.dataset.skin = skinId;
+    btn.setAttribute("aria-label", skinId === "default" ? "原色皮肤" : `${skinId} 皮肤`);
+    btn.setAttribute("aria-pressed", String(skinId === activeSkin));
     btn.style.setProperty("--swatch", SKIN_SWATCH_COLORS[skinId] ?? "#aaa");
     if (skinId === activeSkin) btn.classList.add("is-active");
-    btn.addEventListener("click", () => previewSkin(skinId));
+    btn.addEventListener("click", () => selection.select(skinId));
     skinsEl.appendChild(btn);
   }
 }
 
-// 点色块：只更新预览选择与高亮，不写库、不广播。需点「保存」才生效。
-function previewSkin(skinId: string) {
-  activeSkin = skinId;
-
-  skinsEl?.querySelectorAll<HTMLElement>(".showcase-skin-btn").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.dataset.skin === skinId);
-  });
-
-  updatePreview();
-  syncSaveButton();
-}
-
-// 「保存」启用条件：当前预览选择与已保存皮肤不同。
 function syncSaveButton() {
-  if (saveBtnEl) saveBtnEl.disabled = activeSkin === savedSkin;
-}
-
-// 点「保存」：落库（profiles）+ 缓存（localStorage）+ 通知会客厅/pet 窗口，然后关闭。
-function saveSkin() {
-  if (activeSkin === savedSkin) {
-    closeShowcase();
-    return;
-  }
-  const skinId = activeSkin;
-  savedSkin = skinId;
-
-  try { localStorage.setItem(SKIN_STORAGE_KEY, skinId); } catch { /* noop */ }
-
-  if (sbClient && authId) {
-    // 注意：PostgrestBuilder 是惰性 thenable，HTTP 请求只在 .then()/await 时才发出。
-    // 此前写成 `void sbClient...update(...)` 从不调用 .then()，PATCH 根本没发出，
-    // 皮肤未落库，任何 loadPanelData() 重新读到 skin=default 都会把头像换回原色。
-    void sbClient
-      .from("profiles")
-      .update({ skin: skinId })
-      .eq("id", authId)
-      .then(({ error }) => {
-        if (error) console.error("skin update:", error);
-      });
-  }
-
-  skinChangeCb?.(skinId);
-  syncSaveButton();
-  closeShowcase();
+  if (!saveBtnEl || !snapshot) return;
+  saveBtnEl.disabled = snapshot.busy || snapshot.loading || snapshot.skin === snapshot.savedSkin;
+  saveBtnEl.textContent = snapshot.busy ? "正在保存…" : "保存";
 }
 
 // ── SVG icon helpers ──────────────────────────────────────────────

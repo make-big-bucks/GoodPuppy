@@ -3,6 +3,7 @@ afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 const joinRoom = vi.fn();
 const leaveRoom = vi.fn();
+const updateLocalPresence = vi.fn();
 const joinInteractions = vi.fn();
 const leaveInteractions = vi.fn();
 const fetchRoomMessages = vi.fn();
@@ -12,6 +13,7 @@ const unsubscribeRoomMessages = vi.fn();
 vi.mock("./presence.js", () => ({
   joinRoom,
   leaveRoom,
+  updateLocalPresence,
 }));
 
 vi.mock("./interactions.js", () => ({
@@ -77,6 +79,7 @@ describe("roomManager", () => {
     subscribeToRoomMessages.mockImplementation(async (_client, _room, _message, connected) => { connected?.(true); });
     joinRoom.mockImplementation(async (_client, _room, _self, options) => { options?.onConnectionChange?.(true); });
     leaveRoom.mockResolvedValue(undefined);
+    updateLocalPresence.mockResolvedValue(undefined);
     joinInteractions.mockImplementation(async (_client, _room, options) => { options?.onConnectionChange?.(true); });
     leaveInteractions.mockResolvedValue(undefined);
     unsubscribeRoomMessages.mockResolvedValue(undefined);
@@ -165,6 +168,19 @@ describe("roomManager", () => {
     await manager.startPetApp({ supabase: client as never, session: { user: { id: "user-1" } } as never });
     return { manager, cbs, client };
   }
+  it("publishes the latest appearance when it changes during room preparation", async () => {
+    const { manager, cbs } = await initialized();
+    let finish!: () => void;
+    joinInteractions.mockImplementationOnce(async (_client, _room, options) => {
+      options.onConnectionChange(true);
+      await new Promise<void>((resolve) => { finish = resolve; });
+    });
+    const entering = manager.switchRoom("room-a");
+    await vi.waitFor(() => expect(joinInteractions).toHaveBeenCalled());
+    cbs.getSelfSkin.mockReturnValue("pink"); finish(); await entering;
+    expect(updateLocalPresence).toHaveBeenCalledWith(expect.objectContaining({ skin: "pink" }));
+    await manager.exitCurrentRoom();
+  });
 
   it("hides stale room state, rechecks membership and restores fresh channels after resume", async () => {
     const { manager, cbs, client } = await initialized();

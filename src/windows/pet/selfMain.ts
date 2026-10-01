@@ -5,7 +5,8 @@ import { exitCurrentRoom, getCurrentRoomId, getRoomRevision, startPetApp, stopPe
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 import { createRoomVisibilityController } from "./roomVisibility.js";
 import { createResumeMonitor } from "../../shared/resumeMonitor.js";
-import { recoverRoomAfterResume } from "./roomManager.js";
+import { recoverRoomAfterResume, getSelfAuthId } from "./roomManager.js";
+import { isOwnSkinUpdate } from "../../shared/pet/petWindowEvents.js";
 import { recordLifecycle } from "../../shared/diagnostics.js";
 
 import { ROOM_COMMAND, ROOM_CANCEL, ROOM_RESULT, executeRoomCommand, isRoomCommand } from "../../shared/roomProtocol.js";
@@ -87,8 +88,8 @@ if (inTauri) {
   });
 
   // 会客厅资料卡换肤面板「保存」后广播：应用到自己 pet（动画 + presence 通道 A）。
-  listen<{ skin?: string | null }>("set-skin", (event) => {
-    setSelfSkin(event.payload?.skin);
+  listen("set-skin", (event) => {
+    if (isOwnSkinUpdate(event.payload, getSelfAuthId())) setSelfSkin(event.payload.skin);
   });
 
   // 退出前清理 presence，完成后通知 Rust 可以 exit（握手）。

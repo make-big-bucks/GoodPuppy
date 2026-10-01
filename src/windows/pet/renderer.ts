@@ -106,17 +106,17 @@ loadPetManifest(selfPetId).then((manifest) => {
 // ── Persistent status / skin / scale / mode ───────────────────────────────
 function setSelfStatus(status: PetStatus) {
   selfAnimator.setStatus(status);
-  presence.updateLocalPresence({ status }).catch(console.error);
+  if (getCurrentRoomId()) presence.updateLocalPresence({ status }).catch(console.error);
 }
 
 // 由会客厅资料卡换肤面板「保存」后跨窗口调用（见 selfMain 的 "set-skin" 监听）：
-// 更新本窗口动画 + 缓存 + presence 广播（通道 A，远程宠物窗口随之实时换肤）。
+// 更新本窗口动画；只有当前房间仍有效时才发布在线资料，避免触碰清理中的旧频道。
 export function setSelfSkin(skin: string | null | undefined) {
   const next = resolveSkin(selfPetId, skin);
   if (next === selfSkin) return;
   selfSkin = next;
   selfAnimator.setSkin(next);
-  presence.updateLocalPresence({ skin: next }).catch(console.error);
+  if (getCurrentRoomId()) presence.updateLocalPresence({ skin: next }).catch(console.error);
 }
 
 function setPetScale(next: number | string | null | undefined) {

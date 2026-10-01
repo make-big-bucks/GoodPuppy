@@ -14,7 +14,7 @@ import { renderProfileCard } from "./views/profile-card.js";
 import { openChatHistory, closeChatHistory } from "./views/chat-history-dialog.js";
 import { showToast } from "./views/toast.js";
 import { showPanelSkeleton, showPanelError, hidePanelState, isOfflineError } from "./views/panelState.js";
-import { initShowcase, openShowcase } from "./views/pet-showcase.js";
+import { initShowcase, openShowcase, closeShowcase, syncShowcaseSkin } from "./views/pet-showcase.js";
 import { openSettings, closeSettings } from "./views/settings.js";
 import { buildMemberViewModels, mapPendingRoomInvitationRows, normalizeGpId } from "./loungeViewModels.js";
 import {
@@ -48,7 +48,7 @@ type LoungePanelOptions = {
   onLoginSuccess: () => void;
   onLogout: () => void;
   // 换肤面板「保存」后，把皮肤同步给 pet 窗口（presence 通道 A）。
-  onSkinSaved: (skin: string) => void;
+  onSkinSaved: (skin: string, userId: string) => void;
 };
 
 type UpdatePanelAuthOptions = {
@@ -114,7 +114,7 @@ let onEnterRoom: ((roomId: string) => Promise<void>) | null = null;
 let onExitRoom: (() => Promise<void>) | null = null;
 let onLoginSuccess: (() => void) | null = null;
 let onLogout: (() => void) | null = null;
-let onSkinSaved: ((skin: string) => void) | null = null;
+let onSkinSaved: ((skin: string, userId: string) => void) | null = null;
 
 const gearIconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`;
 const eyeSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>`;
@@ -236,11 +236,19 @@ async function copyToClipboard(text: string | null | undefined, btn: HTMLButtonE
 }
 
 function renderProfile(profile: LoungeProfile | null) {
+  const previousSkin = currentProfile?.skin;
   currentProfile = profile;
   renderProfileCard(profile);
+  // 已提交资料是事实源；保存时关闭面板也能通过资料快照恢复宠物显示。
+  if (profile?.id === selfAuthId && selfAuthId && profile.skin && profile.skin !== previousSkin) {
+    syncShowcaseSkin(profile.skin, selfAuthId);
+    onSkinSaved?.(profile.skin, selfAuthId);
+  }
 }
 
-function handleSkinChange(skin: string) {
+function handleSkinChange(skin: string, userId: string) {
+  if (selfAuthId !== userId) return;
+  syncShowcaseSkin(skin, userId);
   if (currentProfile) {
     currentProfile = { ...currentProfile, skin };
     renderProfileCard(currentProfile);
@@ -252,7 +260,8 @@ function handleSkinChange(skin: string) {
   }
   renderAll();
   // 通知 pet 窗口应用新皮肤（动画 + presence 广播给远程好友）。
-  onSkinSaved?.(skin);
+  onSkinSaved?.(skin, userId);
+  void loadPanelData();
 }
 
 function renderAuthState(isLoggedIn: boolean) {
@@ -1354,7 +1363,7 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, is
     rooms = []; pendingRequests = []; selectedRoomId = null; pendingTransition = null;
     hasLoadedOnce = false;
     renderProfile(null);
-    closeModal(); closeSettings(); closeChatHistory();
+    closeModal(); closeSettings(); closeChatHistory(); closeShowcase();
   }
   supabaseClient = supabase;
   selfAuthId = nextSelfAuthId;

@@ -168,6 +168,8 @@ async function activateRoom(session: SessionContext, roomId: string, version: nu
     onInteraction: (payload) => { if (version === revision && committed) cbs.onInteraction(payload); },
   });
   assertCurrent(version);
+  await presence.updateLocalPresence({ status: cbs.getSelfStatus(), petId: cbs.getSelfPetId(), skin: cbs.getSelfSkin() });
+  assertCurrent(version);
   if (!healthy()) throw new Error("房间连接在准备期间中断，请重试");
   const { error } = await session.client.from("presence").upsert({
     user_id: session.userId, current_room_id: roomId, is_online: true,
