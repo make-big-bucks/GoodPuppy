@@ -237,11 +237,16 @@ export function recoverRoomAfterResume(): Promise<void> {
     assertCurrent(version);
     await releaseChannels(session.client);
     assertCurrent(version);
-    await writeOffline(session, true);
+    // 旧房间已失去成员资格时，保留该 room_id 的写入会被 RLS 拒绝；
+    // 资格检查必须独立完成，才能选择允许的「清房间」收尾。
+    const [offline, membershipResult] = await Promise.allSettled([
+      writeOffline(session, true),
+      session.client.from("room_members").select("room_id")
+        .eq("room_id", roomId).eq("user_id", session.userId).abortSignal(abort.signal).maybeSingle(),
+    ]);
     assertCurrent(version);
-    const { data: membership, error } = await session.client.from("room_members").select("room_id")
-      .eq("room_id", roomId).eq("user_id", session.userId).abortSignal(abort.signal).maybeSingle();
-    assertCurrent(version);
+    if (membershipResult.status === "rejected") throw membershipResult.reason;
+    const { data: membership, error } = membershipResult.value;
     if (error) throw error;
     if (!membership) {
       await writeOffline(session);
@@ -249,6 +254,7 @@ export function recoverRoomAfterResume(): Promise<void> {
       callbacks?.onRoomReady();
       return;
     }
+    if (offline.status === "rejected") throw offline.reason;
     try { await activateRoom(session, roomId, version); }
     catch (error) {
       await Promise.allSettled([releaseChannels(session.client), writeOffline(session, true)]);

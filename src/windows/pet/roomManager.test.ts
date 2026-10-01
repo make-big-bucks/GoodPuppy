@@ -203,6 +203,22 @@ describe("roomManager", () => {
     expect(joinRoom).toHaveBeenCalledTimes(1);
     expect(presence.update).toHaveBeenLastCalledWith({ current_room_id: null, is_online: false, last_seen: expect.any(String) });
   });
+  it("clears lost membership even when preserving its old room is rejected by RLS", async () => {
+    const { manager, client } = await initialized(); await manager.switchRoom("room-a");
+    const presence = createQuery({ data: null, error: null }); const original = client.from.getMockImplementation()!;
+    presence.update.mockImplementation((patch) => {
+      presence.eq.mockImplementationOnce(async () => {
+        if (patch.current_room_id === undefined) throw new Error("RLS rejects old member room");
+        return { error: null };
+      });
+      return presence;
+    });
+    client.from.mockImplementation((table) => table === "room_members" ? createQuery({ data: null, error: null })
+      : table === "presence" ? presence : original(table));
+    await manager.recoverRoomAfterResume();
+    expect(manager.getCurrentRoomId()).toBeNull(); expect(joinRoom).toHaveBeenCalledTimes(1);
+    expect(presence.update).toHaveBeenLastCalledWith({ current_room_id: null, is_online: false, last_seen: expect.any(String) });
+  });
 
   it("retains the remembered room on recovery failure and cancels retry when explicitly leaving", async () => {
     const { manager, client } = await initialized(); await manager.switchRoom("room-a");
