@@ -66,6 +66,20 @@ async fn run(app: &AppHandle) -> Result<(), String> {
             120.0,
         )
         .await?;
+        let pet = app
+            .get_webview_window("pet-smoke")
+            .ok_or("pet unavailable")?;
+        let geometry = commands::get_window_geometry(pet.clone(), Some(instance.clone())).await?;
+        let geometry = serde_json::to_value(geometry).map_err(|error| error.to_string())?;
+        if geometry["width"].as_f64().unwrap_or(0.0) <= 0.0 {
+            return Err("native window geometry snapshot unavailable".into());
+        }
+        if commands::get_window_geometry(pet, Some("stale-instance".into()))
+            .await
+            .is_ok()
+        {
+            return Err("window geometry snapshot stale-instance guard missing".into());
+        }
         let area = commands::get_pet_monitor_work_area(
             app.clone(),
             main.clone(),

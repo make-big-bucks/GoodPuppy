@@ -193,8 +193,8 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
 
   // ── Positioning ──────────────────────────────────────────────────────────
   async function selfBounds(): Promise<{ pos: WindowPoint; size: { width: number; height: number } }> {
-    const [pos, size] = await Promise.all([bridge.getWindowPosition(), bridge.getWindowSize()]);
-    return { pos, size };
+    const { x, y, width, height } = await bridge.getWindowBounds();
+    return { pos: { x, y }, size: { width, height } };
   }
 
   /** 计算每只在线远程 pet 的目标窗口左上角。

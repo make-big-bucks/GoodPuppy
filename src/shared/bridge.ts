@@ -42,19 +42,17 @@ function windowCommand<T>(command: string, args: Record<string, unknown>): Promi
 const goodPuppy: GoodPuppyBridge = {
   recordDiagnostic(event) { return inTauri ? invoke<void>("record_diagnostic", { event }) : Promise.resolve(); },
   getDiagnosticReport() { return inTauri ? invoke<string>("get_diagnostic_report") : Promise.resolve(""); },
+  getWindowBounds() {
+    if (!appWindow) return Promise.resolve({ x: 0, y: 0, width: 150, height: 120 });
+    return invoke<WindowPoint & WindowSize>("get_window_geometry", { instanceId: windowInstance });
+  },
   async getWindowPosition() {
-    if (!appWindow) return { x: 0, y: 0 };
-    const scale = await appWindow.scaleFactor();
-    const physical = await appWindow.outerPosition();
-    const logical = physical.toLogical(scale);
-    return { x: logical.x, y: logical.y };
+    const { x, y } = await this.getWindowBounds();
+    return { x, y };
   },
   async getWindowSize() {
-    if (!appWindow) return { width: 150, height: 120 };
-    const scale = await appWindow.scaleFactor();
-    const physical = await appWindow.outerSize();
-    const logical = physical.toLogical(scale);
-    return { width: logical.width, height: logical.height };
+    const { width, height } = await this.getWindowBounds();
+    return { width, height };
   },
   async getMonitorWorkArea(point) {
     // 浏览器 fallback：用 screen 的可用区域（无法精确到 taskbar/dock 时退化为整屏）。

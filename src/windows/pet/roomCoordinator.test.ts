@@ -25,6 +25,7 @@ function fixture() {
       listeners.set(event, handler); return () => listeners.delete(event);
     }, callback),
     emitToWindow: send,
+    getWindowBounds: async () => ({ x: 100, y: 100, width: 150, height: 120 }),
     getWindowPosition: async () => ({ x: 100, y: 100 }), getWindowSize: async () => ({ width: 150, height: 120 }),
     getMonitors: async () => [{ x: 0, y: 0, width: 1920, height: 1080 }], getPetMonitorWorkArea: async () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
     spawnPetWindow: vi.fn(async (options) => { managed.set(options.label, options.instanceId); }),

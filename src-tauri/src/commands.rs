@@ -37,6 +37,45 @@ pub(crate) fn set_pet_hit_shape(
     }
 }
 
+#[derive(serde::Serialize)]
+pub(crate) struct WindowGeometry {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+#[tauri::command]
+pub(crate) async fn get_window_geometry(
+    window: WebviewWindow,
+    instance_id: Option<String>,
+) -> Result<WindowGeometry, String> {
+    let app = window.app_handle().clone();
+    let check = app.clone();
+    on_main_thread(&app, move || {
+        if window.label() != "main"
+            && window.label() != "lounge"
+            && (instance_id.is_none()
+                || !matches_instance(&check, window.label(), instance_id.as_deref()))
+        {
+            return Err("stale window geometry request".into());
+        }
+        let position = window.outer_position().map_err(|error| error.to_string())?;
+        let size = window.outer_size().map_err(|error| error.to_string())?;
+        let scale = window.scale_factor().map_err(|error| error.to_string())?;
+        if !scale.is_finite() || scale <= 0.0 {
+            return Err("invalid window scale factor".into());
+        }
+        Ok(WindowGeometry {
+            x: position.x as f64 / scale,
+            y: position.y as f64 / scale,
+            width: size.width as f64 / scale,
+            height: size.height as f64 / scale,
+        })
+    })
+    .await
+}
+
 fn validate_geometry(x: f64, y: f64, width: f64, height: f64) -> Result<(), String> {
     if [x, y, width, height, x + width, y + height]
         .iter()

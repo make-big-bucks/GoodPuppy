@@ -40,6 +40,8 @@ export interface PetHitShape {
 export interface GoodPuppyBridge {
   recordDiagnostic(event: DiagnosticEvent): Promise<void>;
   getDiagnosticReport(): Promise<string>;
+  /** 主线程一次读取当前窗口外框位置、尺寸与比例，返回逻辑单位。 */
+  getWindowBounds(): Promise<WindowPoint & WindowSize>;
   getWindowPosition(): Promise<WindowPoint>;
   /** 当前窗口外尺寸（逻辑像素）。 */
   getWindowSize(): Promise<WindowSize>;

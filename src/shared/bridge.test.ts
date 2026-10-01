@@ -9,6 +9,15 @@ beforeEach(() => {
   vi.stubGlobal("window", { __TAURI_INTERNALS__: {} });
 });
 describe("native bridge error contract", () => {
+  it("reads layout bounds from one native snapshot and preserves read failures", async () => {
+    const bridge = (await import("./bridge.js")).default;
+    invoke.mockResolvedValueOnce({ x: -100, y: 20, width: 150, height: 120 });
+    expect(await bridge.getWindowBounds()).toEqual({ x: -100, y: 20, width: 150, height: 120 });
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledWith("get_window_geometry", { instanceId: bridge.getWindowInstance() });
+    invoke.mockRejectedValueOnce(new Error("window unavailable"));
+    await expect(bridge.getWindowPosition()).rejects.toThrow("window unavailable");
+  });
   it("queries the target pet monitor with its instance and propagates stale-target failure", async () => {
     const bridge = (await import("./bridge.js")).default;
     invoke.mockResolvedValueOnce({ x: 960, y: 20, width: 1280, height: 700 });
