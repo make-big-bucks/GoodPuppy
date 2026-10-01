@@ -10,9 +10,18 @@ export function createLoungeSubscriptions(deps: {
   error: (error: unknown) => void;
 }) {
   let generation = 0;
-  let current: { context: Context; channels: RealtimeChannel[] } | null = null;
+  let current: { context: Context; channels: RealtimeChannel[]; groups: Map<string, { channel: RealtimeChannel | null }> } | null = null;
+  const retiring = new WeakMap<SupabaseClient, Map<string, Promise<void>>>();
+  const retireGroup = (context: Context, room: string, channel: RealtimeChannel) => {
+    let pending = retiring.get(context.client);
+    if (!pending) { pending = new Map(); retiring.set(context.client, pending); }
+    const work = Promise.resolve().then(() => context.client.removeChannel(channel)).then(() => {}, deps.error);
+    pending.set(room, work);
+    void work.finally(() => { if (pending!.get(room) === work) pending!.delete(room); }).catch(() => {});
+  };
   const release = () => {
     const old = current; current = null;
+    if (old) for (const [room, entry] of old.groups) if (entry.channel) retireGroup(old.context, room, entry.channel);
     if (old) for (const channel of old.channels) {
       try { void old.context.client.removeChannel(channel).catch(deps.error); } catch (error) { deps.error(error); }
     }
@@ -22,7 +31,7 @@ export function createLoungeSubscriptions(deps: {
       if (current?.context.client === context?.client && current?.context.userId === context?.userId) return;
       release(); generation += 1;
       if (!context) return;
-      const session = { context: { ...context }, channels: [] as RealtimeChannel[] };
+      const session = { context: { ...context }, channels: [] as RealtimeChannel[], groups: new Map<string, { channel: RealtimeChannel | null }>() };
       current = session;
       const active = () => current === session;
       const specs = [
@@ -55,6 +64,33 @@ export function createLoungeSubscriptions(deps: {
           });
         }
       } catch (error) { release(); deps.error(error); }
+    },
+    async syncRooms(rooms: string[]) {
+      const session = current;
+      if (!session) return;
+      const desired = new Set(rooms);
+      for (const [room, entry] of session.groups) if (!desired.has(room)) {
+        session.groups.delete(room); if (entry.channel) retireGroup(session.context, room, entry.channel);
+      }
+      await Promise.all([...desired].map(async room => {
+        if (session.groups.has(room)) return;
+        const entry = { channel: null as RealtimeChannel | null }; session.groups.set(room, entry);
+        await retiring.get(session.context.client)?.get(room);
+        if (current !== session || session.groups.get(room) !== entry) return;
+        try {
+          const channel = session.context.client.channel(`presence:${room}`, { config: { private: true } }); entry.channel = channel;
+          const active = () => current === session && session.groups.get(room) === entry;
+          channel.on("broadcast", { event: "presence-changed" }, () => { if (active()) deps.refresh(); })
+            .subscribe((status, error) => { if (!active()) return;
+              if (status === "SUBSCRIBED") deps.refresh();
+              else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") deps.error(error ?? new Error("在线目录连接失败"));
+            });
+        } catch (error) {
+          if (session.groups.get(room) === entry) session.groups.delete(room);
+          if (entry.channel) retireGroup(session.context, room, entry.channel);
+          if (current === session) deps.error(error);
+        }
+      }));
     },
     dispose: release,
   };

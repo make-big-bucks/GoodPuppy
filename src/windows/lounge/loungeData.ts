@@ -46,21 +46,21 @@ export async function fetchLoungeData({ client, userId }: LoungeDataContext, sig
   let allPresence: LoungePresenceRow[] = [];
 
   if (roomIds.length > 0) {
+    const presenceStarted = performance.now();
     const [membersResult, presenceResult] = await Promise.all([
       client
         .from("room_members")
         .select("room_id, user_id, joined_at, profiles!room_members_user_id_fkey(id, gp_id, display_name, pet_id, skin)")
         .in("room_id", roomIds).abortSignal(signal),
-      client
-        .from("presence")
-        .select("current_room_id, user_id, is_online, last_seen")
-        .in("current_room_id", roomIds).abortSignal(signal),
+      client.rpc("get_online_room_presence", { p_user: userId }).abortSignal(signal),
     ]);
 
     if (membersResult.error) throw membersResult.error;
     if (presenceResult.error) throw presenceResult.error;
     allMembers = (membersResult.data as LoungeMemberRow[] | null) || [];
-    allPresence = (presenceResult.data as LoungePresenceRow[] | null) || [];
+    allPresence = ((presenceResult.data ?? []) as Array<LoungePresenceRow & { age_ms?: number }>).map(row => ({
+      ...row, last_seen: new Date(Date.now() - Math.max(0, Number(row.age_ms ?? 0)) - (performance.now() - presenceStarted)).toISOString(),
+    }));
   }
 
   return { profile: profileData, myRooms, allMembers, allPresence,

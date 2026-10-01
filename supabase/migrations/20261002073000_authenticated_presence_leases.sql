@@ -75,6 +75,7 @@ BEGIN
  WHERE user_id=auth.uid() AND client_id=p_client AND room_id=p_room;
  IF NOT FOUND THEN RAISE EXCEPTION 'Presence instance is no longer active' USING ERRCODE='42501'; END IF;
  UPDATE private.presence_clients SET updated_at=now() WHERE user_id=auth.uid() AND client_id=p_client;
+ IF p_connected IS NULL THEN PERFORM realtime.send('{}'::jsonb,'presence-changed','presence:'||p_room::text,true); END IF;
 END $$;
 CREATE FUNCTION private.deactivate_room_presence(p_user uuid,p_room uuid,p_client uuid,p_revision bigint) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$

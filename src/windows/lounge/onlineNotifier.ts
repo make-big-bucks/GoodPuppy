@@ -1,8 +1,7 @@
 import { createNotificationScheduler } from "./notificationScheduler.js";
 // 房间上线提醒的有副作用编排层（运行在常驻 Lounge webview）：订阅开关持久化、
-// 复用 DB presence 订阅做上线检测、按槽位 spawn/回收 toast 窗口。纯逻辑见
-// `onlineNotifierCore.ts`（单测覆盖）。见
-// `docs/superpowers/specs/2026-06-23-room-online-notification-design.md`。
+// 用认证租约快照做上线检测、按槽位 spawn/回收 toast 窗口。纯逻辑见
+// `onlineNotifierCore.ts`（单测覆盖）。协议见 ADR-0021。
 
 import type { LoungePresenceRow, LoungeRoom, OnlineNotifyPayload } from "../../types";
 import { getDisplayName } from "./loungeViewModels.js";
@@ -30,7 +29,7 @@ interface OnlineNotifierDeps {
 
 let deps: OnlineNotifierDeps | null = null;
 let subscribed = new Set<string>();
-const snapshot = new Map<string, string | null>(); // userId -> roomId|null
+const snapshot = new Map<string, string | null>(); // roomId|userId -> roomId|null
 const lastNotifiedAt = new Map<string, number>(); // `${roomId}|${userId}` -> ts
 let listenersBound = false;
 
@@ -66,7 +65,7 @@ export function setRoomSubscribed(roomId: string, on: boolean): void {
 export function seedSnapshot(rows: LoungePresenceRow[]): void {
   snapshot.clear();
   for (const row of rows) {
-    snapshot.set(row.user_id, nextPresenceRoom(row as PresenceRowLike));
+    snapshot.set(dedupeKey(row.current_room_id ?? "", row.user_id), nextPresenceRoom(row as PresenceRowLike));
   }
 }
 
@@ -92,7 +91,7 @@ export function onPresenceChange(row: LoungePresenceRow): void {
   if (!selfId) return;
 
   const decision = decideOnlineNotification({
-    prevRoom: snapshot.get(row.user_id),
+    prevRoom: snapshot.get(dedupeKey(row.current_room_id ?? "", row.user_id)),
     row: row as PresenceRowLike,
     selfId,
     activeRoomId: deps.getActiveRoomId(),
@@ -101,15 +100,7 @@ export function onPresenceChange(row: LoungePresenceRow): void {
       isWithinDedupeWindow(lastNotifiedAt.get(dedupeKey(roomId, userId)), Date.now(), DEDUPE_MS),
   });
 
-  console.warn(
-    "[online-notify] presence",
-    row.user_id,
-    "→ room",
-    decision.roomId,
-    "notify?",
-    decision.shouldNotify,
-  );
-  snapshot.set(row.user_id, decision.roomId);
+  snapshot.set(dedupeKey(row.current_room_id ?? "", row.user_id), decision.roomId);
 
   if (!decision.shouldNotify || !decision.roomId) return;
   const payload = buildPayload(decision.roomId, row.user_id);

@@ -14,7 +14,7 @@ describe("captured lounge data context", () => {
     const invitations = query({ data: [], error: null });
     let roomCalls = 0;
     const client = { from: (table: string) => table === "profiles" ? profile : table === "presence" ? presence : ++roomCalls === 1 ? membership : members,
-      rpc: () => invitations };
+      rpc: (name: string) => name === "get_online_room_presence" ? presence : invitations };
     const signal = new AbortController().signal;
     const result = await fetchLoungeData({ client: client as never, userId: "a" }, signal);
     expect(result.myRooms[0].rooms?.room_name).toBe("name");

@@ -687,7 +687,9 @@ const panelRefresh = createRefreshController<LoungeDataContext, LoungeData>({
     rebuildRoomViews();
     pendingRequests = mapPendingRoomInvitationRows(snapshot.invitations);
     if (!selectedRoomId || !rooms.some((room) => room.id === selectedRoomId)) selectedRoomId = rooms[0]?.id ?? null;
+    if (hasLoadedOnce) for (const row of snapshot.allPresence) notifyPresenceChange(row);
     seedNotifierSnapshot(snapshot.allPresence);
+    void subscriptions.syncRooms(snapshot.myRooms.map(room => room.room_id));
     syncNotifierRooms();
     hasLoadedOnce = true;
     hidePanelState();
@@ -985,7 +987,7 @@ function knownMemberIds(): Set<string> {
 const subscriptions = createLoungeSubscriptions({
   refresh: () => { void loadPanelData(); },
   knownMemberIds,
-  presenceChanged: notifyPresenceChange,
+  presenceChanged: () => {},
   error: (error) => console.error("lounge subscriptions:", error),
 });
 

@@ -16,6 +16,15 @@ function fixture() {
   return { subscriptions, refresh, presenceChanged, error };
 }
 describe("lounge subscription ownership", () => {
+  it("subscribes to private room hints and ignores retired room callbacks", async () => {
+    const f = fixture(); const c = client(); f.subscriptions.setContext({ client: c.value as never, userId: "self" });
+    await f.subscriptions.syncRooms(["room-a"]);
+    const group = c.channels.find(channel => channel.name === "presence:room-a");
+    expect(c.value.channel).toHaveBeenCalledWith("presence:room-a", { config: { private: true } });
+    group.callback({ user_id: "forged" }); expect(f.refresh).toHaveBeenCalledTimes(1);
+    await f.subscriptions.syncRooms([]); group.callback({ user_id: "forged" }); expect(f.refresh).toHaveBeenCalledTimes(1);
+    f.subscriptions.dispose();
+  });
   it("releases partially created channels and can retry the same identity after setup failure", () => {
     const f = fixture(); const c = client(); const create = c.value.channel.getMockImplementation()!;
     c.value.channel.mockImplementationOnce(create).mockImplementationOnce(() => { throw new Error("creation failed"); });

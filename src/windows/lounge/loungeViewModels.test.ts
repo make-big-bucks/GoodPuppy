@@ -6,6 +6,14 @@ import {
   mapPendingRoomInvitationRows,
   normalizeGpId,
 } from "./loungeViewModels.js";
+it("keeps the same account's online leases separate by room", () => {
+  const rows = [
+    { user_id: "friend", current_room_id: "room-b", is_online: true, last_seen: new Date().toISOString() },
+    { user_id: "friend", current_room_id: "room-a", is_online: true, last_seen: new Date().toISOString() },
+  ];
+  const members = [{ room_id: "room-b", user_id: "friend", joined_at: "2026-10-02T00:00:00Z", profiles: {} }];
+  expect(buildMemberViewModels(members, rows, "self", "room-b", null)[0].isOnline).toBe(true);
+});
 import type { LoungeMemberRow, LoungePresenceRow } from "../../types";
 
 describe("normalizeGpId", () => {

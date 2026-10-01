@@ -4,6 +4,8 @@ afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 const joinRoom = vi.fn();
 const leaveRoom = vi.fn();
 const updateLocalPresence = vi.fn();
+const activatePresence = vi.fn();
+const heartbeatPresence = vi.fn();
 const joinInteractions = vi.fn();
 const leaveInteractions = vi.fn();
 const fetchRoomMessages = vi.fn();
@@ -13,7 +15,7 @@ const unsubscribeRoomMessages = vi.fn();
 vi.mock("./presence.js", () => ({
   joinRoom,
   leaveRoom,
-  updateLocalPresence,
+  updateLocalPresence, activatePresence, heartbeatPresence,
 }));
 
 vi.mock("./interactions.js", () => ({
@@ -80,6 +82,7 @@ describe("roomManager", () => {
     joinRoom.mockImplementation(async (_client, _room, _self, options) => { options?.onConnectionChange?.(true); });
     leaveRoom.mockResolvedValue(undefined);
     updateLocalPresence.mockResolvedValue(undefined);
+    activatePresence.mockResolvedValue(undefined); heartbeatPresence.mockResolvedValue(undefined);
     joinInteractions.mockImplementation(async (_client, _room, options) => { options?.onConnectionChange?.(true); });
     leaveInteractions.mockResolvedValue(undefined);
     unsubscribeRoomMessages.mockResolvedValue(undefined);

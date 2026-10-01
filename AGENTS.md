@@ -41,7 +41,7 @@ npm run tauri build
 - `src/windows/pet/petState.ts`：`PetAnimator` 分层动画状态机（瞬时层 > 状态层 > 基础层），每只 pet 一个实例。见 `docs/adr/0008-分层动画状态机与实时事件.md`。
 - `src/shared/pet/animationCatalog.ts`：动画「行为事实」与形象注册表（状态分层、互动路由、`pet.json` 加载、皮肤路径解析）；资源放 `public/pets/<id>/`，皮肤变体放 `public/pets/<id>/skins/<skin>/`。
 - `src/windows/pet/interactions.ts`：跨用户瞬时互动的 Realtime broadcast 总线。
-- `src/windows/pet/presence.ts`：房间在线状态；payload 携带持续状态（情绪/工作）、`pet_id` 与 `skin`（换肤）。
+- `src/windows/pet/presence.ts`：房间在线投影；认证实例租约/RPC 提供身份和状态，私有广播只提示读取快照，见 ADR-0021。
 - `tools/generate-skins.mjs`：离线换肤生成器（`npm run gen:skins`），配置 `tools/skins.json`。见 `docs/adr/0010-离线调色板换肤.md`。
 - `src/windows/pet/hitTesting.ts`：透明窗口命中测试逻辑。
 - `src/windows/pet/petPresenter.ts`：呈现、拖动与命中形状下发；原生 `cursor.rs` / `hit_test.rs` 独占穿透切换。

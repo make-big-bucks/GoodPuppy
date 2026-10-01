@@ -136,6 +136,7 @@ async function activateRoom(session: SessionContext, roomId: string, version: nu
         is_online: healthy(), last_seen: new Date().toISOString(),
       }).eq("user_id", session.userId);
       if (error) throw error;
+      await presence.heartbeatPresence(healthy());
     }).catch((error) => console.error("presence heartbeat:", error));
   };
   const observe = (name: keyof typeof connection) => (ready: boolean) => {
@@ -154,6 +155,8 @@ async function activateRoom(session: SessionContext, roomId: string, version: nu
   const history = await fetchRoomMessages(session.client, roomId);
   assertCurrent(version);
   await presence.joinRoom(session.client, roomId, session.userId, {
+    revision: version,
+    onMembershipLost: () => { if (version === revision && committed) void exitCurrentRoom().catch(console.error); },
     onConnectionChange: observe("presence"),
     onPresenceChange: (nextUsers) => {
       if (version !== revision) return;
@@ -177,6 +180,9 @@ async function activateRoom(session: SessionContext, roomId: string, version: nu
   }, { onConflict: "user_id" });
   assertCurrent(version);
   if (error) throw error;
+  if (!healthy()) throw new Error("房间连接在准备期间中断，请重试");
+  await presence.activatePresence();
+  assertCurrent(version);
   if (!healthy()) throw new Error("房间连接在准备期间中断，请重试");
   // 全部准备成功后才提交 active 状态；迟到的回调不能修改其它房间。
   currentRoomId = roomId;

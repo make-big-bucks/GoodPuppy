@@ -11,7 +11,7 @@ import type {
 const GP_ID_PATTERN = /^gp_[a-z0-9]{8,}$/i;
 
 // 心跳间隔 60s，超过 3 次未收到心跳则视为离线
-const PRESENCE_TIMEOUT_MS = 3 * 60 * 1000;
+const PRESENCE_TIMEOUT_MS = 2 * 60 * 1000;
 
 function isPresenceOnline(presence: LoungePresenceRow | undefined, roomId: string | null | undefined): boolean {
   if (!presence?.is_online || presence.current_room_id !== roomId) return false;
@@ -41,7 +41,7 @@ export function buildMemberViewModels(
   roomId?: string | null,
   activeRoomId?: string | null,
 ): MemberViewModel[] {
-  const presenceByUser = new Map(presenceRows.map((row) => [row.user_id, row]));
+  const presenceByUser = new Map(presenceRows.filter(row => row.current_room_id === roomId).map((row) => [row.user_id, row]));
 
   return [...members]
     .sort((a, b) => {
