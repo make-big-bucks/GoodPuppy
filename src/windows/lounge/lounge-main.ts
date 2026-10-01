@@ -1,4 +1,5 @@
-import { requestRoomState, isRoomState, type RoomState } from "../../shared/roomState.js";
+import { createRoomStateSync } from "./roomStateSync.js";
+import { requestRoomState, type RoomState } from "../../shared/roomState.js";
 import { showToast } from "./views/toast.js";
 import "../../shared/bridge.js";
 import "../../shared/styles.css";
@@ -129,51 +130,23 @@ import { ROOM_COMMAND, ROOM_CANCEL, ROOM_RESULT, type RoomResult } from "../../s
 import { requestWindow } from "../../shared/windowRequest.js";
 
 const supabase = createAppSupabaseClient();
-let activeRoomId: string | null = null;
 let authenticatedUserId: string | null = null;
-let activeRoomRevision = -1;
-let activeRoomController: string | null = null;
-let roomReadGeneration = 0;
-let latestRoomRead: Promise<void> = Promise.resolve();
 
 function sessionIsAnonymous(session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"]) {
   return Boolean(session?.user?.is_anonymous);
 }
 
 let requests = new AbortController();
-function applyRoomState(state: RoomState, queried = false) {
-  if (state.userId !== authenticatedUserId) return;
-  if (state.controllerId !== activeRoomController) {
-    if (!queried) { void synchronizeActiveRoom().catch(reportStateError); return; }
-    activeRoomController = state.controllerId; activeRoomRevision = -1;
-  }
-  if (state.revision < activeRoomRevision) return;
-  activeRoomRevision = state.revision; activeRoomId = state.roomId;
-  refreshLoungePanelActiveRoom();
-}
-function synchronizeActiveRoom(): Promise<void> {
-  const userId = authenticatedUserId; const signal = requests.signal; const generation = ++roomReadGeneration;
-  const assertCurrent = () => {
-    if (signal.aborted || userId !== authenticatedUserId) throw new DOMException("房间查询已失效", "AbortError");
-  };
-  const result = (async () => {
-    try {
-      const state = await requestRoomState({
-        listen: (event, handler) => window.goodPuppy.onAppEvent(event, handler),
-        send: (target, event, payload) => window.goodPuppy.emitToWindow(target, event, payload),
-      }, userId, signal);
-      assertCurrent();
-      if (generation !== roomReadGeneration) { await latestRoomRead; assertCurrent(); return; }
-      applyRoomState(state, true);
-    } catch (error) {
-      assertCurrent();
-      if (generation !== roomReadGeneration) { await latestRoomRead; assertCurrent(); return; }
-      throw error;
-    }
-  })();
-  latestRoomRead = result;
-  return result;
-}
+const roomStateSync = createRoomStateSync({
+  context: () => ({ userId: authenticatedUserId, signal: requests.signal }),
+  read: (userId, signal) => requestRoomState({
+    listen: (event, handler) => window.goodPuppy.onAppEvent(event, handler),
+    send: (target, event, payload) => window.goodPuppy.emitToWindow(target, event, payload),
+  }, userId, signal),
+  changed: refreshLoungePanelActiveRoom,
+  failed: reportStateError,
+});
+const synchronizeActiveRoom = () => roomStateSync.sync();
 
 function reportStateError(error: unknown) {
   if (error instanceof DOMException && error.name === "AbortError") return;
@@ -195,7 +168,7 @@ async function changeRoom(action: "enter" | "exit", roomId?: string) {
   assertCurrent();
   await synchronizeActiveRoom();
   assertCurrent();
-  if (activeRoomId !== result.roomId) throw new Error("房间状态已发生变化，请重试");
+  if (roomStateSync.roomId !== result.roomId) throw new Error("房间状态已发生变化，请重试");
   if (action === "enter") {
     await getCurrentWindow().hide();
     await emit("lounge-hidden");
@@ -215,7 +188,7 @@ async function init() {
     selfAuthId,
     isAnonymous: sessionIsAnonymous(data.session),
     email: data.session?.user?.email ?? null,
-    getActiveRoomId: () => activeRoomId,
+    getActiveRoomId: () => roomStateSync.roomId,
     onEnterRoom: (roomId: string) => changeRoom("enter", roomId),
     onExitRoom: () => changeRoom("exit"),
     onLoginSuccess: () => {
@@ -225,7 +198,7 @@ async function init() {
       requests.abort();
       requests = new AbortController();
       void emit("auth-cleared");
-      activeRoomId = null; activeRoomRevision = -1; activeRoomController = null;
+      roomStateSync.reset();
     },
     onSkinSaved: (skin: string, userId: string) => {
       void window.goodPuppy.emitToWindow("main", "set-skin", { skin, userId }).catch(console.error);
@@ -239,7 +212,7 @@ async function init() {
     if (nextUserId !== authenticatedUserId) {
       requests.abort();
       requests = new AbortController();
-      activeRoomId = null; activeRoomRevision = -1; activeRoomController = null;
+      roomStateSync.reset();
       authenticatedUserId = nextUserId;
       void synchronizeActiveRoom().catch(reportStateError);
     }
@@ -266,7 +239,7 @@ async function init() {
   });
 
   listen<RoomState>("active-room-changed", (event) => {
-    if (isRoomState(event.payload)) applyRoomState(event.payload);
+    roomStateSync.receive(event.payload);
   });
 
   openLoungePanel();
