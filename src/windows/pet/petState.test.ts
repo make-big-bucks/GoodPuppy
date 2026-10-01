@@ -143,6 +143,24 @@ describe("PetAnimator idle variants", () => {
     },
   };
 
+  it("pauses all timers while preserving status and resumes one idle cycle", () => {
+    const { animator, timers, states, current } = makeAnimator({ autoCycle: true, manifest: variantManifest });
+    animator.setStatus("working"); animator.playTransient("cuddle");
+    animator.pause(); expect(timers.pending()).toBe(0);
+    const count = states.length;
+    animator.setStatus("happy"); animator.setManifest(variantManifest); animator.playTransient("cuddle");
+    expect(timers.pending()).toBe(0); expect(states).toHaveLength(count);
+    animator.resume(); expect(timers.pending()).toBe(1); expect(current()).toBe("happy");
+    animator.resume(); expect(timers.pending()).toBe(1); animator.destroy();
+  });
+
+  it("does not restart a destroyed animator from a late manifest or resume", () => {
+    const { animator, timers, states } = makeAnimator({ autoCycle: true, manifest: variantManifest });
+    animator.destroy(); const count = states.length;
+    animator.setManifest(variantManifest); animator.resume(); animator.reset(); animator.playTransient("cuddle");
+    expect(timers.pending()).toBe(0); expect(states).toHaveLength(count);
+  });
+
   it("does not start a cycle when the manifest has no idle variants", () => {
     const { timers } = makeAnimator({ autoCycle: true });
     expect(timers.pending()).toBe(0);

@@ -102,6 +102,6 @@ if (petStage && area && petImage) {
     void bridge.setWindowBounds({ x: pos.x, y: pos.y, width: size.width, height: size.height });
   });
   void endpoint.ready().catch(console.error);
-  window.addEventListener("beforeunload", () => { endpoint.dispose(); animator.destroy(); });
+  window.addEventListener("beforeunload", () => { endpoint.dispose(); presenter.dispose(); });
 
 }

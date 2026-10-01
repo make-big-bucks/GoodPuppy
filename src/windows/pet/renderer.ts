@@ -83,6 +83,9 @@ const presenter = createPetPresenter({
   onDragEnded: (pos) => coordinator.handleSelfMoved(pos),
 });
 
+presenter.setVisible(!("__TAURI_INTERNALS__" in window));
+export function setSelfPresentationVisible(visible: boolean) { presenter.setVisible(visible); }
+
 // pet.html 初始带 is-initializing（opacity:0）以避免首帧闪烁；远程窗口在
 // remotePresenterMain 里摘掉，自己窗口必须在这里摘掉，否则自己的 pet 永远透明不可见。
 petStage.classList.remove("is-initializing");
@@ -244,4 +247,4 @@ export async function prepareSelfForRoom() {
   presenter.refreshPassthrough();
 }
 
-window.addEventListener("beforeunload", () => { coordinator.dispose(); selfAnimator.destroy(); });
+window.addEventListener("beforeunload", () => { coordinator.dispose(); presenter.dispose(); });

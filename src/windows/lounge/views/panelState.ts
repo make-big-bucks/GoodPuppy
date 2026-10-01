@@ -60,7 +60,7 @@ function mountDragStrip(layer: HTMLElement): void {
   strip.className = "lounge-status-drag";
   strip.addEventListener("mousedown", (event) => {
     if (event.button !== 0) return;
-    window.goodPuppy?.startWindowDrag();
+    void window.goodPuppy?.startWindowDrag().catch(console.error);
   });
   layer.prepend(strip);
 }

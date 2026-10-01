@@ -1,7 +1,7 @@
 // 自己窗口（label "main"）入口：启动鉴权/房间恢复，并把 Lounge 的进/出房间、
 // 退出握手等控制事件接到 renderer（自己 pet 呈现 + 房间协调者）。
 import { emit, listen } from "@tauri-apps/api/event";
-import { exitCurrentRoom, getCurrentRoomId, getRoomRevision, startPetApp, stopPetApp, switchRoom, setOnRoomReadyCallback, setSelfSkin, prepareSelfForRoom } from "./renderer.js";
+import { exitCurrentRoom, getCurrentRoomId, getRoomRevision, startPetApp, stopPetApp, switchRoom, setOnRoomReadyCallback, setSelfSkin, prepareSelfForRoom, setSelfPresentationVisible } from "./renderer.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 import { createRoomVisibilityController } from "./roomVisibility.js";
 
@@ -23,7 +23,10 @@ if (inTauri) {
   const visibility = createRoomVisibilityController({
     getRoomId: getCurrentRoomId,
     prepare: prepareSelfForRoom,
-    setVisible: (visible) => window.goodPuppy.setSelfVisible(visible),
+    setVisible: async (visible) => {
+      await window.goodPuppy.setSelfVisible(visible);
+      setSelfPresentationVisible(visible);
+    },
     notify: (roomId) => emit("active-room-changed", { roomId }),
   });
   setOnRoomReadyCallback(() => {

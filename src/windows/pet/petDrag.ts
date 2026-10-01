@@ -1,17 +1,23 @@
 type NativeDragOptions = {
   isSelfPet: boolean;
   setNativeDragging: (isDragging: boolean) => void;
-  startWindowDrag: () => void;
+  startWindowDrag: () => void | Promise<void>;
   startDragLift: () => void;
 };
 
-export function startNativeWindowDragWithLift({
+export async function startNativeWindowDragWithLift({
   isSelfPet,
   setNativeDragging,
   startWindowDrag,
   startDragLift,
 }: NativeDragOptions) {
   setNativeDragging(true);
-  startWindowDrag();
-  if (isSelfPet) startDragLift();
+  try {
+    const dragging = startWindowDrag();
+    if (isSelfPet) startDragLift();
+    await dragging;
+  } catch (error) {
+    setNativeDragging(false);
+    throw error;
+  }
 }

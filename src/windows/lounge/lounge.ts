@@ -1259,7 +1259,7 @@ function bindEvents() {
       target?.closest(".sidebar-drag-region, .main-drag-region, .settings-header") &&
       !target?.closest(".settings-back")
     ) {
-      window.goodPuppy.startWindowDrag();
+      void window.goodPuppy.startWindowDrag().catch(console.error);
     }
   });
 

@@ -38,7 +38,7 @@ async function initWinTitlebar() {
 
   dragArea?.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
-    window.goodPuppy.startWindowDrag();
+    void window.goodPuppy.startWindowDrag().catch(console.error);
   });
 
   minBtn?.addEventListener('click', () => {
@@ -73,7 +73,7 @@ function initDragRegion() {
   if (!dragRegion) return;
   dragRegion.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
-    window.goodPuppy.startWindowDrag();
+    void window.goodPuppy.startWindowDrag().catch(console.error);
   });
 }
 

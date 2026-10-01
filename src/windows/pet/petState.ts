@@ -64,6 +64,8 @@ export class PetAnimator {
   private forceReload: boolean;
   private transientTimer: TimerId | null;
   private cycleTimer: TimerId | null;
+  private paused = false;
+  private destroyed = false;
 
   constructor({
     petId = "default",
@@ -108,6 +110,7 @@ export class PetAnimator {
   }
 
   applyRender() {
+    if (this.paused || this.destroyed) return;
     const next = this.resolve();
     if (next === this.shown && !this.forceReload) return;
     this.shown = next;
@@ -158,6 +161,7 @@ export class PetAnimator {
   }
 
   setHeld(name: string | null) {
+    if (name != null && (this.paused || this.destroyed)) return;
     if (name == null) {
       if (this.transient?.kind === "held") {
         this.transient = null;
@@ -172,6 +176,7 @@ export class PetAnimator {
   }
 
   playTransient(name: string, { durationMs, mirrored = false }: PlayTransientOptions = {}) {
+    if (this.paused || this.destroyed) return;
     const behavior = getBehavior(name);
     if (!behavior || (behavior.kind !== "oneshot" && behavior.kind !== "held")) {
       return;
@@ -200,6 +205,7 @@ export class PetAnimator {
 
   startCycle() {
     this.stopCycle();
+    if (this.paused || this.destroyed) return;
     this.scheduleNextCycle();
   }
 
@@ -217,6 +223,7 @@ export class PetAnimator {
       ? 6000 + this.random() * 8000
       : durationFromManifest(this.manifest?.states?.[this.base]);
     this.cycleTimer = this.timers.set(() => {
+      if (this.paused || this.destroyed) return;
       this.base = onIdle ? this.pickVariant() : BASE_STATE;
       if (this.base !== BASE_STATE && this.resolve() === this.base) this.forceReload = true;
       this.applyRender();
@@ -235,9 +242,25 @@ export class PetAnimator {
     if (this.autoCycle) this.startCycle();
   }
 
-  destroy() {
+  pause() {
+    this.paused = true;
     this.clearTransientTimer();
     this.stopCycle();
+    this.transient = null;
+    this.base = BASE_STATE;
+  }
+
+  resume() {
+    if (!this.paused || this.destroyed) return;
+    this.paused = false;
+    this.forceReload = true;
+    this.applyRender();
+    if (this.autoCycle) this.startCycle();
+  }
+
+  destroy() {
+    this.pause();
+    this.destroyed = true;
     this.onState = () => {};
   }
 }

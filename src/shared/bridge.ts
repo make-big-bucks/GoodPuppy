@@ -150,11 +150,8 @@ const goodPuppy: GoodPuppyBridge = {
     return Boolean(appWindow && typeof appWindow.startDragging === "function");
   },
   startWindowDrag() {
-    if (!appWindow || typeof appWindow.startDragging !== "function") return;
-
-    appWindow.startDragging().catch((error) => {
-      console.warn("Native window drag failed.", error);
-    });
+    if (!appWindow || typeof appWindow.startDragging !== "function") return Promise.resolve();
+    return appWindow.startDragging();
   },
   publishHitShape(shape: PetHitShape) {
     if (!inTauri) return;

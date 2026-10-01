@@ -64,7 +64,7 @@ export interface GoodPuppyBridge {
   /** 是否支持系统原生窗口拖拽；缺失时回退到手动跟随。 */
   supportsNativeWindowDrag(): boolean;
   /** 把本次手势交给系统接管（fire-and-forget）。 */
-  startWindowDrag(): void;
+  startWindowDrag(): Promise<void>;
   /** 下发本窗口的可交互命中形状给原生（原生据此判定鼠标穿透）。 */
   publishHitShape(shape: PetHitShape): void;
   /** 当前 webview 窗口的 label（"main" = 自己/协调者，"pet-<userId>" = 远程呈现者）。 */
