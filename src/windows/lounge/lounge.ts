@@ -1,4 +1,6 @@
 import { createRefreshController } from "../../shared/refreshController.js";
+import { sendRoomInvitation } from "./loungeMutations.js";
+import { createOperationLifetime } from "../../shared/operationLifetime.js";
 import { fetchLoungeData, type LoungeData, type LoungeDataContext } from "./loungeData.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
@@ -137,6 +139,23 @@ let onlineListenerBound = false;
 const panel = () => document.querySelector<HTMLElement>(".lounge-panel");
 const modalBackdrop = () => document.querySelector<HTMLElement>(".lounge-modal-backdrop");
 const modalForm = () => document.querySelector<HTMLFormElement>(".lounge-modal");
+const modalLifetime = createOperationLifetime();
+
+function captureModalOperation() {
+  const version = authRevision;
+  return modalLifetime.capture(() => version === authRevision);
+}
+
+function captureMutation() {
+  const client = supabaseClient;
+  const userId = selfAuthId;
+  const roomId = selectedRoomId;
+  const version = authRevision;
+  if (!client || !userId) throw new Error("请先登录");
+  return { client, userId, roomId, assertCurrent() {
+    if (version !== authRevision) throw new DOMException("账号已改变", "AbortError");
+  } };
+}
 
 function getSelectedRoom() {
   return rooms.find((room) => room.id === selectedRoomId) || null;
@@ -175,6 +194,7 @@ function setModalBusy(isBusy: boolean) {
 }
 
 function closeModal() {
+  modalLifetime.invalidate();
   const backdrop = modalBackdrop();
   const form = modalForm();
   if (backdrop) backdrop.hidden = true;
@@ -263,10 +283,12 @@ function openLoginDialog() {
   const form = modalForm();
   if (!backdrop || !form) return;
 
+  modalLifetime.invalidate();
   form.classList.add("lounge-login-modal");
 
   // 领养首屏：匿名登录 + 给宠物取名（名字必填）。
   function renderAdoptScreen() {
+    modalLifetime.invalidate();
     form!.innerHTML = `
     ${loginBrandHtml}
     <div class="lounge-login-field">
@@ -304,6 +326,7 @@ function openLoginDialog() {
 
   // 邮箱登录屏：已有账号上线 / 创建新账号，可返回领养首屏。
   function renderEmailScreen() {
+    modalLifetime.invalidate();
     form!.innerHTML = `
     ${loginBrandHtml}
     <div class="lounge-login-field">
@@ -456,6 +479,7 @@ function openLogoutConfirmDialog() {
     ? "当前是匿名账号。退出登录后，本机将不再保留这个匿名账号的信息；如果想保留账号，请先绑定邮箱。"
     : "确认要退出登录吗？";
 
+  modalLifetime.invalidate();
   form.classList.remove("lounge-login-modal");
   form.innerHTML = `
     <h2 class="modal-title">退出登录</h2>
@@ -472,16 +496,29 @@ function openLogoutConfirmDialog() {
   backdrop.hidden = false;
 
   cancel.onclick = closeModal;
-  logoutBtn.onclick = async () => {
-    logoutBtn.disabled = true;
-    setButtonLoading(logoutBtn, true);
-    if (onExitRoom) {
-      try { await onExitRoom(); } catch { /* ignore */ }
-    }
-    await supabaseClient?.auth.signOut();
-    closeModal();
-    closeSettings();
-    onLogout?.();
+  const operation = captureModalOperation();
+  const client = supabaseClient;
+  const exitRoom = onExitRoom;
+  const loggedOut = onLogout;
+  logoutBtn.onclick = () => {
+    void operation.run(async () => {
+      setButtonLoading(logoutBtn, true);
+      logoutBtn.disabled = true;
+      try {
+        if (!client) throw new Error("缺少登录会话");
+        if (exitRoom) await exitRoom();
+        operation.assertCurrent();
+        const { error } = await client.auth.signOut();
+        if (error) throw error;
+        // SIGNED_OUT 会同步清界面；不要关闭其后可能打开的弹层。
+        if (operation.isCurrent()) { closeModal(); closeSettings(); }
+        if (supabaseClient === client && !selfAuthId) loggedOut?.();
+      } catch (error) {
+        if (operation.isCurrent()) showToast(getErrorMessage(error, "退出登录失败"), "error");
+      } finally {
+        if (operation.isCurrent()) { setButtonLoading(logoutBtn, false); logoutBtn.disabled = false; }
+      }
+    });
   };
 }
 
@@ -490,6 +527,7 @@ function openBindAccountDialog() {
   const form = modalForm();
   if (!backdrop || !form) return;
 
+  modalLifetime.invalidate();
   form.classList.add("lounge-login-modal");
   form.innerHTML = `
     <section class="lounge-login-brand">
@@ -533,33 +571,38 @@ function openBindAccountDialog() {
     passwordInput.focus();
   });
 
-  form.onsubmit = async (event) => {
+  const operation = captureModalOperation();
+  const client = supabaseClient;
+  form.onsubmit = (event) => {
     event.preventDefault();
-    if (!supabaseClient) return;
+    void operation.run(async () => {
+      if (!client) return;
 
-    const email = emailInput.value.trim();
-    const password = passwordInput.value;
-    if (!email || !password) {
-      setModalMessage("请填写邮箱和密码");
-      return;
-    }
+      const email = emailInput.value.trim();
+      const password = passwordInput.value;
+      if (!email || !password) {
+        setModalMessage("请填写邮箱和密码");
+        return;
+      }
 
-    setModalBusy(true);
-    setModalMessage("正在绑定...");
-    try {
-      const { data, error } = await supabaseClient.auth.updateUser({ email, password });
-      if (error) throw error;
+      setModalBusy(true);
+      setModalMessage("正在绑定...");
+      try {
+        const { data, error } = await client.auth.updateUser({ email, password });
+        operation.assertCurrent();
+        if (error) throw error;
 
-      currentUserIsAnonymous = Boolean(data.user?.is_anonymous);
-      currentUserEmail = data.user?.email ?? currentUserEmail;
-      renderAuthState(Boolean(selfAuthId));
-      closeModal();
-      showToast(currentUserIsAnonymous ? "请检查邮箱完成绑定" : "账号已绑定");
-    } catch (error) {
-      setModalMessage(getErrorMessage(error, "绑定失败"));
-    } finally {
-      setModalBusy(false);
-    }
+        currentUserIsAnonymous = Boolean(data.user?.is_anonymous);
+        currentUserEmail = data.user?.email ?? currentUserEmail;
+        renderAuthState(Boolean(selfAuthId));
+        closeModal();
+        showToast(currentUserIsAnonymous ? "请检查邮箱完成绑定" : "账号已绑定");
+      } catch (error) {
+        if (operation.isCurrent()) setModalMessage(getErrorMessage(error, "绑定失败"));
+      } finally {
+        if (operation.isCurrent()) setModalBusy(false);
+      }
+    });
   };
 }
 
@@ -573,6 +616,7 @@ function openLeaveRoomPermanentDialog(room: LoungeRoom) {
     ? "你是此房间的最后一位成员。退出后，房间及其所有内容将被永久删除，无法恢复。"
     : "退出后，此房间将从你的列表消失，且无法撤销。";
 
+  modalLifetime.invalidate();
   form.classList.remove("lounge-login-modal");
   form.innerHTML = `
     <h2 class="modal-title">永久退出房间</h2>
@@ -589,23 +633,30 @@ function openLeaveRoomPermanentDialog(room: LoungeRoom) {
   backdrop.hidden = false;
 
   cancel.onclick = closeModal;
-  confirmBtn.onclick = async () => {
-    confirmBtn.disabled = true;
-    setButtonLoading(confirmBtn, true);
-    try {
-      if (getActiveRoomId?.() === room.id && onExitRoom) {
-        try { await onExitRoom(); } catch { /* ignore */ }
+  const operation = captureModalOperation();
+  const client = supabaseClient;
+  const exitRoom = onExitRoom;
+  confirmBtn.onclick = () => {
+    void operation.run(async () => {
+      confirmBtn.disabled = true;
+      setButtonLoading(confirmBtn, true);
+      try {
+        if (!client) throw new Error("请先登录");
+        if (getActiveRoomId?.() === room.id && exitRoom) await exitRoom();
+        operation.assertCurrent();
+        const { error } = await client.rpc("leave_room", { p_room_id: room.id });
+        operation.assertCurrent();
+        if (error) throw error;
+        closeModal();
+        if (selectedRoomId === room.id) selectedRoomId = null;
+        showToast("已永久退出房间");
+        await loadPanelData();
+      } catch (error) {
+        if (operation.isCurrent()) showToast(getErrorMessage(error, "操作失败"), "error");
+      } finally {
+        if (operation.isCurrent()) { setButtonLoading(confirmBtn, false); confirmBtn.disabled = false; }
       }
-      const { error } = await supabaseClient!.rpc("leave_room", { p_room_id: room.id });
-      if (error) throw error;
-      closeModal();
-      selectedRoomId = null;
-      showToast("已永久退出房间");
-      await loadPanelData();
-    } catch (error) {
-      closeModal();
-      showToast(getErrorMessage(error, "操作失败"), "error");
-    }
+    });
   };
 }
 
@@ -682,6 +733,7 @@ function openInputModal({
   const form = modalForm();
   if (!backdrop || !form) return;
 
+  modalLifetime.invalidate();
   form.classList.remove("lounge-login-modal");
   form.innerHTML = `
     <h2 class="modal-title lounge-modal-title"></h2>
@@ -712,34 +764,37 @@ function openInputModal({
   cancel.onclick = closeModal;
   input.focus();
 
-  form.onsubmit = async (event) => {
+  const operation = captureModalOperation();
+  form.onsubmit = (event) => {
     event.preventDefault();
-    const value = input.value.trim();
-    const validationMessage = validate?.(value);
-    if (validationMessage) {
-      setModalMessage(validationMessage);
-      return;
-    }
+    void operation.run(async () => {
+      const value = input.value.trim();
+      const validationMessage = validate?.(value);
+      if (validationMessage) {
+        setModalMessage(validationMessage);
+        return;
+      }
 
-    setModalBusy(true);
-    setButtonLoading(submit, true);
-    try {
-      await onSubmit(value);
-      closeModal();
-    } catch (error) {
-      setModalMessage(getErrorMessage(error, "操作失败"));
-    } finally {
-      setButtonLoading(submit, false);
-      setModalBusy(false);
-    }
+      setModalBusy(true);
+      setButtonLoading(submit, true);
+      try {
+        await onSubmit(value);
+        if (operation.isCurrent()) closeModal();
+      } catch (error) {
+        if (operation.isCurrent()) setModalMessage(getErrorMessage(error, "操作失败"));
+      } finally {
+        if (operation.isCurrent()) { setButtonLoading(submit, false); setModalBusy(false); }
+      }
+    });
   };
 }
 
 async function createRoom(roomName: string) {
-  if (!supabaseClient || !selfAuthId) return;
+  const mutation = captureMutation();
 
   const roomId = crypto.randomUUID();
-  const { error } = await supabaseClient.rpc("create_room", { p_room_name: roomName, p_room_id: roomId });
+  const { error } = await mutation.client.rpc("create_room", { p_room_name: roomName, p_room_id: roomId });
+  mutation.assertCurrent();
   if (error) throw error;
 
   selectedRoomId = roomId;
@@ -748,11 +803,12 @@ async function createRoom(roomName: string) {
 }
 
 async function joinRoomByInvite(inviteCode: string) {
-  if (!supabaseClient) return;
-  const { error } = await supabaseClient.rpc("join_room_by_invite", {
+  const mutation = captureMutation();
+  const { error } = await mutation.client.rpc("join_room_by_invite", {
     p_invite_code: inviteCode,
   });
 
+  mutation.assertCurrent();
   if (error) throw error;
 
   showToast("已加入房间");
@@ -760,50 +816,17 @@ async function joinRoomByInvite(inviteCode: string) {
 }
 
 async function inviteMember(targetGpId: string) {
-  if (!supabaseClient || !selfAuthId) return;
-  const gpId = normalizeGpId(targetGpId);
-  if (!gpId) throw new Error("请输入 gp_ 开头的 GoodPuppy ID");
-
-  const { data: target, error: lookupError } = await supabaseClient
-    .from("profiles")
-    .select("id")
-    .eq("gp_id", gpId)
-    .single();
-
-  if (lookupError || !target) {
-    throw new Error("找不到该 GoodPuppy ID");
-  }
-
-  if (target.id === selfAuthId) {
-    throw new Error("不能邀请自己");
-  }
-
-  // 检查对方是否已经是当前房间成员
-  if (selectedRoomId) {
-    const { data: existing } = await supabaseClient
-      .from("room_members")
-      .select("user_id")
-      .eq("room_id", selectedRoomId)
-      .eq("user_id", target.id)
-      .maybeSingle();
-    if (existing) throw new Error("对方已经是房间成员");
-  }
-
-  if (!selectedRoomId) throw new Error("请选择房间");
-  const { error } = await supabaseClient.rpc("invite_room_member", {
-    p_room_id: selectedRoomId, p_to_user_id: target.id,
-  });
-  if (error) throw error;
-
+  await sendRoomInvitation(captureMutation(), targetGpId);
   showToast("邀请已发送");
 }
 
 async function updateDisplayName(displayName: string) {
-  if (!supabaseClient || !selfAuthId) throw new Error("请先登录");
+  const mutation = captureMutation();
   const value = displayName.trim();
   if (!value) throw new Error("请输入用户名");
 
-  const { error } = await supabaseClient.from("profiles").update({ display_name: value }).eq("id", selfAuthId);
+  const { error } = await mutation.client.from("profiles").update({ display_name: value }).eq("id", mutation.userId);
+  mutation.assertCurrent();
   if (error) throw error;
 
   await loadPanelData();
@@ -822,18 +845,17 @@ function openDisplayNameEditor() {
   });
 }
 
-async function updateSelectedRoomMetadata({ roomName, description }: RoomMetadataUpdate) {
-  if (!supabaseClient) return;
-  const room = getSelectedRoom();
-  if (!room) return;
+async function updateSelectedRoomMetadata(roomId: string, { roomName, description }: RoomMetadataUpdate) {
+  const mutation = captureMutation();
 
-  const { error } = await supabaseClient
+  const { error } = await mutation.client
     .from("rooms")
     .update({
       room_name: roomName.trim() || "未命名房间",
       description: description.trim(),
     })
-    .eq("id", room.id);
+    .eq("id", roomId);
+  mutation.assertCurrent();
   if (error) throw error;
 
   await loadPanelData();
@@ -845,6 +867,7 @@ function openRoomMetadataModal() {
   const form = modalForm();
   if (!room || !backdrop || !form) return;
 
+  modalLifetime.invalidate();
   form.classList.remove("lounge-login-modal");
   form.innerHTML = `
     <h2 class="modal-title">编辑房间信息</h2>
@@ -876,31 +899,34 @@ function openRoomMetadataModal() {
 
   cancel.onclick = closeModal;
   roomNameInput.focus();
-  form.onsubmit = async (event) => {
+  const operation = captureModalOperation();
+  form.onsubmit = (event) => {
     event.preventDefault();
-    setModalBusy(true);
-    setButtonLoading(submit, true);
-    try {
-      await updateSelectedRoomMetadata({
-        roomName: roomNameInput.value,
-        description: roomDescriptionInput.value,
-      });
-      closeModal();
-    } catch (error) {
-      setModalMessage(getErrorMessage(error, "保存失败"));
-    } finally {
-      setButtonLoading(submit, false);
-      setModalBusy(false);
-    }
+    void operation.run(async () => {
+      setModalBusy(true);
+      setButtonLoading(submit, true);
+      try {
+        await updateSelectedRoomMetadata(room.id, {
+          roomName: roomNameInput.value,
+          description: roomDescriptionInput.value,
+        });
+        if (operation.isCurrent()) closeModal();
+      } catch (error) {
+        if (operation.isCurrent()) setModalMessage(getErrorMessage(error, "保存失败"));
+      } finally {
+        if (operation.isCurrent()) { setButtonLoading(submit, false); setModalBusy(false); }
+      }
+    });
   };
 }
 
 async function acceptRequest(requestId: string) {
-  if (!supabaseClient) return;
-  const { error } = await supabaseClient.rpc("accept_connection", {
+  const mutation = captureMutation();
+  const { error } = await mutation.client.rpc("accept_connection", {
     p_request_id: requestId,
   });
 
+  mutation.assertCurrent();
   if (error) throw error;
 
   showToast("已接受邀请");
@@ -908,12 +934,13 @@ async function acceptRequest(requestId: string) {
 }
 
 async function declineRequest(requestId: string) {
-  if (!supabaseClient) return;
-  const { error } = await supabaseClient
+  const mutation = captureMutation();
+  const { error } = await mutation.client
     .from("connection_requests")
     .update({ status: "declined" })
     .eq("id", requestId);
 
+  mutation.assertCurrent();
   if (error) throw error;
 
   showToast("已拒绝邀请");
@@ -923,21 +950,25 @@ async function declineRequest(requestId: string) {
 async function handleRoomTransition(roomId: string, type: "enter" | "exit") {
   if (pendingTransition) return;
 
-  pendingTransition = { roomId, type };
+  const transition = { roomId, type };
+  const version = authRevision;
+  const enterRoom = onEnterRoom;
+  const exitRoom = onExitRoom;
+  const isCurrent = () => version === authRevision && pendingTransition === transition;
+  pendingTransition = transition;
   renderAll();
 
   try {
     if (type === "exit") {
-      await onExitRoom?.();
-      showToast("已退出房间");
+      await exitRoom?.();
+      if (isCurrent()) showToast("已退出房间");
     } else {
-      await onEnterRoom?.(roomId);
+      await enterRoom?.(roomId);
     }
   } catch (error) {
-    showToast(getErrorMessage(error, "操作失败"), "error");
+    if (isCurrent()) showToast(getErrorMessage(error, "操作失败"), "error");
   } finally {
-    pendingTransition = null;
-    renderAll();
+    if (isCurrent()) { pendingTransition = null; renderAll(); }
   }
 }
 
@@ -1209,6 +1240,7 @@ function bindEvents() {
 
     const { action, id } = btn.dataset;
     if (!id) return;
+    const version = authRevision;
     btn.disabled = true;
     setButtonLoading(btn, true);
 
@@ -1216,7 +1248,7 @@ function bindEvents() {
       if (action === "accept") await acceptRequest(id);
       if (action === "decline") await declineRequest(id);
     } catch (error) {
-      showToast(getErrorMessage(error, "操作失败"), "error");
+      if (version === authRevision) showToast(getErrorMessage(error, "操作失败"), "error");
     } finally {
       setButtonLoading(btn, false);
       btn.disabled = false;
