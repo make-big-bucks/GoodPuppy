@@ -171,6 +171,19 @@ describe("roomManager", () => {
     await manager.startPetApp({ supabase: client as never, session: { user: { id: "user-1" } } as never });
     return { manager, cbs, client };
   }
+  it("keeps a refreshed token session but rebuilds the room for a new Auth session of the same account", async () => {
+    const manager = await import("./roomManager.js"); manager.initRoomManager(createCallbacks());
+    const client = createSupabase({ presenceResult: { data: { current_room_id: "room-a", is_online: false }, error: null } as never });
+    const token = (id: string, exp: number) => `header.${btoa(JSON.stringify({ session_id: id, exp }))}.signature`;
+    const start = (id: string, exp: number) => manager.startPetApp({ supabase: client as never,
+      session: { user: { id: "user-1" }, access_token: token(id, exp) } as never });
+    await start("aaaaaaaa-0000-0000-0000-000000000001", 1);
+    await start("aaaaaaaa-0000-0000-0000-000000000001", 2);
+    expect(joinRoom).toHaveBeenCalledTimes(1);
+    await start("aaaaaaaa-0000-0000-0000-000000000002", 3);
+    expect(joinRoom).toHaveBeenCalledTimes(2); expect(manager.getCurrentRoomId()).toBe("room-a");
+    await manager.exitCurrentRoom();
+  });
   it("publishes the latest appearance when it changes during room preparation", async () => {
     const { manager, cbs } = await initialized();
     let finish!: () => void;

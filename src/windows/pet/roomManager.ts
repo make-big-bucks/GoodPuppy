@@ -2,6 +2,7 @@ import * as presence from "./presence.js";
 import { compareMessagePosition } from "../../shared/messageOrder.js";
 import { retryTask } from "../../shared/retryTask.js";
 import { recordLifecycle } from "../../shared/diagnostics.js";
+import { authSessionIdentity } from "../../shared/authSessionIdentity.js";
 import { joinInteractions, leaveInteractions } from "./interactions.js";
 import {
   fetchRoomMessages,
@@ -35,7 +36,7 @@ type StartPetAppOptions = {
   session?: Session | null;
 };
 
-type SessionContext = { client: SupabaseClient; userId: string };
+type SessionContext = { client: SupabaseClient; userId: string; authSessionId: string | null };
 let context: SessionContext | null = null;
 let currentRoomId: string | null = null;
 let callbacks: RoomCallbacks | null = null;
@@ -305,15 +306,16 @@ export function stopPetApp(): Promise<void> {
 
 export function startPetApp({ supabase, session }: StartPetAppOptions = {}): Promise<void> {
   if (!supabase || !session?.user.id) return Promise.reject(new Error("缺少登录会话"));
-  if (context?.client === supabase && context.userId === session.user.id) return initialization ?? Promise.resolve();
+  const authSessionId = authSessionIdentity(session.access_token);
+  if (context?.client === supabase && context.userId === session.user.id && context.authSessionId === authSessionId) return initialization ?? Promise.resolve();
   const previous = context;
   if (previous?.userId !== session.user.id) callbacks?.onSessionChanged?.();
-  const next: SessionContext = { client: supabase, userId: session.user.id };
+  const next: SessionContext = { client: supabase, userId: session.user.id, authSessionId };
   const version = invalidate();
   context = next;
   recordLifecycle({ operation: "session-changed", phase: "ok", sessionVersion: version });
   const result = enqueue(async () => {
-    if (previous) await Promise.allSettled([releaseChannels(previous.client), writeOffline(previous)]);
+    if (previous) await Promise.allSettled([releaseChannels(previous.client), writeOffline(previous, previous.userId === next.userId)]);
     assertCurrent(version);
     await ensureProfile(next, version);
     const { data, error } = await next.client.from("presence").select("current_room_id, is_online")
