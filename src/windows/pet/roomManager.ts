@@ -133,11 +133,19 @@ async function activateRoom(session: SessionContext, roomId: string, version: nu
     void enqueue(async () => {
       pulseQueued = false;
       if (version !== revision || currentRoomId !== roomId) return;
-      const { error } = await session.client.from("presence").update({
-        is_online: healthy(), last_seen: new Date().toISOString(),
-      }).eq("user_id", session.userId);
-      if (error) throw error;
-      await presence.heartbeatPresence(healthy());
+      const connected = healthy();
+      // 两个投影独立更新；兼容表失败不能阻止认证租约撤销在线状态。
+      const results = await Promise.allSettled([
+        (async () => {
+          const { error } = await session.client.from("presence").update({
+            is_online: connected, last_seen: new Date().toISOString(),
+          }).eq("user_id", session.userId);
+          if (error) throw error;
+        })(),
+        presence.heartbeatPresence(connected),
+      ]);
+      const failure = results.find((result) => result.status === "rejected");
+      if (failure?.status === "rejected") throw failure.reason;
     }).catch((error) => console.error("presence heartbeat:", error));
   };
   const observe = (name: keyof typeof connection) => (ready: boolean) => {

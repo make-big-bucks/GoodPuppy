@@ -318,6 +318,22 @@ describe("roomManager", () => {
     expect(query.update).toHaveBeenLastCalledWith({ current_room_id: null, is_online: false, last_seen: expect.any(String) });
   });
 
+  it("updates the authenticated lease even when the compatibility heartbeat fails", async () => {
+    const { manager, client } = await initialized();
+    await manager.switchRoom("room-a");
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const query = createQuery({ data: null, error: null });
+    query.eq.mockResolvedValue({ error: new Error("compatibility write rejected") } as never);
+    const original = client.from.getMockImplementation()!;
+    client.from.mockImplementation((table) => table === "presence" ? query : original(table));
+    subscribeToRoomMessages.mock.calls[0][3](false);
+    await vi.waitFor(() => expect(logged).toHaveBeenCalled());
+    expect(heartbeatPresence).toHaveBeenCalledWith(false);
+    expect(query.update).toHaveBeenCalledWith({ is_online: false, last_seen: expect.any(String) });
+    client.from.mockImplementation(original);
+    await manager.exitCurrentRoom();
+  });
+
   it("rejects entry when an earlier channel disconnects during final online persistence", async () => {
     const { manager, client } = await initialized();
     const query = createQuery({ data: null, error: null });
