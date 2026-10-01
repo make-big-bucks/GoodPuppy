@@ -91,3 +91,7 @@ python3 -m unittest discover -s skills/hatch-puppy-pet/tests -v
 ## 原生窗口回归检查
 
 `npm run test:native` 使用独立应用标识验证创建、显隐、销毁和同名重建，自动准备 Vite 并回收自己启动的服务器，不使用已保存账号。仅开发构建提供该检查；Windows 需在 Windows 上执行。
+
+## 完整验证
+
+安装 `skills/hatch-puppy-pet/requirements-test.txt` 中的 Python 测试依赖后，运行 `npm run verify`，覆盖类型检查、生产构建、前端/Rust 和资产流水线测试。原生窗口与隔离数据库分别运行 `test:native`、`test:db`；CI 在 macOS/Windows 和 PostgreSQL 17 中执行对应检查。安装包按平台使用 `build:mac` 或 `build:windows`，生产数据库迁移单独审查与应用。

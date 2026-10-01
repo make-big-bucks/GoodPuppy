@@ -9,14 +9,19 @@
   "scripts": {
     "dev": "vite",
     "dev:peer": "DEV_PORT=1421 vite",
-    "build": "vite build",
+    "build": "npm run typecheck && vite build",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "tauri:dev:peer": "tauri dev --config src-tauri/tauri.peer.conf.json",
     "gen:skins": "node tools/generate-skins.mjs",
     "test": "vitest run",
     "test:native": "node tools/native-smoke.mjs",
-    "test:db": "python3 tools/verify-database.py"
+    "test:db": "node tools/python-task.mjs database",
+    "verify": "node tools/verify.mjs",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --lib --locked",
+    "test:assets": "node tools/python-task.mjs assets",
+    "build:mac": "tauri build",
+    "build:windows": "tauri build --config src-tauri/tauri.windows.conf.json"
   },
   "keywords": [
     "desktop-pet",
