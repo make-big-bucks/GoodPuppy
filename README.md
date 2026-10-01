@@ -2,6 +2,8 @@
 
 A transparent, always-on-top desktop pet built with Tauri v2.
 
+启动时会恢复上次所在的房间；如果没有可恢复的房间，桌面宠物和自己的气泡窗口保持隐藏，进入房间后才显示，退出房间后收起。
+
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) (v22; the project includes `.nvmrc` / `.node-version`)

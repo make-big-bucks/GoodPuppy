@@ -191,17 +191,7 @@ initRoomManager({
   onInteraction: coordinator.onInteraction,
   onMessagesLoaded: coordinator.onMessagesLoaded,
   onNewMessage: coordinator.onNewMessage,
-  onRoomReady: () => {
-    void (async () => {
-      // 先校验/恢复自己窗口位置（可能清掉落在已断开屏幕上的坏存档），再让气泡窗口
-      // 按最终位置创建——否则 ensureSelfBubble 会读到坏存档、把气泡也摆到屏外。
-      await restoreSelfPosition();
-      // 自己的气泡窗口（panel，承载记号棒）：首次进房间时按需创建，之后随 main 跟随。
-      void coordinator.ensureSelfBubble();
-      presenter.refreshPassthrough();
-      _onRoomReadyCb?.();
-    })();
-  },
+  onRoomReady: () => _onRoomReadyCb?.(),
   onEnterRoom: () => selfAnimator.playTransient("enter"),
   onClearRemotePets: coordinator.onClearRemotePets,
   onPetIdResolved: (petId) => {
@@ -233,4 +223,13 @@ async function restoreSelfPosition() {
     clearSelfPos();
   }
   window.goodPuppy.setWindowSize(size);
+}
+
+/** 显隐控制器在显示宠物之前调用，窗口准备也属于同一串行流程。 */
+export async function prepareSelfForRoom() {
+  if (!getCurrentRoomId()) return;
+  await restoreSelfPosition();
+  if (!getCurrentRoomId()) return;
+  await coordinator.ensureSelfBubble();
+  presenter.refreshPassthrough();
 }

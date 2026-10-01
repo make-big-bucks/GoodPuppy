@@ -2,8 +2,9 @@
 // 退出握手等控制事件接到 renderer（自己 pet 呈现 + 房间协调者）。
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { exitCurrentRoom, getCurrentRoomId, startPetApp, switchRoom, setOnRoomReadyCallback, setSelfSkin } from "./renderer.js";
+import { exitCurrentRoom, getCurrentRoomId, startPetApp, switchRoom, setOnRoomReadyCallback, setSelfSkin, prepareSelfForRoom } from "./renderer.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
+import { createRoomVisibilityController } from "./roomVisibility.js";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 const supabase = createAppSupabaseClient();
@@ -17,14 +18,14 @@ async function startFromStoredSession() {
 }
 
 if (inTauri) {
+  const visibility = createRoomVisibilityController({
+    getRoomId: getCurrentRoomId,
+    prepare: prepareSelfForRoom,
+    setVisible: (visible) => visible ? getCurrentWindow().show() : getCurrentWindow().hide(),
+    notify: (roomId) => emit("active-room-changed", { roomId }),
+  });
   setOnRoomReadyCallback(() => {
-    if (getCurrentRoomId()) {
-      void getCurrentWindow().show();
-    } else {
-      void getCurrentWindow().hide();
-    }
-    // 通知 Lounge 同步房间状态（解决自动恢复时 Lounge 未收到通知的时序问题）
-    void emit("active-room-changed", { roomId: getCurrentRoomId() });
+    void visibility.sync().catch(console.error);
   });
 
   listen("pet-init", startFromStoredSession);
@@ -40,14 +41,12 @@ if (inTauri) {
   listen<{ roomId?: string | null }>("switch-room", async (event) => {
     if (!event.payload.roomId) return;
     await switchRoom(event.payload.roomId);
-    void getCurrentWindow().show();
-    emit("active-room-changed", { roomId: getCurrentRoomId() });
+    await visibility.sync();
   });
 
   listen("exit-room", async () => {
     await exitCurrentRoom();
-    void getCurrentWindow().hide();
-    emit("active-room-changed", { roomId: getCurrentRoomId() });
+    await visibility.sync();
   });
 
   // 会客厅资料卡换肤面板「保存」后广播：应用到自己 pet（动画 + presence 通道 A）。

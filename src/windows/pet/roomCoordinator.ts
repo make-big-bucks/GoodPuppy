@@ -111,12 +111,12 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
    * 首次进房间时按需创建一次；之后随 main 显隐跟随，位置由 OS 维护。 */
   let selfBubbleSpawned = false;
   async function ensureSelfBubble() {
-    if (selfBubbleSpawned) return;
-    selfBubbleSpawned = true;
+    if (selfBubbleSpawned || !deps.getCurrentRoomId()) return;
     // 用与 restoreSelfPosition 相同的锚点（存档优先），保证气泡子窗口的初始偏移
     // 是相对 main 的最终位置算出来的，避免子窗口跟随时整体错位。
     const base = readSelfPos() ?? (await selfBounds()).pos;
     const b = await computeBubble(base, getPetWindowSize(deps.getScale()));
+    if (!deps.getCurrentRoomId()) return;
     await bridge.spawnBubbleWindow({
       label: BUBBLE_SELF_LABEL,
       parentLabel: COORDINATOR_LABEL,
@@ -126,6 +126,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
       width: b.width,
       height: b.height,
     });
+    selfBubbleSpawned = true;
     // bubble-self 在 onRoomReady 才创建，而房间历史在更早的 onMessagesLoaded 已投递过
     // （那时窗口还不存在，首帧丢失）。窗口就绪后补投自己的缓存历史，否则重启/进房后
     // 自己头顶的历史消息不显示（远程气泡有 pushStateAndHistory 重试兜底，自己原本没有）。
