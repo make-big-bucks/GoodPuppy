@@ -60,7 +60,7 @@ export interface GoodPuppyBridge {
   /** 把本次手势交给系统接管（fire-and-forget）。 */
   startWindowDrag(): Promise<void>;
   /** 下发本窗口的可交互命中形状给原生（原生据此判定鼠标穿透）。 */
-  publishHitShape(shape: PetHitShape): void;
+  publishHitShape(shape: PetHitShape): Promise<void>;
   /** 当前 webview 窗口的 label（"main" = 自己/协调者，"pet-<userId>" = 远程呈现者）。 */
   getWindowLabel(): string;
   getWindowInstance(): string;

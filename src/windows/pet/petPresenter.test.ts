@@ -1,15 +1,32 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPetPresenter } from "./petPresenter.js";
-vi.mock("./hitTesting.js", () => ({ isPointOpaqueInImage: () => true, buildAlphaMask: () => null }));
+vi.mock("./hitTesting.js", () => ({ isPointInAlphaMask: () => true, buildAlphaMask: () => null }));
 vi.mock("./renderImage.js", () => ({ applyStateToImage: vi.fn() }));
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 describe("presenter resource ownership", () => {
+  it("retries a failed shape publication and skips unchanged successful shapes", async () => {
+    vi.useFakeTimers(); vi.spyOn(console, "error").mockImplementation(() => {});
+    let draw!: () => void;
+    const publish = vi.fn().mockRejectedValueOnce(new Error("IPC failed")).mockResolvedValue(undefined);
+    const doc = Object.assign(new EventTarget(), { visibilityState: "visible", createElement: () => ({ getContext: () => null }) });
+    const win = Object.assign(new EventTarget(), { requestAnimationFrame: (callback: () => void) => { draw = callback; return 1; }, goodPuppy: {
+      supportsNativeWindowDrag: () => true, onDragEnded: () => () => {}, publishHitShape: publish,
+    } });
+    vi.stubGlobal("document", doc); vi.stubGlobal("window", win); vi.stubGlobal("cancelAnimationFrame", () => {});
+    const presenter = createPetPresenter({ stage: Object.assign(new EventTarget(), { classList: { contains: () => false } }) as never,
+      petImage: new EventTarget() as never, animator: { pause() {}, resume() {}, destroy() {}, onState: () => {} } as never,
+      isDraggable: () => true, onShowContextMenu: () => {} });
+    draw(); await vi.advanceTimersByTimeAsync(120); draw(); await vi.advanceTimersByTimeAsync(120); draw();
+    await Promise.resolve();
+    expect(publish).toHaveBeenCalledTimes(2);
+    presenter.dispose(); vi.restoreAllMocks();
+  });
   it("stops hidden work, resumes once and disposes all callbacks and timers", () => {
     vi.useFakeTimers();
     const release = vi.fn(); const frame = vi.fn(() => 42); const cancel = vi.fn();
     const doc = Object.assign(new EventTarget(), { visibilityState: "visible", createElement: () => ({ getContext: () => null }) });
     const win = Object.assign(new EventTarget(), { requestAnimationFrame: frame, goodPuppy: {
-      supportsNativeWindowDrag: () => true, onDragEnded: () => release, publishHitShape: vi.fn(),
+      supportsNativeWindowDrag: () => true, onDragEnded: () => release, publishHitShape: vi.fn(async () => {}),
     } });
     vi.stubGlobal("document", doc); vi.stubGlobal("window", win); vi.stubGlobal("cancelAnimationFrame", cancel);
     const animator = { pause: vi.fn(), resume: vi.fn(), destroy: vi.fn(), setHeld: vi.fn(), onState: () => {} };

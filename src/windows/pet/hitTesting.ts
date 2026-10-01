@@ -1,11 +1,5 @@
 type PointLike = { clientX: number; clientY: number };
 
-type HitOptions = {
-  respectObjectFit?: boolean;
-  alphaThreshold?: number;
-  hitSlop?: number;
-};
-
 function getObjectFitContainRect(element: HTMLElement, image: HTMLImageElement) {
   const rect = element.getBoundingClientRect();
   const imageRatio = image.naturalWidth / image.naturalHeight;
@@ -30,24 +24,6 @@ function getObjectFitContainRect(element: HTMLElement, image: HTMLImageElement) 
   };
 }
 
-function getHitOffsets(hitSlop: number) {
-  if (!hitSlop || hitSlop <= 0) {
-    return [{ x: 0, y: 0 }];
-  }
-
-  return [
-    { x: 0, y: 0 },
-    { x: hitSlop, y: 0 },
-    { x: -hitSlop, y: 0 },
-    { x: 0, y: hitSlop },
-    { x: 0, y: -hitSlop },
-    { x: hitSlop, y: hitSlop },
-    { x: hitSlop, y: -hitSlop },
-    { x: -hitSlop, y: hitSlop },
-    { x: -hitSlop, y: -hitSlop },
-  ];
-}
-
 function isFlipped(element: Element) {
   return element.classList.contains("is-mirrored");
 }
@@ -66,20 +42,20 @@ type MaskOptions = {
   cellSize?: number;
   alphaThreshold?: number;
   respectObjectFit?: boolean;
+  hitSlop?: number;
 };
 
 /**
  * Rasterize the image's alpha into a coarse opacity grid over its displayed rect,
  * in window-content coords. Native uses this to decide mouse passthrough without a
- * per-move IPC round-trip. Uses the same object-fit / flip / alpha logic as
- * `isPointOpaqueInImage`, so the published shape matches on-event hit testing.
+ * per-move IPC round-trip. The same published grid is used for frontend clicks.
  */
 export function buildAlphaMask(
   element: HTMLElement,
   image: HTMLImageElement,
   hitContext: CanvasRenderingContext2D | null,
   hitCanvas: HTMLCanvasElement,
-  { cellSize = 5, alphaThreshold = 16, respectObjectFit = true }: MaskOptions = {},
+  { cellSize = 5, alphaThreshold = 16, respectObjectFit = true, hitSlop = 0 }: MaskOptions = {},
 ): AlphaMask | null {
   if (!image.complete || !image.naturalWidth || !image.naturalHeight || !hitContext) {
     return null;
@@ -101,24 +77,34 @@ export function buildAlphaMask(
 
   const flipped = isFlipped(element);
   const mask = new Array<number>(maskCols * maskRows).fill(0);
+  // 取每格覆盖像素的最大 alpha，避免细尾巴等特征刚好落在格子中心之外。
+  // 格子按显示矩形等分，与原生判定一致（宽高不整除 cellSize 时也不偏移）。
   for (let row = 0; row < maskRows; row++) {
+    const y0 = Math.floor(row * image.naturalHeight / maskRows);
+    const y1 = Math.ceil((row + 1) * image.naturalHeight / maskRows);
     for (let col = 0; col < maskCols; col++) {
-      const localX = (col + 0.5) * cellSize;
-      const localY = (row + 0.5) * cellSize;
-      let sampleX = Math.min(
-        image.naturalWidth - 1,
-        Math.max(0, Math.floor((localX / renderRect.width) * image.naturalWidth)),
-      );
-      const sampleY = Math.min(
-        image.naturalHeight - 1,
-        Math.max(0, Math.floor((localY / renderRect.height) * image.naturalHeight)),
-      );
-      if (flipped) {
-        sampleX = image.naturalWidth - 1 - sampleX;
+      const x0 = Math.floor(col * image.naturalWidth / maskCols);
+      const x1 = Math.ceil((col + 1) * image.naturalWidth / maskCols);
+      scan: for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          const sampleX = flipped ? image.naturalWidth - 1 - x : x;
+          if (data[(y * image.naturalWidth + sampleX) * 4 + 3] > alphaThreshold) {
+            mask[row * maskCols + col] = 1;
+            break scan;
+          }
+        }
       }
-      const alpha = data[(sampleY * image.naturalWidth + sampleX) * 4 + 3];
-      if (alpha > alphaThreshold) {
-        mask[row * maskCols + col] = 1;
+    }
+  }
+  // 容错预先编码进同一掩模；粗网格向外取整，不在事件阶段另做像素采样。
+  if (hitSlop > 0) {
+    const original = mask.slice();
+    const radiusX = Math.ceil(hitSlop * maskCols / renderRect.width);
+    const radiusY = Math.ceil(hitSlop * maskRows / renderRect.height);
+    for (let row = 0; row < maskRows; row++) for (let col = 0; col < maskCols; col++) {
+      if (!original[row * maskCols + col]) continue;
+      for (let y = Math.max(0, row - radiusY); y <= Math.min(maskRows - 1, row + radiusY); y++) {
+        for (let x = Math.max(0, col - radiusX); x <= Math.min(maskCols - 1, col + radiusX); x++) mask[y * maskCols + x] = 1;
       }
     }
   }
@@ -131,61 +117,13 @@ export function buildAlphaMask(
   };
 }
 
-export function isPointOpaqueInImage(
-  point: PointLike,
-  element: HTMLElement,
-  image: HTMLImageElement,
-  hitContext: CanvasRenderingContext2D | null,
-  hitCanvas: HTMLCanvasElement,
-  { respectObjectFit = false, alphaThreshold = 16, hitSlop = 0 }: HitOptions = {},
-) {
-  if (!image.complete || !image.naturalWidth || !image.naturalHeight || !hitContext) {
-    return false;
-  }
-
-  const renderRect = respectObjectFit ? getObjectFitContainRect(element, image) : element.getBoundingClientRect();
-  const localX = point.clientX - renderRect.left;
-  const localY = point.clientY - renderRect.top;
-
-  if (localX < 0 || localY < 0 || localX > renderRect.width || localY > renderRect.height) {
-    return false;
-  }
-
-  hitCanvas.width = image.naturalWidth;
-  hitCanvas.height = image.naturalHeight;
-  hitContext.clearRect(0, 0, hitCanvas.width, hitCanvas.height);
-  hitContext.drawImage(image, 0, 0, hitCanvas.width, hitCanvas.height);
-
-  for (const offset of getHitOffsets(hitSlop)) {
-    const sampleLocalX = localX + offset.x;
-    const sampleLocalY = localY + offset.y;
-
-    if (
-      sampleLocalX < 0 ||
-      sampleLocalY < 0 ||
-      sampleLocalX > renderRect.width ||
-      sampleLocalY > renderRect.height
-    ) {
-      continue;
-    }
-
-    let sampleX = Math.min(
-      image.naturalWidth - 1,
-      Math.max(0, Math.floor((sampleLocalX / renderRect.width) * image.naturalWidth)),
-    );
-    const sampleY = Math.min(
-      image.naturalHeight - 1,
-      Math.max(0, Math.floor((sampleLocalY / renderRect.height) * image.naturalHeight)),
-    );
-
-    if (isFlipped(element)) {
-      sampleX = image.naturalWidth - 1 - sampleX;
-    }
-
-    if (hitContext.getImageData(sampleX, sampleY, 1, 1).data[3] > alphaThreshold) {
-      return true;
-    }
-  }
-
-  return false;
+/** 与 Rust shape_is_interactive 相同的坐标归一化和边界夹取。 */
+export function isPointInAlphaMask(point: PointLike, shape: AlphaMask | null) {
+  if (!shape) return false;
+  const [x, y, width, height] = shape.maskRect;
+  if (width <= 0 || height <= 0 || shape.maskCols <= 0 || shape.maskRows <= 0) return false;
+  if (point.clientX < x || point.clientY < y || point.clientX > x + width || point.clientY > y + height) return false;
+  const col = Math.min(shape.maskCols - 1, Math.floor((point.clientX - x) / width * shape.maskCols));
+  const row = Math.min(shape.maskRows - 1, Math.floor((point.clientY - y) / height * shape.maskRows));
+  return Boolean(shape.mask[row * shape.maskCols + col]);
 }

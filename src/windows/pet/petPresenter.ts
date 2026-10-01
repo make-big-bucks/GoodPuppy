@@ -9,7 +9,7 @@
 // 拖动强制位）下发给原生（见 publishHitShape / Rust 光标监视器），原生每个轮询 tick 直接
 // 判定 setIgnoreCursorEvents——免去逐帧 IPC 往返与「进入 pet 才慢慢变可交互」的延迟。
 import type { PetAnimator } from "./petState.js";
-import { isPointOpaqueInImage, buildAlphaMask } from "./hitTesting.js";
+import { isPointInAlphaMask, buildAlphaMask, type AlphaMask } from "./hitTesting.js";
 import { applyStateToImage } from "./renderImage.js";
 import { startNativeWindowDragWithLift } from "./petDrag.js";
 import type { WindowPoint } from "../../types";
@@ -70,39 +70,41 @@ export function createPetPresenter(opts: PetPresenterOptions): PetPresenter {
     return target?.closest(selector) as T | null;
   }
 
+  let publishedMask: AlphaMask | null = null;
   function isPetOpaqueAt(event: HoverEventLike) {
-    const image = closestFromEvent<HTMLImageElement>(event, ".pet-image");
-    if (!image) return false;
-    if (!image.complete) {
-      const rect = image.getBoundingClientRect();
-      return (
-        event.clientX >= rect.left &&
-        event.clientX <= rect.right &&
-        event.clientY >= rect.top &&
-        event.clientY <= rect.bottom
-      );
-    }
-    return isPointOpaqueInImage(event, image, image, hitContext, hitCanvas, {
-      respectObjectFit: true,
-      alphaThreshold: ALPHA_HIT_THRESHOLD,
-      hitSlop: ALPHA_HIT_SLOP,
-    });
+    return Boolean(closestFromEvent<HTMLImageElement>(event, ".pet-image") && isPointInAlphaMask(event, publishedMask));
   }
 
   // ── Native passthrough via published hit shape ──────────────────────────
   // pet 窗口只剩 pet 剪影一个可交互区域（气泡在独立窗口自管命中），故无额外矩形。
+  let publishing = false;
+  let publishAgain = false;
+  let publishedShapeKey = "";
   function publishHitShape() {
+    if (publishing) { publishAgain = true; return; }
     const maskData = stage.classList.contains("is-initializing") ? null : buildAlphaMask(petImage, petImage, hitContext, hitCanvas, {
       respectObjectFit: true,
       alphaThreshold: ALPHA_HIT_THRESHOLD,
+      hitSlop: ALPHA_HIT_SLOP,
     });
-    window.goodPuppy.publishHitShape({
+    const shape = {
       mask: maskData?.mask ?? [],
       maskCols: maskData?.maskCols ?? 0,
       maskRows: maskData?.maskRows ?? 0,
       maskRect: maskData?.maskRect ?? [0, 0, 0, 0],
       rects: [],
       forceInteractive,
+    };
+    const key = JSON.stringify(shape);
+    if (key === publishedShapeKey) return;
+    publishing = true;
+    void window.goodPuppy.publishHitShape(shape).then(() => {
+      if (disposed) return;
+      publishedShapeKey = key;
+      publishedMask = maskData;
+    }).catch(console.error).finally(() => {
+      publishing = false;
+      if (publishAgain) { publishAgain = false; refreshPassthrough(); }
     });
   }
 

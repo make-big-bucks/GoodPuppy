@@ -149,10 +149,8 @@ const goodPuppy: GoodPuppyBridge = {
     return appWindow.startDragging();
   },
   publishHitShape(shape: PetHitShape) {
-    if (!inTauri) return;
-    invoke("set_pet_hit_shape", { shape, instanceId: windowInstance }).catch((error) =>
-      console.error("set_pet_hit_shape failed:", error),
-    );
+    if (!inTauri) return Promise.resolve();
+    return invoke<void>("set_pet_hit_shape", { shape, instanceId: windowInstance });
   },
   getWindowInstance() { return windowInstance; },
   getManagedWindowInstance(label: string) {

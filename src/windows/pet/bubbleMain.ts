@@ -52,14 +52,14 @@ function publishHitShape() {
     const r = el.getBoundingClientRect();
     return [r.left, r.top, r.width, r.height] as [number, number, number, number];
   });
-  bridge.publishHitShape({
+  void bridge.publishHitShape({
     mask: [],
     maskCols: 0,
     maskRows: 0,
     maskRect: [0, 0, 0, 0],
     rects,
     forceInteractive: false,
-  });
+  }).catch(console.error);
 }
 
 // 写消息提交：把文本交给 main（协调者独占 Supabase），等它回报结果再收尾。
