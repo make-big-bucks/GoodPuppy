@@ -4,7 +4,7 @@ import { bindDialogFocus } from "../../shared/dialogFocus.js";
 import { createResumeMonitor } from "../../shared/resumeMonitor.js";
 import { createAuthFlow } from "./authFlow.js";
 import { createRefreshController } from "../../shared/refreshController.js";
-import { saveDisplayName, saveRoomMetadata, sendRoomInvitation } from "./loungeMutations.js";
+import { InvitationStateChangedError, declineRoomInvitation, saveDisplayName, saveRoomMetadata, sendRoomInvitation } from "./loungeMutations.js";
 import { createOperationLifetime } from "../../shared/operationLifetime.js";
 import { fetchLoungeData, type LoungeData, type LoungeDataContext } from "./loungeData.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -892,14 +892,15 @@ async function acceptRequest(requestId: string) {
 
 async function declineRequest(requestId: string) {
   const mutation = captureMutation();
-  const { error } = await mutation.client
-    .from("connection_requests")
-    .update({ status: "declined" })
-    .eq("id", requestId);
-
-  mutation.assertCurrent();
-  if (error) throw error;
-
+  try { await declineRoomInvitation(mutation, requestId); }
+  catch (error) {
+    if (error instanceof InvitationStateChangedError) {
+      mutation.assertCurrent();
+      await Promise.allSettled([loadPanelData()]);
+      mutation.assertCurrent();
+    }
+    throw error;
+  }
   showToast("已拒绝邀请");
   await loadPanelData();
 }

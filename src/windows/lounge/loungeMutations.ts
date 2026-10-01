@@ -64,3 +64,17 @@ export async function saveRoomMetadata(mutation: MutationContext, roomId: string
   if (error) throw error;
   if (data?.id !== roomId) throw new Error("房间资料未保存，请重试");
 }
+
+export class InvitationStateChangedError extends Error {
+  constructor() { super("邀请已被处理或已失效"); }
+}
+
+export async function declineRoomInvitation(mutation: MutationContext, requestId: string) {
+  mutation.assertCurrent();
+  const { data, error } = await mutation.client.from("connection_requests").update({ status: "declined" })
+    .eq("id", requestId).eq("to_id", mutation.userId).eq("status", "pending").select("id, status").single();
+  mutation.assertCurrent();
+  if (error?.code === "PGRST116") throw new InvitationStateChangedError();
+  if (error) throw error;
+  if (data?.id !== requestId || data.status !== "declined") throw new Error("邀请状态未更新，请重试");
+}

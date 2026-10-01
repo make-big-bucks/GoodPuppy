@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { saveDisplayName, saveRoomMetadata, sendRoomInvitation } from "./loungeMutations.js";
+import { declineRoomInvitation, saveDisplayName, saveRoomMetadata, sendRoomInvitation } from "./loungeMutations.js";
 
 function fixture() {
   let resolve!: (result: unknown) => void;
@@ -65,5 +65,18 @@ describe("profile and room write receipts", () => {
     const work = saveDisplayName(f.context, "泡芙"); f.changeAccount();
     finish({ data: { id: "self" }, error: null });
     await expect(work).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
+describe("invitation decline receipt", () => {
+  it("updates only the recipient's pending request and verifies the resulting status", async () => {
+    const f = writeFixture(); f.query.single.mockResolvedValue({ data: { id: "request", status: "declined" }, error: null } as never);
+    await declineRoomInvitation(f.context, "request");
+    expect(f.query.eq.mock.calls).toEqual([["id", "request"], ["to_id", "self"], ["status", "pending"]]);
+    expect(f.query.select).toHaveBeenCalledWith("id, status");
+  });
+  it("reports a concurrently processed request instead of successful rejection", async () => {
+    const f = writeFixture(); f.query.single.mockResolvedValue({ data: null, error: { code: "PGRST116" } } as never);
+    await expect(declineRoomInvitation(f.context, "request")).rejects.toThrow("邀请已被处理或已失效");
   });
 });
