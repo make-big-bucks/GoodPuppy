@@ -1,3 +1,5 @@
+import { createBoundedFetch } from "../../shared/boundedFetch.js";
+import PET_REGISTRY from "virtual:pet-assets";
 import type { PetManifest, PetManifestSkin, PetManifestState } from "../../types";
 
 export const LAYER = Object.freeze({
@@ -47,11 +49,6 @@ export const INTERACTIONS = Object.freeze({
   kick: { actorState: "cast", targetState: "kicked", label: "踢飞" },
 });
 
-const PET_REGISTRY = Object.freeze({
-  default: "shiba",
-  shiba: "shiba",
-});
-
 export const DEFAULT_PET = "shiba";
 export const DEFAULT_SKIN = "default";
 export const DEFAULT_ONESHOT_MS = 900;
@@ -69,15 +66,22 @@ export function isIdleVariant(stateName: string | null | undefined) {
 }
 
 export function resolvePetDir(petId: PetId) {
-  return hasOwnKey(PET_REGISTRY, petId) ? PET_REGISTRY[petId] : DEFAULT_PET;
+  return hasOwnKey(PET_REGISTRY, petId) ? PET_REGISTRY[petId].dir : DEFAULT_PET;
+}
+
+export function resolveSkin(petId: PetId, skin: string | null | undefined) {
+  const dir = resolvePetDir(petId);
+  return skin && PET_REGISTRY[dir].skins.includes(skin) ? skin : DEFAULT_SKIN;
 }
 
 export function getStateImagePath(petId: PetId, stateName: string, skin = DEFAULT_SKIN) {
   const dir = resolvePetDir(petId);
-  if (skin && skin !== DEFAULT_SKIN) {
-    return `/pets/${dir}/skins/${skin}/${stateName}.gif`;
+  const asset = PET_REGISTRY[dir];
+  const state = asset.states.includes(stateName) ? stateName : BASE_STATE;
+  if (skin && asset.skins.includes(skin)) {
+    return `/pets/${dir}/skins/${skin}/${state}.gif`;
   }
-  return `/pets/${dir}/${stateName}.gif`;
+  return `/pets/${dir}/${state}.gif`;
 }
 
 export function getBehavior(stateName: string | null | undefined): Behavior | null {
@@ -98,35 +102,29 @@ export function durationFromManifest(manifestState?: PetManifestState | null) {
 }
 
 const manifestCache = new Map<string, PetManifest>();
+const inFlight = new Map<string, Promise<PetManifest>>();
 
-export async function loadPetManifest(
-  petId: PetId,
-  { fetchImpl = fetch }: { fetchImpl?: typeof fetch } = {},
+export function loadPetManifest(
+  petId: PetId, { fetchImpl = fetch }: { fetchImpl?: typeof fetch } = {},
 ): Promise<PetManifest> {
   const dir = resolvePetDir(petId);
-  if (manifestCache.has(dir)) return manifestCache.get(dir)!;
-
-  let manifest: PetManifest = { id: dir, states: {}, skins: [] };
-  try {
-    const res = await fetchImpl(`/pets/${dir}/pet.json`);
-    if (res.ok) {
-      const json = (await res.json()) as {
-        id?: string;
-        states?: PetManifestState[];
-        skins?: Array<Partial<PetManifestSkin> | null | undefined>;
-      };
+  if (manifestCache.has(dir)) return Promise.resolve(manifestCache.get(dir)!);
+  if (inFlight.has(dir)) return inFlight.get(dir)!;
+  const request = Promise.resolve().then(async () => {
+    const fallback: PetManifest = { id: dir, states: {}, skins: [] };
+    try {
+      const response = await createBoundedFetch(fetchImpl, 10_000)(`/pets/${dir}/pet.json`);
+      if (!response.ok) return fallback;
+      const json = await response.json() as { id?: string; states?: PetManifestState[]; skins?: PetManifestSkin[] };
+      if (!Array.isArray(json.states)) return fallback;
       const states: Record<string, PetManifestState> = {};
-      for (const state of json.states || []) {
-        if (state?.state) states[state.state] = state;
-      }
-      const skins = (json.skins || [])
-        .filter((skin): skin is Partial<PetManifestSkin> & { id: string } => Boolean(skin?.id && skin.id !== DEFAULT_SKIN))
-        .map((skin) => ({ id: skin.id, label: skin.label || skin.id }));
-      manifest = { id: json.id || dir, states, skins };
-    }
-  } catch {
-    // 网络/解析失败：留空 states，使用兜底时长。
-  }
-  manifestCache.set(dir, manifest);
-  return manifest;
+      for (const state of json.states) if (state?.state && PET_REGISTRY[dir].states.includes(state.state)) states[state.state] = state;
+      const manifest = { id: dir, states, skins: (json.skins ?? []).filter((skin) => PET_REGISTRY[dir].skins.includes(skin.id)) };
+      manifestCache.set(dir, manifest);
+      return manifest;
+    } catch { return fallback; }
+    finally { inFlight.delete(dir); }
+  });
+  inFlight.set(dir, request);
+  return request;
 }

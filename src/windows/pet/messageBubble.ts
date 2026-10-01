@@ -1,3 +1,5 @@
+import { compareMessagePosition, type MessagePosition } from "../../shared/messageOrder.js";
+import { bubbleScopeKey, type BubbleScope } from "./bubbleScope.js";
 import { buildMessageList, insertMessage, trimMessages } from "./messageLog.js";
 import type { LocalMessage } from "../../types";
 
@@ -19,47 +21,39 @@ let cbs: StackCallbacks = {
 // 每个 dog-area 对应的消息列表（按时间升序）。
 const messagesByArea = new WeakMap<HTMLElement, LocalMessage[]>();
 
-// ── 关闭水位线 ──────────────────────────────────────────────────────────────
-// 关闭气泡时记下「当时最新消息的时间戳」作为水位线：之后只显示晚于水位线的消息
-// （即关闭后到达的新消息），历史不再自动重新弹出。水位线按 pet 标识持久化到
-// localStorage，跨应用重启保持「关了就别再自动弹历史」。水位线 0 = 不过滤（显示全部）。
+// 关闭游标按查看者/房间/发送者隔离，使用时间与 ID；旧全局数字键不迁移。
 const WATERMARK_PREFIX = "gp.bubble.dismissWatermark.";
-const watermarkByArea = new WeakMap<HTMLElement, number>();
+const watermarkByArea = new WeakMap<HTMLElement, MessagePosition | null>();
 
 function watermarkStorageKey(area: HTMLElement): string | null {
   const key = area.dataset.watermarkKey;
   return key ? WATERMARK_PREFIX + key : null;
 }
 
-function loadWatermark(area: HTMLElement): number {
-  const cached = watermarkByArea.get(area);
-  if (cached !== undefined) return cached;
-  let value = 0;
-  const sk = watermarkStorageKey(area);
-  if (sk) {
-    const raw = localStorage.getItem(sk);
-    const n = raw ? Number(raw) : 0;
-    if (Number.isFinite(n) && n > 0) value = n;
-  }
+function loadWatermark(area: HTMLElement): MessagePosition | null {
+  if (watermarkByArea.has(area)) return watermarkByArea.get(area) ?? null;
+  let value: MessagePosition | null = null;
+  try {
+    const key = watermarkStorageKey(area);
+    const saved = key ? JSON.parse(localStorage.getItem(key) ?? "null") : null;
+    if (saved && typeof saved.id === "string" && typeof saved.createdAt === "string" && Number.isFinite(Date.parse(saved.createdAt))) value = saved;
+  } catch { /* 仅内存回退 */ }
   watermarkByArea.set(area, value);
   return value;
 }
-
-function saveWatermark(area: HTMLElement, value: number) {
+function saveWatermark(area: HTMLElement, value: MessagePosition | null) {
   watermarkByArea.set(area, value);
-  const sk = watermarkStorageKey(area);
-  if (!sk) return;
   try {
-    if (value > 0) localStorage.setItem(sk, String(value));
-    else localStorage.removeItem(sk);
-  } catch {
-    /* localStorage 不可用时退化为仅内存 */
-  }
+    const key = watermarkStorageKey(area);
+    if (key) { if (value) localStorage.setItem(key, JSON.stringify(value)); else localStorage.removeItem(key); }
+  } catch { /* 仅内存回退 */ }
 }
-
-function messageTime(message: LocalMessage): number {
-  const t = new Date(message.created_at).getTime();
-  return Number.isFinite(t) ? t : 0;
+export function setBubbleScope(area: HTMLElement, scope: BubbleScope | null) {
+  const key = scope ? bubbleScopeKey(scope) : "";
+  if ((area.dataset.watermarkKey ?? "") === key) return;
+  area.dataset.watermarkKey = key;
+  watermarkByArea.delete(area);
+  messagesByArea.set(area, []);
 }
 
 export function initBubbleStacks(callbacks: StackCallbacks) {
@@ -97,9 +91,9 @@ function renderArea(area: HTMLElement, enteringMessageId: string | null) {
   // 清掉旧气泡，保留关闭按钮。
   stack.querySelectorAll(".bubble").forEach((el) => el.remove());
 
-  // 只显示晚于水位线的消息（关闭后到达的新消息）；水位线为 0 时显示全部。
+  // 只显示晚于水位线的消息（关闭后到达的新消息）；没有游标时显示全部。
   const watermark = loadWatermark(area);
-  const visible = watermark > 0 ? messages.filter((m) => messageTime(m) > watermark) : messages;
+  const visible = watermark ? messages.filter((m) => compareMessagePosition({ id: m.id, createdAt: m.created_at }, watermark) > 0) : messages;
 
   if (visible.length === 0) {
     stack.hidden = true;
@@ -152,14 +146,14 @@ export function addMessageToArea(area: HTMLElement, message: Partial<LocalMessag
 /** 关闭该宠物堆叠：记下当前最新消息时间为水位线（持久化），之后只显示更晚的新消息。 */
 export function dismissArea(area: HTMLElement) {
   const messages = messagesByArea.get(area) ?? [];
-  const latest = messages.reduce((max, m) => Math.max(max, messageTime(m)), 0);
-  saveWatermark(area, latest || Date.now());
+  const latest = messages.at(-1);
+  saveWatermark(area, latest ? { id: latest.id, createdAt: latest.created_at } : null);
   renderArea(area, null);
 }
 
 /** 显式重新展开全部堆叠（远程「查看状态」触发），清掉水位线。无消息时无可见效果。 */
 export function showArea(area: HTMLElement) {
-  saveWatermark(area, 0);
+  saveWatermark(area, null);
   renderArea(area, null);
 }
 

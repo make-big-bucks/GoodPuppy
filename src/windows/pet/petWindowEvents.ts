@@ -1,3 +1,4 @@
+import type { BubbleScope } from "./bubbleScope.js";
 // 跨窗口事件契约（协调者 ⇄ 远程呈现者，按 Tauri 窗口 label 定向）。
 // 见 docs/superpowers/specs/2026-06-17-多窗口独立桌宠-phaseB-design.md。
 import type { LocalMessage, WindowPoint } from "../../types";
@@ -77,8 +78,8 @@ export const PET_BUBBLE_SHOW_REQUEST = "pet-bubble-show-request";
 export const PET_INTERACT_REQUEST = "pet-interact-request";
 
 export type PetStatePayload = { petId: string; skin: string; status: string | null };
-export type PetHistoryPayload = { messages: LocalMessage[] };
-export type PetMessagePayload = { message: LocalMessage };
+export type PetHistoryPayload = { messages: LocalMessage[]; scope?: BubbleScope | null };
+export type PetMessagePayload = { message: LocalMessage; scope?: BubbleScope | null };
 export type PetInteractionPayload = { state: string; mirrored: boolean; durationMs?: number };
 export type PetModePayload = { draggable: boolean };
 export type PetArrangePayload = WindowPoint;

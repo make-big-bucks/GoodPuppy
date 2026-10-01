@@ -19,6 +19,8 @@ type RoomCallbacks = {
   onEnterRoom: () => void;
   onClearRemotePets: () => void;
   onPetIdResolved: (petId: string) => void;
+  onSkinResolved?: (skin: string) => void;
+  onSessionChanged?: () => void;
   getSelfAnimator: () => PetAnimator;
   getSelfPetId: () => string;
   getSelfSkin: () => string;
@@ -87,7 +89,7 @@ async function writeOffline(session: SessionContext, rememberRoom = false) {
 }
 
 async function ensureProfile(session: SessionContext, version: number) {
-  const { data, error } = await session.client.from("profiles").select("id, pet_id")
+  const { data, error } = await session.client.from("profiles").select("id, pet_id, skin")
     .eq("id", session.userId).maybeSingle();
   assertCurrent(version);
   if (error) throw error;
@@ -96,7 +98,7 @@ async function ensureProfile(session: SessionContext, version: number) {
       .upsert({ id: session.userId, display_name: "", pet_id: "default" }, { onConflict: "id", ignoreDuplicates: true });
     assertCurrent(version);
     if (insertError) throw insertError;
-  } else callbacks?.onPetIdResolved(data.pet_id || "default");
+  } else { callbacks?.onPetIdResolved(data.pet_id || "default"); callbacks?.onSkinResolved?.(data.skin || "default"); }
 }
 
 function startHeartbeat(session: SessionContext, version: number) {
@@ -202,6 +204,7 @@ export function stopPetApp(): Promise<void> {
   const result = exitCurrentRoom();
   context = null;
   initialization = null;
+  callbacks?.onSessionChanged?.();
   return result;
 }
 
@@ -209,6 +212,7 @@ export function startPetApp({ supabase, session }: StartPetAppOptions = {}): Pro
   if (!supabase || !session?.user.id) return Promise.reject(new Error("缺少登录会话"));
   if (context?.client === supabase && context.userId === session.user.id) return initialization ?? Promise.resolve();
   const previous = context;
+  if (previous?.userId !== session.user.id) callbacks?.onSessionChanged?.();
   const next: SessionContext = { client: supabase, userId: session.user.id };
   const version = invalidate();
   context = next;

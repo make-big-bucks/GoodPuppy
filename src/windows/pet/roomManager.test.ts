@@ -274,3 +274,13 @@ describe("roomManager", () => {
   });
 
 });
+
+it("restores the authenticated account skin instead of using device-global skin", async () => {
+  vi.resetModules();
+  const manager = await import("./roomManager.js");
+  const callbacks = { ...createCallbacks(), onSkinResolved: vi.fn() };
+  manager.initRoomManager(callbacks);
+  await manager.startPetApp({ supabase: createSupabase({ profileResult: { data: { id: "user-1", pet_id: "shiba", skin: "blue" }, error: null } as never }) as never,
+    session: { user: { id: "user-1" } } as never });
+  expect(callbacks.onSkinResolved).toHaveBeenCalledWith("blue");
+});

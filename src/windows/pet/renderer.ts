@@ -5,12 +5,10 @@
 // 并把 roomManager 的订阅回调接到协调者上。
 import { PetAnimator } from "./petState.js";
 import * as presence from "./presence.js";
-import { loadPetManifest, DEFAULT_SKIN } from "./animationCatalog.js";
+import { loadPetManifest, DEFAULT_SKIN, resolveSkin } from "./animationCatalog.js";
 import { clampPetScale, getPetWindowSize, isWindowPositionVisible } from "./petLayout.js";
 import { clearSelfPos } from "./petPositionStore.js";
 import {
-  readStoredSkin,
-  writeStoredSkin,
   readStoredScale,
   writeStoredScale,
 } from "./preferences.js";
@@ -60,7 +58,7 @@ const selfArea = document.querySelector<HTMLElement>('.dog-area[data-user="self"
 const petImage = document.querySelector<HTMLImageElement>('.pet-image[data-user="self"]');
 
 let selfPetId = "default";
-let selfSkin = readStoredSkin();
+let selfSkin = DEFAULT_SKIN;
 let petScale = readStoredScale();
 
 function applyPetScale() {
@@ -97,6 +95,7 @@ const coordinator = createRoomCoordinator({
 });
 
 loadPetManifest(selfPetId).then((manifest) => {
+  if (selfPetId !== "default") return;
   selfAnimator.setManifest(manifest);
   selfAnimator.playTransient("enter");
 });
@@ -110,11 +109,10 @@ function setSelfStatus(status: PetStatus) {
 // 由会客厅资料卡换肤面板「保存」后跨窗口调用（见 selfMain 的 "set-skin" 监听）：
 // 更新本窗口动画 + 缓存 + presence 广播（通道 A，远程宠物窗口随之实时换肤）。
 export function setSelfSkin(skin: string | null | undefined) {
-  const next = skin || DEFAULT_SKIN;
+  const next = resolveSkin(selfPetId, skin);
   if (next === selfSkin) return;
   selfSkin = next;
   selfAnimator.setSkin(next);
-  writeStoredSkin(next);
   presence.updateLocalPresence({ skin: next }).catch(console.error);
 }
 
@@ -203,7 +201,12 @@ initRoomManager({
   onPetIdResolved: (petId) => {
     selfPetId = petId;
     selfAnimator.setPetId(petId);
-    loadPetManifest(petId).then((manifest) => selfAnimator.setManifest(manifest));
+    loadPetManifest(petId).then((manifest) => { if (selfPetId === petId) selfAnimator.setManifest(manifest); });
+  },
+  onSkinResolved: setSelfSkin,
+  onSessionChanged: () => {
+    selfPetId = "default"; selfSkin = DEFAULT_SKIN;
+    selfAnimator.setPetId(selfPetId); selfAnimator.setSkin(selfSkin); selfAnimator.reset();
   },
   getSelfAnimator: () => selfAnimator,
   getSelfPetId: () => selfPetId,

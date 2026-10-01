@@ -1,9 +1,7 @@
-import { DEFAULT_SKIN } from "./animationCatalog.js";
 import { clampPetScale, DEFAULT_PET_SCALE } from "./petLayout.js";
 
 type OptionalStorage = Pick<Storage, "getItem" | "setItem"> | null | undefined;
 
-export const SKIN_STORAGE_KEY = "goodpuppy.skin";
 export const SCALE_STORAGE_KEY = "goodpuppy.scale";
 export const PET_MODE_STORAGE_KEY = "goodpuppy.petMode";
 
@@ -19,22 +17,6 @@ function safeStorage(storage?: OptionalStorage) {
     return globalThis.localStorage ?? null;
   } catch {
     return null;
-  }
-}
-
-export function readStoredSkin(storage?: OptionalStorage) {
-  try {
-    return safeStorage(storage)?.getItem(SKIN_STORAGE_KEY) || DEFAULT_SKIN;
-  } catch {
-    return DEFAULT_SKIN;
-  }
-}
-
-export function writeStoredSkin(skin: string, storage?: OptionalStorage) {
-  try {
-    safeStorage(storage)?.setItem(SKIN_STORAGE_KEY, skin);
-  } catch {
-    // localStorage 不可用时仅保留本会话选择。
   }
 }
 

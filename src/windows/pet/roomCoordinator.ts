@@ -175,7 +175,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
       if (signal.aborted) return;
       await emitToSelfBubble(BUBBLE_PLACEMENT, b);
       const selfId = deps.getSelfAuthId();
-      await emitToSelfBubble(PET_HISTORY, { messages: roomMessageCache.filter((m) => m.from === selfId) });
+      await emitToSelfBubble(PET_HISTORY, { messages: roomMessageCache.filter((m) => m.from === selfId), scope: selfId ? messageScope(selfId) : null });
     } finally { signal.removeEventListener("abort", abort); cancel.abort(); }
   }
 
@@ -335,7 +335,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
     await emitTo(userId, PET_STATE, { petId: info.petId, skin: info.skin, status: info.status });
     await emitTo(userId, PET_MODE, { draggable: isDraggableForRemote() });
     await emitTo(userId, PET_ARRANGE, entry.pos);
-    await emitToBubble(userId, PET_HISTORY, { messages: roomMessageCache.filter((m) => m.from === userId) });
+    await emitToBubble(userId, PET_HISTORY, { messages: roomMessageCache.filter((m) => m.from === userId), scope: messageScope(userId) });
     await placeRemoteBubble(userId, entry.pos);
   }
 
@@ -348,6 +348,11 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
     } catch {
       // 用兜底时长即可。
     }
+  }
+
+  function messageScope(senderId: string) {
+    const viewerId = deps.getSelfAuthId(); const roomId = deps.getCurrentRoomId();
+    return viewerId && roomId ? { viewerId, roomId, senderId } : null;
   }
 
   // ── Messages ──────────────────────────────────────────────────────────────
@@ -363,10 +368,10 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
     cacheMessage(msg);
     if (msg.from === deps.getSelfAuthId()) {
       // 自己消息渲染在自己的气泡窗口 bubble-self（记号棒亦在那里）。
-      void emitToSelfBubble(PET_MESSAGE, { message: msg });
+      void emitToSelfBubble(PET_MESSAGE, { message: msg, scope: messageScope(msg.from) });
     } else if (remotes.has(msg.from)) {
       // 远程消息渲染在气泡窗口，pet 窗口仅弹跳一下（复用互动动画通道）。
-      void emitToBubble(msg.from, PET_MESSAGE, { message: msg });
+      void emitToBubble(msg.from, PET_MESSAGE, { message: msg, scope: messageScope(msg.from) });
       void emitTo(msg.from, PET_INTERACTION, { state: "message", mirrored: false });
     }
   }
@@ -381,10 +386,10 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
       bySender.set(m.from, list);
     }
     // 没有自己消息时也要清空 bubble-self（切房间残留）。
-    void emitToSelfBubble(PET_HISTORY, { messages: bySender.get(selfId ?? "") ?? [] });
+    void emitToSelfBubble(PET_HISTORY, { messages: bySender.get(selfId ?? "") ?? [], scope: selfId ? messageScope(selfId) : null });
     for (const [sender, list] of bySender) {
       if (sender === selfId) continue;
-      if (remotes.has(sender)) void emitToBubble(sender, PET_HISTORY, { messages: list });
+      if (remotes.has(sender)) void emitToBubble(sender, PET_HISTORY, { messages: list, scope: messageScope(sender) });
     }
   }
 
@@ -466,7 +471,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
       for (const result of results) if (result.status === "rejected") console.error(result.reason);
     }).catch(console.error);
     roomMessageCache = [];
-    void emitToSelfBubble(PET_HISTORY, { messages: [] });
+    void emitToSelfBubble(PET_HISTORY, { messages: [], scope: null });
   }
 
   // ── Inbound events from presenters ────────────────────────────────────────

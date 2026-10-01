@@ -1,3 +1,4 @@
+import { compareMessagePosition } from "../../shared/messageOrder.js";
 import type { LocalMessage } from "../../types";
 
 /** 每只宠物气泡堆叠在内存中保留的最大条数；超出靠裁剪丢弃最旧的。 */
@@ -15,7 +16,7 @@ export function normalizeMessage(message: Partial<LocalMessage> | null | undefin
 
 export function sortByTime(messages: LocalMessage[]) {
   return [...messages].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    (a, b) => compareMessagePosition({ id: a.id, createdAt: a.created_at }, { id: b.id, createdAt: b.created_at }),
   );
 }
 

@@ -97,3 +97,18 @@ describe("STATUS_OPTIONS", () => {
     expect(groups).toEqual(new Set(["mood", "work"]));
   });
 });
+
+it("rejects path-like skin and state IDs", () => {
+  expect(getStateImagePath("shiba", "../../login", "../../windows")).toBe("/pets/shiba/idle.gif");
+});
+
+it("shares an in-flight manifest request but retries after a transient failure", async () => {
+  const { vi } = await import("vitest"); vi.resetModules();
+  const { loadPetManifest } = await import("./animationCatalog.js");
+  const fetchImpl = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ ok: true, json: async () => ({ states: [{ state: "idle", durationsMs: [123] }], skins: [] }) });
+  const first = loadPetManifest("shiba", { fetchImpl });
+  expect(loadPetManifest("shiba", { fetchImpl })).toBe(first);
+  await first;
+  const retried = await loadPetManifest("shiba", { fetchImpl });
+  expect(retried.states.idle.durationsMs).toEqual([123]); expect(fetchImpl).toHaveBeenCalledTimes(2);
+});

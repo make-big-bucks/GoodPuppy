@@ -123,6 +123,10 @@ export class PetAnimator {
   setPetId(petId: string) {
     if (petId === this.petId) return;
     this.petId = petId;
+    this.manifest = null;
+    this.variants = [];
+    this.base = BASE_STATE;
+    this.stopCycle();
     this.forceReload = true;
     this.applyRender();
   }
@@ -222,6 +226,13 @@ export class PetAnimator {
 
   private pickVariant() {
     return this.variants[Math.floor(this.random() * this.variants.length)] || BASE_STATE;
+  }
+
+  reset() {
+    this.clearTransientTimer();
+    this.transient = null; this.status = null; this.base = BASE_STATE;
+    this.forceReload = true; this.applyRender();
+    if (this.autoCycle) this.startCycle();
   }
 
   destroy() {

@@ -9,7 +9,7 @@ import { createPresenterEndpoint } from "./windowReadiness.js";
 // 形状（无 pet 剪影掩模），空窗口（无消息）整窗穿透。
 import "../../shared/bridge.js";
 import "../../shared/styles.css";
-import { initBubbleStacks, mountStack, setMessagesForArea, addMessageToArea, showArea } from "./messageBubble.js";
+import { initBubbleStacks, mountStack, setBubbleScope, setMessagesForArea, addMessageToArea, showArea } from "./messageBubble.js";
 import { initComposeStick, openComposeStick, closeComposeStick, isComposeOpen } from "./composeStick.js";
 import {
   BUBBLE_SELF_LABEL,
@@ -104,15 +104,15 @@ if (root && area) {
 
   initBubbleStacks({ onRefreshPassthrough: refreshHitShape, onVisibilityChange: refreshHitShape });
   // 用气泡窗口 label（bubble-self / bubble-<userId>）作水位线持久化 key。
-  mountStack(area, bridge.getWindowLabel());
+  mountStack(area);
 
   // 光标落在气泡命中区时浮现关闭按钮（由原生监视器驱动，不依赖窗口聚焦）。
   const hover = bridge.onAppEvent<boolean>(OVERLAY_HOVER, (interactive) => {
     area.classList.toggle("bubble-hovered", interactive);
   });
 
-  endpoint.listen<PetHistoryPayload>(PET_HISTORY, (payload) => setMessagesForArea(area, payload.messages));
-  endpoint.listen<PetMessagePayload>(PET_MESSAGE, (payload) => addMessageToArea(area, payload.message));
+  endpoint.listen<PetHistoryPayload>(PET_HISTORY, (payload) => { setBubbleScope(area, payload.scope ?? null); setMessagesForArea(area, payload.messages); });
+  endpoint.listen<PetMessagePayload>(PET_MESSAGE, (payload) => { setBubbleScope(area, payload.scope ?? null); addMessageToArea(area, payload.message); });
   // 「查看对话/状态」：协调者/对端右键触发，撤销已关闭状态重新展开堆叠。
   endpoint.listen<void>(BUBBLE_SHOW, () => showArea(area));
   // 几何 + 朝向：气泡窗口重设自身位置/尺寸（窗口只能改自己），并切堆叠锚点 + 小尾巴方向。

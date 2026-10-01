@@ -86,7 +86,7 @@ export async function joinRoom(
   selfId = nextSelfId;
   onPresenceChangeHandler = typeof onPresenceChange === "function" ? onPresenceChange : () => {};
   localPayload = {
-    status: status ?? localPayload.status ?? null,
+    status: status === undefined ? localPayload.status ?? null : status,
     pet_id: petId || localPayload.pet_id || "default",
     skin: skin || localPayload.skin || "default",
   };
