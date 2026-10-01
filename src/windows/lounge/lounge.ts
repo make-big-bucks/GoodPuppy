@@ -1182,7 +1182,11 @@ export function initLoungePanel({
     onlineListenerBound = true;
     // 网络恢复/长暂停后重新取完整快照，补齐暂停期间丢失的成员/资料变化。
     const disposeResumeMonitor = createResumeMonitor(async () => { if (selfAuthId) await loadPanelData(); });
-    window.addEventListener("beforeunload", () => { disposeResumeMonitor(); subscriptions.dispose(); disposeOnlineNotifier(); }, { once: true });
+    const onlineExpiryTimer = setInterval(expireOnlineProjection, 10_000);
+    window.addEventListener("beforeunload", () => {
+      clearInterval(onlineExpiryTimer); disposeResumeMonitor();
+      disposeToastEnterListener?.(); subscriptions.dispose(); disposeOnlineNotifier(); panelRefresh.dispose();
+    }, { once: true });
   }
   if (selfAuthId) {
     subscriptions.setContext({ client: supabase, userId: selfAuthId });
@@ -1192,10 +1196,11 @@ export function initLoungePanel({
 
 // toast「进入房间」回传：复用既有进房流程，并清掉所有提醒。整会话只绑定一次。
 let toastEnterListenerBound = false;
+let disposeToastEnterListener: (() => void) | null = null;
 function bindOnlineNotifier() {
   if (toastEnterListenerBound) return;
   toastEnterListenerBound = true;
-  window.goodPuppy.onAppEvent<{ roomId?: string; label?: string; instanceId?: string }>("toast-enter-room", (payload) => {
+  disposeToastEnterListener = window.goodPuppy.onAppEvent<{ roomId?: string; label?: string; instanceId?: string }>("toast-enter-room", (payload) => {
     const { roomId, label, instanceId } = payload ?? {};
     if (!roomId || !label || !instanceId || !isCurrentToast(label, instanceId, roomId)) return;
     dismissAllToasts();
@@ -1291,12 +1296,11 @@ export function closeLoungePanel() {
   }
 }
 
-setInterval(() => {
+function expireOnlineProjection() {
   if (selfAuthId && document.visibilityState === "visible" && panelSnapshot) {
     const before = rooms.map((room) => room.members.map((member) => member.isOnline).join()).join();
     rebuildRoomViews();
     const after = rooms.map((room) => room.members.map((member) => member.isOnline).join()).join();
     if (before !== after) renderAll();
   }
-}, 10_000);
-window.addEventListener("beforeunload", () => panelRefresh.dispose());
+}
