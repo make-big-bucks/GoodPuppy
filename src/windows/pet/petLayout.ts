@@ -69,7 +69,8 @@ export function computeBubbleWindowPosition(opts: {
   const { pet, bubble, workArea } = opts;
   const aboveY = pet.y - bubble.height;
   const placement: BubblePlacement = aboveY >= workArea.y ? "above" : "below";
-  const y = placement === "above" ? aboveY : pet.y + pet.height;
+  const preferredY = placement === "above" ? aboveY : pet.y + pet.height;
+  const y = Math.min(Math.max(preferredY, workArea.y), Math.max(workArea.y, workArea.y + workArea.height - bubble.height));
 
   const centeredX = pet.x + (pet.width - bubble.width) / 2;
   const minX = workArea.x;

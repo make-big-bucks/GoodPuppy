@@ -119,11 +119,9 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
   }
 
   // ── Bubble placement（独立气泡窗口的上/下避让，纯函数驱动）─────────────────
-  /** 给定某只 pet 的窗口左上角 + 尺寸，算出其气泡窗口的几何 + 朝向。
-   * workArea 取协调者（main）所在屏的可用区——多屏下是近似，副屏 pet 的上/下判定
-   * 可能略偏（YAGNI：智能避让见 Phase A「不在本期范围」）。 */
+  /** 按目标宠物中心选择屏幕，再用可用区计算气泡几何与朝向。 */
   async function computeBubble(petPos: WindowPoint, petSize: { width: number; height: number }): Promise<BubblePlacementPayload> {
-    const work = await bridge.getMonitorWorkArea();
+    const work = await bridge.getMonitorWorkArea({ x: petPos.x + petSize.width / 2, y: petPos.y + petSize.height / 2 });
     const size = getBubbleWindowSize();
     const r = computeBubbleWindowPosition({
       pet: { x: petPos.x, y: petPos.y, width: petSize.width, height: petSize.height },

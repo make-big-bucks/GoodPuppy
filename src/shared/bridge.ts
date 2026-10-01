@@ -1,4 +1,5 @@
 import { createEventSubscription } from "./eventSubscription.js";
+import { monitorRect, workAreaAtPoint } from "./monitorGeometry.js";
 import {
   getCurrentWindow,
   currentMonitor,
@@ -45,7 +46,7 @@ const goodPuppy: GoodPuppyBridge = {
     const bounds = { x: pos.x, y: pos.y, width: 150, height: 220 };
     return { windowBounds: bounds, workArea: bounds };
   },
-  async getMonitorWorkArea() {
+  async getMonitorWorkArea(point) {
     // 浏览器 fallback：用 screen 的可用区域（无法精确到 taskbar/dock 时退化为整屏）。
     if (!appWindow) {
       return {
@@ -55,18 +56,15 @@ const goodPuppy: GoodPuppyBridge = {
         height: window.screen.availHeight,
       };
     }
+    if (point) {
+      const area = workAreaAtPoint(await availableMonitors(), point);
+      if (area) return area;
+    }
     const monitor = await currentMonitor();
     if (!monitor) {
       return { x: 0, y: 0, width: window.screen.availWidth, height: window.screen.availHeight };
     }
-    // Monitor.size / position 为物理像素；转成逻辑像素以与窗口坐标一致。
-    const scale = monitor.scaleFactor || 1;
-    return {
-      x: Math.round(monitor.position.x / scale),
-      y: Math.round(monitor.position.y / scale),
-      width: Math.round(monitor.size.width / scale),
-      height: Math.round(monitor.size.height / scale),
-    };
+    return monitorRect(monitor, true);
   },
   async getCursorMonitorWorkArea() {
     // 上线提醒 toast 的目标屏：取光标当前所在屏的「可用区」（扣除菜单栏/dock/taskbar），
@@ -80,13 +78,7 @@ const goodPuppy: GoodPuppyBridge = {
     if (!appWindow) return fallback;
     const toWorkArea = (monitor: Monitor | null) => {
       if (!monitor) return null;
-      const scale = monitor.scaleFactor || 1;
-      return {
-        x: Math.round(monitor.workArea.position.x / scale),
-        y: Math.round(monitor.workArea.position.y / scale),
-        width: Math.round(monitor.workArea.size.width / scale),
-        height: Math.round(monitor.workArea.size.height / scale),
-      };
+      return monitorRect(monitor, true);
     };
     try {
       const cursor = await cursorPosition();
@@ -104,15 +96,7 @@ const goodPuppy: GoodPuppyBridge = {
     }
     const monitors = await availableMonitors();
     // Monitor.size / position 为物理像素；转成逻辑像素以与窗口坐标一致。
-    return monitors.map((m) => {
-      const scale = m.scaleFactor || 1;
-      return {
-        x: Math.round(m.position.x / scale),
-        y: Math.round(m.position.y / scale),
-        width: Math.round(m.size.width / scale),
-        height: Math.round(m.size.height / scale),
-      };
-    });
+    return monitors.map((monitor) => monitorRect(monitor));
   },
   setSelfVisible(visible: boolean) {
     if (!inTauri) return Promise.resolve();

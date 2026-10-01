@@ -105,6 +105,13 @@ describe("computeBubbleWindowPosition", () => {
   const bubble = { width: 150, height: 180 };
   const workArea = { x: 0, y: 0, width: 1440, height: 900 };
 
+  it("keeps a flipped bubble above the taskbar even when neither side fully fits", () => {
+    const r = computeBubbleWindowPosition({ pet: { x: 100, y: 50, width: 150, height: 120 },
+      bubble, workArea: { x: 0, y: 25, width: 1440, height: 250 } });
+    expect(r.placement).toBe("below");
+    expect(r.y).toBe(95);
+  });
+
   it("places the bubble above the pet by default, centered over it", () => {
     const pet = { x: 700, y: 500, width: 150, height: 120 };
     const r = computeBubbleWindowPosition({ pet, bubble, workArea });
