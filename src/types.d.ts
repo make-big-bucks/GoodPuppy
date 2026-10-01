@@ -9,6 +9,7 @@ import type { DiagnosticEvent } from "./shared/diagnostics.js";
 
 // ── 前端 ↔ Rust 桥接（src/shared/bridge.ts 暴露在 window.goodPuppy）─────────
 
+/** 桌面位置：Windows 全局物理像素、macOS 全局逻辑点；与 DOM 局部坐标区分。 */
 export interface WindowPoint {
   x: number;
   y: number;
@@ -39,13 +40,14 @@ export interface PetHitShape {
 /** bridge.ts 暴露的桥接 API，挂在 window.goodPuppy。 */
 export type WindowGeometry = WindowPoint & WindowSize & {
   scaleFactor: number;
+  desktopScale: number;
   workArea: (WindowPoint & WindowSize) | null;
 };
 
 export interface GoodPuppyBridge {
   recordDiagnostic(event: DiagnosticEvent): Promise<void>;
   getDiagnosticReport(): Promise<string>;
-  /** 主线程一次读取当前窗口外框位置、尺寸与比例，返回逻辑单位。 */
+  /** 主线程一次读取当前窗口外框位置、尺寸与比例，位置为平台桌面单位，尺寸为内容逻辑单位。 */
   getWindowBounds(): Promise<WindowGeometry>;
   /** 协调者读取目标宠物实际外框，动态窗口必须匹配实例。 */
   getPetWindowBounds(label: string, instanceId?: string): Promise<WindowGeometry>;
@@ -54,11 +56,11 @@ export interface GoodPuppyBridge {
   getWindowSize(): Promise<WindowSize>;
   /** 指定逻辑坐标所在显示器的可用区域；不传坐标时取当前窗口所在屏。 */
   getMonitorWorkArea(point?: WindowPoint): Promise<WindowPoint & WindowSize>;
-  /** 按实际宠物窗口选屏，返回该窗口逻辑单位下的可用区；协调者专用。 */
+  /** 按实际宠物窗口选屏，返回平台桌面单位下的可用区；协调者专用。 */
   getPetMonitorWorkArea(label: string, instanceId?: string): Promise<WindowPoint & WindowSize>;
-  /** 当前所有已连接显示器的整屏矩形（逻辑像素），用于校验存档窗口位置是否仍可见
+  /** 当前所有已连接显示器的整屏矩形（平台桌面单位），用于校验存档窗口位置是否仍可见
    * （外接屏断开后旧坐标可能整窗落在屏外）。 */
-  getMonitors(): Promise<Array<WindowPoint & WindowSize>>;
+  getMonitors(): Promise<Array<WindowPoint & WindowSize & { desktopScale?: number }>>;
   /** 光标所在屏的桌面工作区（Windows 物理/macOS 逻辑单位），携带换算比例；
    * 回退到当前窗口所在屏 / 主屏。 */
   getCursorMonitorWorkArea(): Promise<WindowPoint & WindowSize & { desktopScale: number; coordinateSpace: "desktop-physical-v2" | "desktop-logical-v2" }>;

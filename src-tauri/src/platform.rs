@@ -264,12 +264,20 @@ pub(crate) fn position_desktop_overlay_window<R: Runtime>(
                 let distance = |monitor: &tauri::Monitor| {
                     let origin = monitor.position();
                     let size = monitor.size();
-                    let dx = (origin.x as f64 - x)
-                        .max(0.0)
-                        .max(x - (origin.x as f64 + size.width as f64));
-                    let dy = (origin.y as f64 - y)
-                        .max(0.0)
-                        .max(y - (origin.y as f64 + size.height as f64));
+                    let dx = (origin.x as f64 - x).max(0.0).max(
+                        if x >= origin.x as f64 + size.width as f64 {
+                            x - (origin.x as f64 + size.width as f64) + 1.0
+                        } else {
+                            0.0
+                        },
+                    );
+                    let dy = (origin.y as f64 - y).max(0.0).max(
+                        if y >= origin.y as f64 + size.height as f64 {
+                            y - (origin.y as f64 + size.height as f64) + 1.0
+                        } else {
+                            0.0
+                        },
+                    );
                     dx * dx + dy * dy
                 };
                 distance(a).total_cmp(&distance(b))

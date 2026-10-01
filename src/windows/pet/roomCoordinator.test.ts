@@ -25,8 +25,8 @@ function fixture() {
       listeners.set(event, handler); return () => listeners.delete(event);
     }, callback),
     emitToWindow: send,
-    getWindowBounds: async () => ({ x: 100, y: 100, width: 150, height: 120, scaleFactor: 1, workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
-    getPetWindowBounds: async () => ({ x: 100, y: 100, width: 150, height: 120, scaleFactor: 1, workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+    getWindowBounds: async () => ({ x: 100, y: 100, width: 150, height: 120, scaleFactor: 1, desktopScale: 1, workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+    getPetWindowBounds: async () => ({ x: 100, y: 100, width: 150, height: 120, scaleFactor: 1, desktopScale: 1, workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
     getWindowPosition: async () => ({ x: 100, y: 100 }), getWindowSize: async () => ({ width: 150, height: 120 }),
     getMonitors: async () => [{ x: 0, y: 0, width: 1920, height: 1080 }], getPetMonitorWorkArea: async () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
     spawnPetWindow: vi.fn(async (options) => { managed.set(options.label, options.instanceId); }),
@@ -35,7 +35,7 @@ function fixture() {
     closePetWindow: vi.fn(async (label, instance) => { if (managed.get(label) === instance) managed.delete(label); }),
   };
   vi.stubGlobal("window", { goodPuppy: bridge });
-  const coordinator = createRoomCoordinator({ getCurrentRoomId: () => room, getSelfAuthId: () => "self", getScale: () => 1,
+  const coordinator = createRoomCoordinator({ getCurrentRoomId: () => room, getSelfAuthId: () => "self",
     selfPresenter: { animator: {} } as never });
   return { coordinator, bridge, managed, send, setRoom: (next: string | null) => { room = next; } };
 }
@@ -46,11 +46,19 @@ describe("remote window lifecycle schedules", () => {
   it("places bubbles from the actual target geometry rather than predicted spawn bounds", async () => {
     const f = fixture();
     const separateRead = vi.spyOn(f.bridge, "getPetMonitorWorkArea");
-    vi.spyOn(f.bridge, "getPetWindowBounds").mockResolvedValue({ x: 900, y: 300, width: 180, height: 120, scaleFactor: 2, workArea: { x: 0, y: 0, width: 1920, height: 1080 } });
+    vi.spyOn(f.bridge, "getPetWindowBounds").mockResolvedValue({ x: 900, y: 300, width: 180, height: 120, scaleFactor: 2, desktopScale: 1, workArea: { x: 0, y: 0, width: 1920, height: 1080 } });
     f.coordinator.onPresenceChange([member]); await f.coordinator.whenIdle();
     expect(f.bridge.spawnBubbleWindow).toHaveBeenCalledWith(expect.objectContaining({ x: 915, y: 120 }));
     expect(f.bridge.getPetWindowBounds).toHaveBeenCalledWith("pet-a", f.managed.get("pet-a"));
     expect(separateRead).not.toHaveBeenCalled();
+    f.setRoom(null); f.coordinator.onClearRemotePets(); await f.coordinator.whenIdle();
+  });
+  it("converts actual logical footprints before placing a bubble in physical desktop units", async () => {
+    const f = fixture();
+    vi.spyOn(f.bridge, "getPetWindowBounds").mockResolvedValue({ x: 2000, y: 500, width: 180, height: 120,
+      scaleFactor: 2, desktopScale: 2, workArea: { x: 1920, y: 0, width: 2560, height: 1400 } });
+    f.coordinator.onPresenceChange([member]); await f.coordinator.whenIdle();
+    expect(f.bridge.spawnBubbleWindow).toHaveBeenCalledWith(expect.objectContaining({ x: 2030, y: 140, width: 150, height: 180 }));
     f.setRoom(null); f.coordinator.onClearRemotePets(); await f.coordinator.whenIdle();
   });
   it("does not replay a recovered duplicate message or its animation", async () => {

@@ -3,14 +3,14 @@
 // - 自己的 pet：全局记忆上次位置，键 `pet-pos:self`。
 // - 远程成员 pet：按 (房间 + 成员) 记忆，键 `pet-pos:<roomId>:<userId>`。
 //
-// 当前存档为 window-logical-v1；旧无版本格式仅按同一旧契约读取。
-// 桌面坐标迁移必须显式处理旧值，未知版本不能直接当作当前坐标。
+// 当前存档标记平台桌面单位；macOS 可读取旧逻辑坐标，Windows 旧值缺少比例不能可靠转换。
+// Windows 旧存档回退自动摆位，未知版本不会直接解释为当前坐标。
 // 见 docs/reviews/coordinate-contract.md。
 import type { WindowPoint } from "../../types";
 
 type OptionalStorage = Pick<Storage, "getItem" | "setItem" | "removeItem"> | null | undefined;
 
-export const POSITION_SPACE = "window-logical-v1";
+export const POSITION_SPACE = typeof navigator !== "undefined" && navigator.platform.startsWith("Win") ? "desktop-physical-v2" : "desktop-logical-v2";
 
 const SELF_KEY = "pet-pos:self";
 
@@ -33,7 +33,8 @@ function readPoint(key: string, storage?: OptionalStorage): WindowPoint | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as (Partial<WindowPoint> & { space?: unknown }) | null;
     if (!parsed || typeof parsed.x !== "number" || typeof parsed.y !== "number") return null;
-    if (parsed.space !== undefined && parsed.space !== POSITION_SPACE) return null;
+    const legacy = parsed.space === undefined || parsed.space === "window-logical-v1";
+    if (parsed.space !== POSITION_SPACE && !(legacy && POSITION_SPACE === "desktop-logical-v2")) return null;
     if (!Number.isFinite(parsed.x) || !Number.isFinite(parsed.y)) return null;
     return { x: Math.round(parsed.x), y: Math.round(parsed.y) };
   } catch {

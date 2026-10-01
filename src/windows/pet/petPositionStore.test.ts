@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   readRemotePos,
   readSelfPos,
@@ -27,7 +27,7 @@ describe("petPositionStore", () => {
     expect(readSelfPos(storage)).toBeNull();
     writeSelfPos({ x: 42.6, y: -10.2 }, storage);
     expect(readSelfPos(storage)).toEqual({ x: 43, y: -10 });
-    expect(storage._map.get("pet-pos:self")).toBe('{"space":"window-logical-v1","x":43,"y":-10}');
+    expect(storage._map.get("pet-pos:self")).toBe('{"space":"desktop-logical-v2","x":43,"y":-10}');
   });
 
   it("round-trips a remote position per room+member", () => {
@@ -59,4 +59,16 @@ describe("petPositionStore", () => {
     writeSelfPos({ x: Number.NaN, y: 0 }, storage);
     expect(readSelfPos(storage)).toBeNull();
   });
+});
+
+it("discards unconvertible Windows legacy positions and writes physical desktop records", async () => {
+  vi.resetModules(); vi.stubGlobal("navigator", { platform: "Win32" });
+  try {
+    const store = await import("./petPositionStore.js");
+    const storage = fakeStorage({ "pet-pos:self": '{"space":"window-logical-v1","x":1000,"y":40}' });
+    expect(store.readSelfPos(storage)).toBeNull();
+    store.writeSelfPos({ x: 2000, y: -40 }, storage);
+    expect(store.readSelfPos(storage)).toEqual({ x: 2000, y: -40 });
+    expect(JSON.parse(storage._map.get("pet-pos:self")!).space).toBe("desktop-physical-v2");
+  } finally { vi.unstubAllGlobals(); }
 });

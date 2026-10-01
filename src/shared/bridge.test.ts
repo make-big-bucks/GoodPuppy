@@ -32,6 +32,17 @@ describe("native bridge error contract", () => {
     invoke.mockRejectedValueOnce(new Error("stale target"));
     await expect(bridge.getPetMonitorWorkArea("pet-user", "old")).rejects.toThrow("stale target");
   });
+  it("writes Windows pet bounds with the physical desktop protocol", async () => {
+    vi.stubGlobal("navigator", { platform: "Win32" });
+    try {
+      const bridge = (await import("./bridge.js")).default;
+      invoke.mockResolvedValue(undefined); setPosition.mockResolvedValue(undefined);
+      await bridge.setWindowBounds({ x: 2200, y: -40, width: 150, height: 120 });
+      expect(invoke).toHaveBeenCalledWith("set_window_bounds", expect.objectContaining({ coordinateSpace: "desktop-physical-v2", x: 2200, width: 150 }));
+      await bridge.setWindowPosition({ x: 2200, y: -40 });
+      expect(setPosition).toHaveBeenCalledWith(expect.objectContaining({ type: "Physical", x: 2200, y: -40 }));
+    } finally { vi.unstubAllGlobals(); }
+  });
   it("returns window position write failures to the manual drag caller", async () => {
     const bridge = (await import("./bridge.js")).default;
     setPosition.mockRejectedValueOnce(new Error("position denied"));

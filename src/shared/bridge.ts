@@ -10,13 +10,15 @@ import {
   cursorPosition,
   type Monitor,
 } from "@tauri-apps/api/window";
-import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
+import { LogicalPosition, LogicalSize, PhysicalPosition } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import appConfig from "./appConfig.js";
 import type { GoodPuppyBridge, PetHitShape, WindowPoint, WindowSize, WindowGeometry } from "../types";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
+const physicalDesktop = inTauri && navigator.platform.startsWith("Win");
+const coordinateSpace = physicalDesktop ? "desktop-physical-v2" : "desktop-logical-v2";
 const appWindow = inTauri ? getCurrentWindow() : null;
 const windowInstance = (window as Window & { __GOODPUPPY_INSTANCE__?: string }).__GOODPUPPY_INSTANCE__ ?? crypto.randomUUID();
 
@@ -43,7 +45,7 @@ const goodPuppy: GoodPuppyBridge = {
   recordDiagnostic(event) { return inTauri ? invoke<void>("record_diagnostic", { event }) : Promise.resolve(); },
   getDiagnosticReport() { return inTauri ? invoke<string>("get_diagnostic_report") : Promise.resolve(""); },
   getWindowBounds() {
-    if (!appWindow) return Promise.resolve({ x: 0, y: 0, width: 150, height: 120, scaleFactor: 1, workArea: null });
+    if (!appWindow) return Promise.resolve({ x: 0, y: 0, width: 150, height: 120, scaleFactor: 1, desktopScale: 1, workArea: null });
     return invoke<WindowGeometry>("get_window_geometry", { instanceId: windowInstance });
   },
   getPetWindowBounds(label, instanceId) {
@@ -69,14 +71,14 @@ const goodPuppy: GoodPuppyBridge = {
       };
     }
     if (point) {
-      const area = workAreaAtPoint(await availableMonitors(), point);
+      const area = workAreaAtPoint(await availableMonitors(), point, physicalDesktop);
       if (area) return area;
     }
     const monitor = await currentMonitor();
     if (!monitor) {
       return { x: 0, y: 0, width: window.screen.availWidth, height: window.screen.availHeight };
     }
-    return monitorRect(monitor, true);
+    return monitorRect(monitor, true, physicalDesktop);
   },
   getPetMonitorWorkArea(label, instanceId) {
     if (!inTauri) return this.getMonitorWorkArea();
@@ -106,7 +108,9 @@ const goodPuppy: GoodPuppyBridge = {
     } catch (error) {
       console.warn("cursor monitor lookup failed, falling back:", error);
     }
-    return toWorkArea(await currentMonitor()) || toWorkArea(await primaryMonitor()) || fallback;
+    const area = toWorkArea(await currentMonitor()) || toWorkArea(await primaryMonitor());
+    if (!area) throw new Error("显示器信息不可用");
+    return area;
   },
   async getMonitors() {
     // 浏览器 fallback：只知道单块屏，用其可用区近似。
@@ -114,8 +118,8 @@ const goodPuppy: GoodPuppyBridge = {
       return [{ x: 0, y: 0, width: window.screen.availWidth, height: window.screen.availHeight }];
     }
     const monitors = await availableMonitors();
-    // Monitor.size / position 为物理像素；转成逻辑像素以与窗口坐标一致。
-    return monitors.map((monitor) => monitorRect(monitor));
+    // Windows 保留全局物理平面；macOS 按各屏比例恢复同一全局逻辑平面。
+    return monitors.map((monitor) => ({ ...monitorRect(monitor, false, physicalDesktop), desktopScale: physicalDesktop ? monitor.scaleFactor : 1 }));
   },
   setSelfVisible(visible: boolean) {
     if (!inTauri) return Promise.resolve();
@@ -124,7 +128,7 @@ const goodPuppy: GoodPuppyBridge = {
   setWindowPosition(position: WindowPoint) {
     if (!appWindow) return Promise.resolve();
     if (!position || typeof position.x !== "number" || typeof position.y !== "number") return Promise.resolve();
-    return appWindow.setPosition(new LogicalPosition(Math.round(position.x), Math.round(position.y)));
+    return appWindow.setPosition(physicalDesktop ? new PhysicalPosition(Math.round(position.x), Math.round(position.y)) : new LogicalPosition(Math.round(position.x), Math.round(position.y)));
   },
   setWindowSize(size: WindowSize) {
     if (!appWindow) return Promise.resolve();
@@ -144,6 +148,7 @@ const goodPuppy: GoodPuppyBridge = {
     // 原子化 resize + reposition（单次 IPC，避免增高/翻转时窗口闪烁跳动）。
     return windowCommand<void>("set_window_bounds", {
       instanceId: windowInstance,
+      coordinateSpace,
       x: Math.round(bounds.x),
       y: Math.round(bounds.y),
       width: Math.round(bounds.width),
@@ -189,6 +194,7 @@ const goodPuppy: GoodPuppyBridge = {
     return windowCommand<void>("spawn_pet_window", {
       label: opts.label,
       instanceId: opts.instanceId,
+      coordinateSpace,
       x: Math.round(opts.x),
       y: Math.round(opts.y),
       width: Math.round(opts.width),
@@ -213,6 +219,7 @@ const goodPuppy: GoodPuppyBridge = {
     return windowCommand<void>("spawn_bubble_window", {
       label: opts.label,
       instanceId: opts.instanceId,
+      coordinateSpace,
       parentLabel: opts.parentLabel,
       isSelf: opts.isSelf,
       x: Math.round(opts.x),

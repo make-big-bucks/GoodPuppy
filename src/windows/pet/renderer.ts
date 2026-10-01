@@ -1,3 +1,4 @@
+import { desktopSizeAtPoint } from "../../shared/monitorGeometry.js";
 // 自己窗口（label "main"）的控制器：既是「自己 pet 的呈现者」，又是房间「协调者」宿主。
 //
 // 多窗口拆分后，远程成员各自是独立窗口（见 roomCoordinator.ts / petPresenter.ts）。
@@ -94,7 +95,6 @@ const coordinator = createRoomCoordinator({
   selfPresenter: presenter,
   getSelfAuthId: () => getSelfAuthId(),
   getCurrentRoomId: () => getCurrentRoomId(),
-  getScale: () => petScale,
 });
 
 loadPetManifest(selfPetId).then((manifest) => {
@@ -132,13 +132,10 @@ function setPetScale(next: number | string | null | undefined) {
 /** pet 窗口固定 pet 尺寸（气泡在 bubble-self）。缩放时按新尺寸重设窗口，并保持视觉
  * 底边不变（宠物锚定窗口底部），避免宠物随缩放上下跳。气泡窗口由 OS 跟随。 */
 async function resizeSelfWindow() {
-  const [cur, pos] = await Promise.all([
-    window.goodPuppy.getWindowSize(),
-    window.goodPuppy.getWindowPosition(),
-  ]);
+  const bounds = await window.goodPuppy.getWindowBounds();
   const size = getPetWindowSize(petScale);
-  const top = pos.y + cur.height - size.height;
-  await window.goodPuppy.setWindowBounds({ x: pos.x, y: top, width: size.width, height: size.height });
+  const top = bounds.y + (bounds.height - size.height) * bounds.desktopScale;
+  await window.goodPuppy.setWindowBounds({ x: bounds.x, y: top, width: size.width, height: size.height });
   // 自己窗口尺寸变了，气泡窗口随之重排（上/下避让 + 居中）。
   void coordinator.refreshSelfBubble();
 }
@@ -227,7 +224,7 @@ async function restoreSelfPosition() {
   // （如 x=1588）会整窗落在屏外，pet 看不见也抓不回。此时清掉坏存档、回退默认摆位。
   if (stored) {
     const monitors = await window.goodPuppy.getMonitors();
-    if (isWindowPositionVisible(stored, size, monitors)) {
+    if (isWindowPositionVisible(stored, desktopSizeAtPoint(monitors, stored, size), monitors)) {
       await window.goodPuppy.setWindowBounds({ x: stored.x, y: stored.y, width: size.width, height: size.height });
       selfPositionRestored = true;
       return;

@@ -44,6 +44,8 @@ pub(crate) fn set_pet_hit_shape(
 pub(crate) struct WindowGeometry {
     #[serde(rename = "scaleFactor")]
     scale_factor: f64,
+    #[serde(rename = "desktopScale")]
+    desktop_scale: f64,
     #[serde(rename = "workArea")]
     work_area: Option<LogicalWorkArea>,
     x: f64,
@@ -93,19 +95,47 @@ pub(crate) async fn get_window_geometry(
                     area.position.y as f64,
                     area.size.width as f64,
                     area.size.height as f64,
-                    scale,
+                    if cfg!(target_os = "windows") {
+                        1.0
+                    } else {
+                        scale
+                    },
                 )
             });
         Ok(WindowGeometry {
             scale_factor: scale,
+            desktop_scale: if cfg!(target_os = "windows") {
+                scale
+            } else {
+                1.0
+            },
             work_area,
-            x: position.x as f64 / scale,
-            y: position.y as f64 / scale,
+            x: position.x as f64
+                / if cfg!(target_os = "windows") {
+                    1.0
+                } else {
+                    scale
+                },
+            y: position.y as f64
+                / if cfg!(target_os = "windows") {
+                    1.0
+                } else {
+                    scale
+                },
             width: size.width as f64 / scale,
             height: size.height as f64 / scale,
         })
     })
     .await
+}
+
+fn desktop_protocol(space: Option<&str>) -> Result<bool, String> {
+    match space {
+        None => Ok(false),
+        Some("desktop-physical-v2") if cfg!(target_os = "windows") => Ok(true),
+        Some("desktop-logical-v2") if !cfg!(target_os = "windows") => Ok(true),
+        _ => Err("unsupported desktop coordinate space".into()),
+    }
 }
 
 fn validate_geometry(x: f64, y: f64, width: f64, height: f64) -> Result<(), String> {
@@ -126,12 +156,14 @@ pub(crate) async fn set_window_bounds(
     window: WebviewWindow,
     bubbles: tauri::State<'_, Bubbles>,
     instance_id: Option<String>,
+    coordinate_space: Option<String>,
     x: f64,
     y: f64,
     width: f64,
     height: f64,
 ) -> Result<(), String> {
     validate_geometry(x, y, width, height)?;
+    let desktop = desktop_protocol(coordinate_space.as_deref())?;
     if window.label() != "main"
         && (instance_id.is_none()
             || !matches_instance(window.app_handle(), window.label(), instance_id.as_deref()))
@@ -151,7 +183,11 @@ pub(crate) async fn set_window_bounds(
         {
             return Err("stale window geometry request".into());
         }
-        position_overlay_window(&win, x, y, width, height)?;
+        if desktop {
+            position_desktop_overlay_window(&win, x, y, width, height)?;
+        } else {
+            position_overlay_window(&win, x, y, width, height)?;
+        }
         // 位置真正应用后才提交跟随偏移；失败不能污染下一次父窗口移动。
         refresh_bubble_offset(&win, &bubbles);
         Ok(())
@@ -171,6 +207,7 @@ pub(crate) async fn spawn_pet_window(
     bubbles: tauri::State<'_, Bubbles>,
     label: String,
     instance_id: Option<String>,
+    coordinate_space: Option<String>,
     x: f64,
     y: f64,
     width: f64,
@@ -179,6 +216,7 @@ pub(crate) async fn spawn_pet_window(
     require_role(caller.label(), "main")?;
     require_remote_label(&label, "pet-")?;
     validate_geometry(x, y, width, height)?;
+    let desktop = desktop_protocol(coordinate_space.as_deref())?;
     let instance_id = instance_id.unwrap_or_else(new_instance_id);
     if app.get_webview_window(&label).is_some() {
         if matches_instance(&app, &label, Some(&instance_id)) {
@@ -220,7 +258,11 @@ pub(crate) async fn spawn_pet_window(
     let win = window.clone();
     let setup = on_main_thread(&app, move || {
         configure_floating_overlay(&win);
-        position_overlay_window(&win, x, y, width, height)?;
+        if desktop {
+            position_desktop_overlay_window(&win, x, y, width, height)?;
+        } else {
+            position_overlay_window(&win, x, y, width, height)?;
+        }
         win.show().map_err(|error| error.to_string())
     })
     .await;
@@ -272,6 +314,7 @@ pub(crate) async fn spawn_bubble_window(
     bubbles: tauri::State<'_, Bubbles>,
     label: String,
     instance_id: Option<String>,
+    coordinate_space: Option<String>,
     parent_label: String,
     is_self: bool,
     x: f64,
@@ -282,6 +325,7 @@ pub(crate) async fn spawn_bubble_window(
     require_role(caller.label(), "main")?;
     validate_bubble_pair(&label, &parent_label, is_self)?;
     validate_geometry(x, y, width, height)?;
+    let desktop = desktop_protocol(coordinate_space.as_deref())?;
     let instance_id = instance_id.unwrap_or_else(new_instance_id);
     if app.get_webview_window(&label).is_some() {
         if matches_instance(&app, &label, Some(&instance_id)) {
@@ -331,7 +375,11 @@ pub(crate) async fn spawn_bubble_window(
         if is_self {
             configure_self_panel(&win);
         }
-        position_overlay_window(&win, x, y, width, height)?;
+        if desktop {
+            position_desktop_overlay_window(&win, x, y, width, height)?;
+        } else {
+            position_overlay_window(&win, x, y, width, height)?;
+        }
         // 注册表与真实位置在同一主线程提交，初始偏移也按平台桌面单位计算。
         register_bubble(
             &follow_bubbles,
@@ -577,7 +625,11 @@ pub(crate) async fn get_pet_monitor_work_area(
             area.position.y as f64,
             area.size.width as f64,
             area.size.height as f64,
-            scale,
+            if cfg!(target_os = "windows") {
+                1.0
+            } else {
+                scale
+            },
         ))
     })
     .await

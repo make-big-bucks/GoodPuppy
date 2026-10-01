@@ -1,3 +1,4 @@
+import { desktopScaleAtPoint, desktopSizeAtPoint } from "../../shared/monitorGeometry.js";
 import type { EventSubscription } from "../../shared/eventSubscription.js";
 import { compareMessagePosition } from "../../shared/messageOrder.js";
 import { createWindowReadiness } from "./windowReadiness.js";
@@ -65,7 +66,6 @@ export type RoomCoordinatorDeps = {
   selfPresenter: PetPresenter;
   getSelfAuthId: () => string | null;
   getCurrentRoomId: () => string | null;
-  getScale: () => number;
 };
 
 export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
@@ -126,9 +126,10 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
     const work = actual.workArea;
     if (!work) throw new Error("目标显示器可用区不可用");
     const size = getBubbleWindowSize();
+    const scale = actual.desktopScale ?? 1;
     const r = computeBubbleWindowPosition({
-      pet: { x: actual.x, y: actual.y, width: actual.width, height: actual.height },
-      bubble: size,
+      pet: { x: actual.x, y: actual.y, width: actual.width * scale, height: actual.height * scale },
+      bubble: { width: size.width * scale, height: size.height * scale },
       workArea: work,
     });
     return { x: r.x, y: r.y, width: size.width, height: size.height, placement: r.placement };
@@ -194,8 +195,8 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
 
   // ── Positioning ──────────────────────────────────────────────────────────
   async function selfBounds(): Promise<{ pos: WindowPoint; size: { width: number; height: number } }> {
-    const { x, y, width, height } = await bridge.getWindowBounds();
-    return { pos: { x, y }, size: { width, height } };
+    const { x, y, width, height, desktopScale = 1 } = await bridge.getWindowBounds();
+    return { pos: { x, y }, size: { width: width * desktopScale, height: height * desktopScale } };
   }
 
   /** 计算每只在线远程 pet 的目标窗口左上角。
@@ -204,21 +205,22 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
   async function desiredLayout(roomId: string, orderedIds: string[]): Promise<Map<string, WindowPoint>> {
     const { pos, size } = await selfBounds();
     const petSize = getPetWindowSize();
+    const monitors = await bridge.getMonitors();
     const auto = computeSemiFreeLayout({
       selfPos: pos,
       selfSize: size,
       remoteIds: orderedIds,
       petWindowWidth: petSize.width,
       petWindowHeight: petSize.height,
+      scaleAt: (point) => desktopScaleAtPoint(monitors, point),
     });
     if (mode === "semi") return auto;
     // 完全自由：用存档位置，但存档必须仍落在某块已连接屏幕的可见区内——外接屏
     // 断开后旧坐标会整窗落在屏外，pet 看不见。越界则清掉坏存档、退回自动槽位。
-    const monitors = await bridge.getMonitors();
     const result = new Map<string, WindowPoint>();
     for (const userId of orderedIds) {
       const stored = readRemotePos(roomId, userId);
-      if (stored && isWindowPositionVisible(stored, petSize, monitors)) {
+      if (stored && isWindowPositionVisible(stored, desktopSizeAtPoint(monitors, stored, petSize), monitors)) {
         result.set(userId, stored);
       } else {
         if (stored) clearRemotePos(roomId, userId);

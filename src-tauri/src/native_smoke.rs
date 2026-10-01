@@ -42,6 +42,14 @@ async fn run(app: &AppHandle) -> Result<(), String> {
         app.state::<Bubbles>(),
         "pet-invalid-geometry".into(),
         Some("invalid-geometry".into()),
+        Some(
+            if cfg!(target_os = "windows") {
+                "desktop-physical-v2"
+            } else {
+                "desktop-logical-v2"
+            }
+            .into(),
+        ),
         200.0,
         200.0,
         0.0,
@@ -58,6 +66,14 @@ async fn run(app: &AppHandle) -> Result<(), String> {
         app.state::<Bubbles>(),
         "pet-rollback".into(),
         Some("rollback-instance".into()),
+        Some(
+            if cfg!(target_os = "windows") {
+                "desktop-physical-v2"
+            } else {
+                "desktop-logical-v2"
+            }
+            .into(),
+        ),
         200.0,
         200.0,
         150.0,
@@ -85,6 +101,14 @@ async fn run(app: &AppHandle) -> Result<(), String> {
         app.state::<Bubbles>(),
         "pet-rollback".into(),
         Some("retry-instance".into()),
+        Some(
+            if cfg!(target_os = "windows") {
+                "desktop-physical-v2"
+            } else {
+                "desktop-logical-v2"
+            }
+            .into(),
+        ),
         200.0,
         200.0,
         150.0,
@@ -107,6 +131,14 @@ async fn run(app: &AppHandle) -> Result<(), String> {
             app.state::<Bubbles>(),
             "pet-smoke".into(),
             Some(instance.clone()),
+            Some(
+                if cfg!(target_os = "windows") {
+                    "desktop-physical-v2"
+                } else {
+                    "desktop-logical-v2"
+                }
+                .into(),
+            ),
             200.0,
             200.0,
             150.0,
@@ -163,6 +195,14 @@ async fn run(app: &AppHandle) -> Result<(), String> {
             app.state::<Bubbles>(),
             "bubble-smoke".into(),
             Some(instance.clone()),
+            Some(
+                if cfg!(target_os = "windows") {
+                    "desktop-physical-v2"
+                } else {
+                    "desktop-logical-v2"
+                }
+                .into(),
+            ),
             "pet-smoke".into(),
             false,
             200.0,
@@ -247,6 +287,14 @@ async fn run(app: &AppHandle) -> Result<(), String> {
         app.state::<Bubbles>(),
         "bubble-self".into(),
         None,
+        Some(
+            if cfg!(target_os = "windows") {
+                "desktop-physical-v2"
+            } else {
+                "desktop-logical-v2"
+            }
+            .into(),
+        ),
         "main".into(),
         true,
         200.0,

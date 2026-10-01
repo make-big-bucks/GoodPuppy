@@ -26,3 +26,10 @@ describe("computeSemiFreeLayout", () => {
     expect(computeSemiFreeLayout({ ...base, remoteIds: [] }).size).toBe(0);
   });
 });
+
+it("converts remote logical footprints and gaps to the target desktop plane", () => {
+  const layout = computeSemiFreeLayout({ selfPos: { x: 100, y: 100 }, selfSize: { width: 150, height: 120 },
+    remoteIds: ["a", "b"], petWindowWidth: 150, petWindowHeight: 120, scaleAt: () => 2 });
+  expect(layout.get("a")).toEqual({ x: 274, y: -20 });
+  expect(layout.get("b")).toEqual({ x: 598, y: -20 });
+});
