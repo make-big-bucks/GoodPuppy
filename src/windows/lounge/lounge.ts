@@ -1,3 +1,5 @@
+import { bindDialogFocus } from "../../shared/dialogFocus.js";
+import { saveAdoptedProfile } from "./adoption.js";
 import { createRefreshController } from "../../shared/refreshController.js";
 import { sendRoomInvitation } from "./loungeMutations.js";
 import { createOperationLifetime } from "../../shared/operationLifetime.js";
@@ -140,6 +142,14 @@ const panel = () => document.querySelector<HTMLElement>(".lounge-panel");
 const modalBackdrop = () => document.querySelector<HTMLElement>(".lounge-modal-backdrop");
 const modalForm = () => document.querySelector<HTMLFormElement>(".lounge-modal");
 const modalLifetime = createOperationLifetime();
+let releaseModalFocus: (() => void) | null = null;
+let authActionPending = false;
+
+function showModal(backdrop: HTMLElement, form: HTMLFormElement) {
+  backdrop.hidden = false;
+  if (!releaseModalFocus) releaseModalFocus = bindDialogFocus(form, closeModal);
+  form.setAttribute("aria-label", form.querySelector("h2")?.textContent || "账号与房间操作");
+}
 
 function captureModalOperation() {
   const version = authRevision;
@@ -202,6 +212,9 @@ function closeModal() {
     form.classList.remove("lounge-login-modal");
     form.onsubmit = null;
   }
+  const release = releaseModalFocus;
+  releaseModalFocus = null;
+  release?.();
 }
 
 const checkSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>`;
@@ -289,6 +302,7 @@ function openLoginDialog() {
   // 领养首屏：匿名登录 + 给宠物取名（名字必填）。
   function renderAdoptScreen() {
     modalLifetime.invalidate();
+    form!.setAttribute("aria-label", "领养宠物");
     form!.innerHTML = `
     ${loginBrandHtml}
     <div class="lounge-login-field">
@@ -317,16 +331,18 @@ function openLoginDialog() {
     syncSubmitState();
     nameInput.addEventListener("input", syncSubmitState);
 
+    const operation = modalLifetime.capture();
     showEmailBtn.addEventListener("click", () => { renderEmailScreen(); });
     form!.onsubmit = (event) => {
       event.preventDefault();
-      void doAdopt(nameInput.value.trim(), submitBtn);
+      void runAuth("adopt", submitBtn, operation, { name: nameInput.value.trim() });
     };
   }
 
   // 邮箱登录屏：已有账号上线 / 创建新账号，可返回领养首屏。
   function renderEmailScreen() {
     modalLifetime.invalidate();
+    form!.setAttribute("aria-label", "邮箱登录与注册");
     form!.innerHTML = `
     ${loginBrandHtml}
     <div class="lounge-login-field">
@@ -370,88 +386,64 @@ function openLoginDialog() {
       passwordInput.focus();
     });
 
-    async function doSignIn() {
-      if (!supabaseClient) return;
-      const email = emailInput.value.trim();
-      const password = passwordInput.value;
-      if (!email || !password) { setModalMessage("请填写邮箱和密码"); return; }
-      setModalBusy(true);
-      setButtonLoading(submitBtn, true);
-      setModalMessage("正在登录...");
-      try {
-        const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        closeModal();
-        onLoginSuccess?.();
-      } catch (error) {
-        setModalMessage(getErrorMessage(error, "登录失败"));
-      } finally {
-        setButtonLoading(submitBtn, false);
-        setModalBusy(false);
-      }
-    }
+    const operation = modalLifetime.capture();
+    const credentials = () => ({ email: emailInput.value.trim(), password: passwordInput.value });
 
-    async function doSignUp() {
-      if (!supabaseClient) return;
-      const email = emailInput.value.trim();
-      const password = passwordInput.value;
-      if (!email || !password) { setModalMessage("请填写邮箱和密码"); return; }
-      setModalBusy(true);
-      setButtonLoading(registerBtn, true);
-      setModalMessage("正在注册...");
-      try {
-        const { data, error } = await supabaseClient.auth.signUp({ email, password });
-        if (error) throw error;
-        if (data.session) {
-          closeModal();
-          onLoginSuccess?.();
-        } else {
-          setModalMessage("注册成功，请检查邮箱确认账号");
-          setButtonLoading(registerBtn, false);
-          setModalBusy(false);
-        }
-      } catch (error) {
-        setModalMessage(getErrorMessage(error, "注册失败"));
-        setButtonLoading(registerBtn, false);
-        setModalBusy(false);
-      }
-    }
-
-    registerBtn.addEventListener("click", () => { void doSignUp(); });
+    registerBtn.addEventListener("click", () => { void runAuth("signup", registerBtn, operation, credentials()); });
     backBtn.addEventListener("click", () => { renderAdoptScreen(); });
-    form!.onsubmit = (event) => { event.preventDefault(); void doSignIn(); };
+    form!.onsubmit = (event) => { event.preventDefault(); void runAuth("signin", submitBtn, operation, credentials()); };
   }
 
-  // 匿名登录成功后立刻把宠物名写入 profiles（onConflict 更新，非 ignoreDuplicates），
-  // 预创建行，避开 loadPanelData 的空名兜底；对 pet 窗口 ignoreDuplicates upsert 无竞态影响。
-  async function doAdopt(name: string, submitBtn: HTMLButtonElement) {
-    if (!supabaseClient) return;
-    if (!name) { setModalMessage("请先给宠物取个名字"); return; }
+  async function runAuth(
+    action: "adopt" | "signin" | "signup",
+    button: HTMLButtonElement,
+    operation: ReturnType<typeof modalLifetime.capture>,
+    values: { email?: string; password?: string; name?: string },
+  ) {
+    if (!operation.isCurrent()) return;
+    if (authActionPending) { setModalMessage("上一次账号操作仍在处理中，请稍后重试"); return; }
+    const client = supabaseClient;
+    const success = onLoginSuccess;
+    if (!client) return;
+    if (action === "adopt" ? !values.name : !values.email || !values.password) {
+      setModalMessage(action === "adopt" ? "请先给宠物取个名字" : "请填写邮箱和密码");
+      return;
+    }
+    authActionPending = true;
     setModalBusy(true);
-    setButtonLoading(submitBtn, true);
-    setModalMessage("正在领养...");
+    setButtonLoading(button, true);
+    setModalMessage(action === "adopt" ? "正在领养..." : action === "signup" ? "正在注册..." : "正在登录...");
+    let authenticatedId: string | null = null;
     try {
-      const { data, error } = await supabaseClient.auth.signInAnonymously();
+      const credentials = { email: values.email ?? "", password: values.password ?? "" };
+      const { data, error } = action === "adopt" ? await client.auth.signInAnonymously()
+        : action === "signup" ? await client.auth.signUp(credentials) : await client.auth.signInWithPassword(credentials);
       if (error) throw error;
-      const userId = data.user?.id;
-      if (userId) {
-        const { error: profileError } = await supabaseClient
-          .from("profiles")
-          .upsert({ id: userId, display_name: name, pet_id: "default" }, { onConflict: "id", ignoreDuplicates: true });
-        if (profileError) throw profileError;
-        const { error: nameError } = await supabaseClient.from("profiles").update({ display_name: name }).eq("id", userId);
-        if (nameError) throw nameError;
+      if (!data.session) {
+        if (action !== "signup") throw new Error("登录未返回会话");
+        if (operation.isCurrent()) setModalMessage("注册成功，请检查邮箱确认账号");
+        return;
       }
-      closeModal();
-      onLoginSuccess?.();
+      authenticatedId = data.session.user.id;
+      const isCurrentUser = () => supabaseClient === client && selfAuthId === authenticatedId;
+      if (!isCurrentUser()) return;
+      if (action === "adopt") await saveAdoptedProfile(client, authenticatedId, values.name!, isCurrentUser);
+      if (!isCurrentUser()) return;
+      if (operation.isCurrent()) closeModal();
+      success?.();
+      // 登录事件可能已加载过默认名字，领养资料写入后再刷新一次。
+      if (action === "adopt") await loadPanelData();
     } catch (error) {
-      setModalMessage(getErrorMessage(error, "领养失败"));
-      setButtonLoading(submitBtn, false);
-      setModalBusy(false);
+      const message = getErrorMessage(error, action === "adopt" ? "领养失败" : action === "signup" ? "注册失败" : "登录失败");
+      if (operation.isCurrent()) setModalMessage(message);
+      else if (authenticatedId && supabaseClient === client && selfAuthId === authenticatedId) showToast(message, "error");
+    } finally {
+      authActionPending = false;
+      if (operation.isCurrent()) { setButtonLoading(button, false); setModalBusy(false); }
     }
   }
 
-  backdrop.hidden = false;
+  showModal(backdrop, form);
   renderAdoptScreen();
 }
 
@@ -493,7 +485,7 @@ function openLogoutConfirmDialog() {
   const cancel = requiredQuery<HTMLButtonElement>(form, ".lounge-form-cancel");
   const logoutBtn = requiredQuery<HTMLButtonElement>(form, ".lounge-logout-confirm");
 
-  backdrop.hidden = false;
+  showModal(backdrop, form);
 
   cancel.onclick = closeModal;
   const operation = captureModalOperation();
@@ -560,7 +552,7 @@ function openBindAccountDialog() {
 
   setModalMessage("");
   setModalBusy(false);
-  backdrop.hidden = false;
+  showModal(backdrop, form);
   emailInput.focus();
 
   passwordToggle.addEventListener("click", () => {
@@ -630,7 +622,7 @@ function openLeaveRoomPermanentDialog(room: LoungeRoom) {
   const cancel = requiredQuery<HTMLButtonElement>(form, ".lounge-form-cancel");
   const confirmBtn = requiredQuery<HTMLButtonElement>(form, ".lounge-leave-permanent-confirm");
 
-  backdrop.hidden = false;
+  showModal(backdrop, form);
 
   cancel.onclick = closeModal;
   const operation = captureModalOperation();
@@ -759,7 +751,7 @@ function openInputModal({
   submit.textContent = submitText;
   setModalMessage("");
   setModalBusy(false);
-  backdrop.hidden = false;
+  showModal(backdrop, form);
 
   cancel.onclick = closeModal;
   input.focus();
@@ -895,7 +887,7 @@ function openRoomMetadataModal() {
   roomDescriptionInput.value = room.description || "";
   setModalMessage("");
   setModalBusy(false);
-  backdrop.hidden = false;
+  showModal(backdrop, form);
 
   cancel.onclick = closeModal;
   roomNameInput.focus();
