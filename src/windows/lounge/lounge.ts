@@ -4,7 +4,7 @@ import { bindDialogFocus } from "../../shared/dialogFocus.js";
 import { createResumeMonitor } from "../../shared/resumeMonitor.js";
 import { createAuthFlow } from "./authFlow.js";
 import { createRefreshController } from "../../shared/refreshController.js";
-import { InvitationStateChangedError, declineRoomInvitation, saveDisplayName, saveRoomMetadata, sendRoomInvitation } from "./loungeMutations.js";
+import { InvitationStateChangedError, acceptRoomInvitation, createRoomRecord, declineRoomInvitation, joinRoomMembership, leaveRoomMembership, saveDisplayName, saveRoomMetadata, sendRoomInvitation } from "./loungeMutations.js";
 import { createOperationLifetime } from "../../shared/operationLifetime.js";
 import { fetchLoungeData, type LoungeData, type LoungeDataContext } from "./loungeData.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -607,19 +607,18 @@ function openLeaveRoomPermanentDialog(room: LoungeRoom) {
 
   cancel.onclick = closeModal;
   const operation = captureModalOperation();
-  const client = supabaseClient;
+  const mutation = captureMutation();
   const exitRoom = onExitRoom;
   confirmBtn.onclick = () => {
     void operation.run(async () => {
       confirmBtn.disabled = true;
       setButtonLoading(confirmBtn, true);
       try {
-        if (!client) throw new Error("请先登录");
         if (getActiveRoomId?.() === room.id && exitRoom) await exitRoom();
         operation.assertCurrent();
-        const { error } = await client.rpc("leave_room", { p_room_id: room.id });
+        await leaveRoomMembership(mutation, room.id);
+        mutation.assertCurrent();
         operation.assertCurrent();
-        if (error) throw error;
         closeModal();
         if (selectedRoomId === room.id) selectedRoomId = null;
         showToast("已永久退出房间");
@@ -767,10 +766,8 @@ function openInputModal({
 async function createRoom(roomName: string) {
   const mutation = captureMutation();
 
-  const roomId = crypto.randomUUID();
-  const { error } = await mutation.client.rpc("create_room", { p_room_name: roomName, p_room_id: roomId });
+  const roomId = await createRoomRecord(mutation, roomName);
   mutation.assertCurrent();
-  if (error) throw error;
 
   selectedRoomId = roomId;
   showToast("房间已创建");
@@ -779,24 +776,24 @@ async function createRoom(roomName: string) {
 
 async function joinRoomByInvite(inviteCode: string) {
   const mutation = captureMutation();
-  const { error } = await mutation.client.rpc("join_room_by_invite", {
-    p_invite_code: inviteCode,
-  });
-
+  await joinRoomMembership(mutation, inviteCode);
   mutation.assertCurrent();
-  if (error) throw error;
 
   showToast("已加入房间");
   await loadPanelData();
 }
 
 async function inviteMember(targetGpId: string) {
-  await sendRoomInvitation(captureMutation(), targetGpId);
+  const mutation = captureMutation();
+  await sendRoomInvitation(mutation, targetGpId);
+  mutation.assertCurrent();
   showToast("邀请已发送");
 }
 
 async function updateDisplayName(displayName: string) {
-  await saveDisplayName(captureMutation(), displayName);
+  const mutation = captureMutation();
+  await saveDisplayName(mutation, displayName);
+  mutation.assertCurrent();
   await loadPanelData();
 }
 
@@ -814,7 +811,9 @@ function openDisplayNameEditor() {
 }
 
 async function updateSelectedRoomMetadata(roomId: string, values: RoomMetadataUpdate) {
-  await saveRoomMetadata(captureMutation(), roomId, values);
+  const mutation = captureMutation();
+  await saveRoomMetadata(mutation, roomId, values);
+  mutation.assertCurrent();
   await loadPanelData();
 }
 
@@ -879,12 +878,8 @@ function openRoomMetadataModal() {
 
 async function acceptRequest(requestId: string) {
   const mutation = captureMutation();
-  const { error } = await mutation.client.rpc("accept_connection", {
-    p_request_id: requestId,
-  });
-
+  await acceptRoomInvitation(mutation, requestId);
   mutation.assertCurrent();
-  if (error) throw error;
 
   showToast("已接受邀请");
   await loadPanelData();
@@ -901,6 +896,7 @@ async function declineRequest(requestId: string) {
     }
     throw error;
   }
+  mutation.assertCurrent();
   showToast("已拒绝邀请");
   await loadPanelData();
 }

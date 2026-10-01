@@ -78,3 +78,30 @@ export async function declineRoomInvitation(mutation: MutationContext, requestId
   if (error) throw error;
   if (data?.id !== requestId || data.status !== "declined") throw new Error("邀请状态未更新，请重试");
 }
+
+async function roomCommand(mutation: MutationContext, name: string, args: Record<string, string>) {
+  mutation.assertCurrent();
+  const { data, error } = await mutation.client.rpc(name, args);
+  mutation.assertCurrent();
+  if (error) throw error;
+  return data;
+}
+
+export async function createRoomRecord(mutation: MutationContext, roomName: string, roomId: string = crypto.randomUUID()) {
+  const data = await roomCommand(mutation, "create_room", { p_room_name: roomName, p_room_id: roomId });
+  mutation.assertCurrent();
+  if (data !== roomId) throw new Error("房间创建未确认，请重试");
+  return roomId;
+}
+export async function joinRoomMembership(mutation: MutationContext, inviteCode: string) {
+  await roomCommand(mutation, "join_room_by_invite", { p_invite_code: inviteCode });
+  mutation.assertCurrent();
+}
+export async function acceptRoomInvitation(mutation: MutationContext, requestId: string) {
+  await roomCommand(mutation, "accept_connection", { p_request_id: requestId });
+  mutation.assertCurrent();
+}
+export async function leaveRoomMembership(mutation: MutationContext, roomId: string) {
+  await roomCommand(mutation, "leave_room", { p_room_id: roomId });
+  mutation.assertCurrent();
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { declineRoomInvitation, saveDisplayName, saveRoomMetadata, sendRoomInvitation } from "./loungeMutations.js";
+import { acceptRoomInvitation, createRoomRecord, joinRoomMembership, leaveRoomMembership, declineRoomInvitation, saveDisplayName, saveRoomMetadata, sendRoomInvitation } from "./loungeMutations.js";
 
 function fixture() {
   let resolve!: (result: unknown) => void;
@@ -78,5 +78,39 @@ describe("invitation decline receipt", () => {
   it("reports a concurrently processed request instead of successful rejection", async () => {
     const f = writeFixture(); f.query.single.mockResolvedValue({ data: null, error: { code: "PGRST116" } } as never);
     await expect(declineRoomInvitation(f.context, "request")).rejects.toThrow("邀请已被处理或已失效");
+  });
+});
+
+describe("room command context", () => {
+  function commands() {
+    const rpc = vi.fn(async () => ({ data: "room-id", error: null })); let current = true;
+    const context = { client: { rpc } as never, userId: "self", roomId: "selection", assertCurrent() {
+      if (!current) throw new DOMException("账号已改变", "AbortError");
+    } };
+    return { rpc, context, invalidate: () => { current = false; } };
+  }
+  it("requires the created room ID receipt before returning a selectable room", async () => {
+    const f = commands(); expect(await createRoomRecord(f.context, "房间", "room-id")).toBe("room-id");
+    expect(f.rpc).toHaveBeenCalledWith("create_room", { p_room_name: "房间", p_room_id: "room-id" });
+    f.rpc.mockResolvedValue({ data: "wrong-id", error: null });
+    await expect(createRoomRecord(f.context, "房间", "room-id")).rejects.toThrow("房间创建未确认");
+  });
+  it("checks identity again after the nested RPC helper returns", async () => {
+    const f = commands();
+    const work = createRoomRecord(f.context, "房间", "room-id");
+    queueMicrotask(f.invalidate);
+    await expect(work).rejects.toMatchObject({ name: "AbortError" });
+  });
+  it("routes membership and invitation commands to their explicit captured targets", async () => {
+    const f = commands(); await joinRoomMembership(f.context, "code"); await acceptRoomInvitation(f.context, "request");
+    await leaveRoomMembership(f.context, "original-room");
+    expect(f.rpc.mock.calls).toEqual([["join_room_by_invite", { p_invite_code: "code" }],
+      ["accept_connection", { p_request_id: "request" }], ["leave_room", { p_room_id: "original-room" }]]);
+  });
+  it("rejects a delayed successful command after identity invalidation", async () => {
+    const f = commands(); let finish!: (value: any) => void;
+    f.rpc.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    const work = leaveRoomMembership(f.context, "original-room"); f.invalidate();
+    finish({ data: null, error: null }); await expect(work).rejects.toMatchObject({ name: "AbortError" });
   });
 });
