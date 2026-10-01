@@ -37,6 +37,19 @@ pub(crate) fn set_pet_hit_shape(
     }
 }
 
+fn validate_geometry(x: f64, y: f64, width: f64, height: f64) -> Result<(), String> {
+    if [x, y, width, height, x + width, y + height]
+        .iter()
+        .all(|value| value.is_finite())
+        && width > 0.0
+        && height > 0.0
+    {
+        Ok(())
+    } else {
+        Err("window geometry must be finite with positive dimensions".into())
+    }
+}
+
 #[tauri::command]
 pub(crate) async fn set_window_bounds(
     window: WebviewWindow,
@@ -47,6 +60,7 @@ pub(crate) async fn set_window_bounds(
     width: f64,
     height: f64,
 ) -> Result<(), String> {
+    validate_geometry(x, y, width, height)?;
     if window.label() != "main"
         && (instance_id.is_none()
             || !matches_instance(window.app_handle(), window.label(), instance_id.as_deref()))
@@ -94,6 +108,7 @@ pub(crate) async fn spawn_pet_window(
 ) -> Result<(), String> {
     require_role(caller.label(), "main")?;
     require_remote_label(&label, "pet-")?;
+    validate_geometry(x, y, width, height)?;
     let instance_id = instance_id.unwrap_or_else(new_instance_id);
     if app.get_webview_window(&label).is_some() {
         if matches_instance(&app, &label, Some(&instance_id)) {
@@ -195,6 +210,7 @@ pub(crate) async fn spawn_bubble_window(
 ) -> Result<(), String> {
     require_role(caller.label(), "main")?;
     validate_bubble_pair(&label, &parent_label, is_self)?;
+    validate_geometry(x, y, width, height)?;
     let instance_id = instance_id.unwrap_or_else(new_instance_id);
     if app.get_webview_window(&label).is_some() {
         if matches_instance(&app, &label, Some(&instance_id)) {
@@ -311,6 +327,7 @@ pub(crate) async fn spawn_toast_window(
 ) -> Result<(), String> {
     require_role(caller.label(), "lounge")?;
     require_remote_label(&label, "toast-")?;
+    validate_geometry(x, y, width, height)?;
     let instance_id = instance_id.unwrap_or_else(new_instance_id);
     if app.get_webview_window(&label).is_some() {
         if matches_instance(&app, &label, Some(&instance_id)) {
@@ -572,6 +589,15 @@ pub(crate) async fn set_self_visible(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn window_geometry_rejects_invalid_dimensions_before_native_mutation() {
+        assert!(validate_geometry(-1920.0, -200.0, 150.0, 120.0).is_ok());
+        for dimensions in [(0.0, 120.0), (-1.0, 120.0), (150.0, 0.0), (150.0, f64::NAN)] {
+            assert!(validate_geometry(0.0, 0.0, dimensions.0, dimensions.1).is_err());
+        }
+        assert!(validate_geometry(f64::INFINITY, 0.0, 150.0, 120.0).is_err());
+        assert!(validate_geometry(f64::MAX, 0.0, f64::MAX, 120.0).is_err());
+    }
     #[test]
     fn target_work_area_uses_the_target_window_scale_and_preserves_negative_origins() {
         let secondary = logical_work_area(1920.0, 40.0, 2560.0, 1400.0, 2.0);

@@ -35,6 +35,22 @@ pub(crate) fn start(app: AppHandle) {
 
 async fn run(app: &AppHandle) -> Result<(), String> {
     let main = app.get_webview_window("main").ok_or("main unavailable")?;
+    let invalid = commands::spawn_pet_window(
+        app.clone(),
+        main.clone(),
+        app.state::<HitShapes>(),
+        app.state::<Bubbles>(),
+        "pet-invalid-geometry".into(),
+        Some("invalid-geometry".into()),
+        200.0,
+        200.0,
+        0.0,
+        120.0,
+    )
+    .await;
+    if invalid.is_ok() || app.get_webview_window("pet-invalid-geometry").is_some() {
+        return Err("invalid geometry created a native window".into());
+    }
     for cycle in 0..2 {
         let instance = format!("native-smoke-{cycle}");
         commands::spawn_pet_window(
