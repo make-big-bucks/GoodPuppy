@@ -19,7 +19,7 @@ type RoomCallbacks = {
   onInteraction: (payload: InteractionPayload) => void;
   onMessagesLoaded: (messages: LocalMessage[]) => void;
   onNewMessage: (msg: LocalMessage) => void;
-  onRoomReady: () => void;
+  onRoomStateChanged: () => void;
   onEnterRoom: () => void;
   onClearRemotePets: () => void;
   onPetIdResolved: (petId: string) => void;
@@ -58,12 +58,14 @@ function stopHeartbeat() {
 }
 
 function invalidate() {
+  const hadRoom = currentRoomId !== null;
   resumeRecovery?.abort.abort();
   resumeRecovery = null;
   revision += 1;
   stopHeartbeat();
   if (currentRoomId) callbacks?.onClearRemotePets();
   currentRoomId = null;
+  if (hadRoom) callbacks?.onRoomStateChanged();
   return revision;
 }
 
@@ -201,7 +203,7 @@ async function activateRoom(session: SessionContext, roomId: string, version: nu
     compareMessagePosition({ id: a.id, createdAt: a.created_at }, { id: b.id, createdAt: b.created_at })));
   cbs.onPresenceChange(users);
   startHeartbeat(version, pulse);
-  cbs.onRoomReady();
+  cbs.onRoomStateChanged();
 }
 
 async function enter(session: SessionContext, roomId: string, version: number) {
@@ -219,8 +221,9 @@ async function enter(session: SessionContext, roomId: string, version: number) {
     // 旧操作也要释放已创建的通道，但不触碰更新版本的本地状态。
     await Promise.allSettled([releaseChannels(session.client), writeOffline(session)]);
     if (version === revision) {
+      const hadRoom = currentRoomId !== null;
       invalidate();
-      callbacks?.onRoomReady();
+      if (!hadRoom) callbacks?.onRoomStateChanged();
     }
     throw error;
   }
@@ -246,7 +249,6 @@ export function recoverRoomAfterResume(): Promise<void> {
   if (!session || !roomId) return Promise.resolve();
   const version = invalidate();
   recordLifecycle({ operation: "room-resume", phase: "start", roomId, sessionVersion: version });
-  callbacks?.onRoomReady();
   const abort = new AbortController();
   const result = retryTask(() => enqueue(async () => {
     assertCurrent(version);
@@ -266,7 +268,7 @@ export function recoverRoomAfterResume(): Promise<void> {
     if (!membership) {
       await writeOffline(session);
       assertCurrent(version);
-      callbacks?.onRoomReady();
+      callbacks?.onRoomStateChanged();
       return;
     }
     if (offline.status === "rejected") throw offline.reason;
@@ -291,7 +293,7 @@ export function exitCurrentRoom({ rememberRoom = false }: { rememberRoom?: boole
   const version = invalidate();
   const event = { operation: "room-exit" as const, action: rememberRoom ? "quit" as const : "leave" as const, roomId, sessionVersion: version };
   recordLifecycle({ ...event, phase: "start" });
-  callbacks?.onRoomReady();
+  if (!roomId) callbacks?.onRoomStateChanged();
   if (!session) { recordLifecycle({ ...event, phase: "ok" }); return Promise.resolve(); }
   const result = enqueue(async () => {
     const results = await Promise.allSettled([releaseChannels(session.client), writeOffline(session, rememberRoom)]);
@@ -340,7 +342,7 @@ export function startPetApp({ supabase, session }: StartPetAppOptions = {}): Pro
       await writeOffline(next);
     } else if (data?.is_online) await writeOffline(next);
     assertCurrent(version);
-    callbacks?.onRoomReady();
+    callbacks?.onRoomStateChanged();
   });
   initialization = result;
   void result.catch(() => {
@@ -348,7 +350,7 @@ export function startPetApp({ supabase, session }: StartPetAppOptions = {}): Pro
     if (initialization === result) initialization = null;
     if (version === revision) {
       context = null;
-      callbacks?.onRoomReady();
+      callbacks?.onRoomStateChanged();
     }
   });
   return result;

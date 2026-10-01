@@ -62,7 +62,7 @@ function createCallbacks() {
     onInteraction: vi.fn(),
     onMessagesLoaded: vi.fn(),
     onNewMessage: vi.fn(),
-    onRoomReady: vi.fn(),
+    onRoomStateChanged: vi.fn(),
     onEnterRoom: vi.fn(),
     onClearRemotePets: vi.fn(),
     onPetIdResolved: vi.fn(),
@@ -98,7 +98,7 @@ describe("roomManager", () => {
       session: { user: { id: "user-1" } } as never,
     });
 
-    await vi.waitFor(() => expect(callbacks.onRoomReady).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(callbacks.onRoomStateChanged).toHaveBeenCalledTimes(1));
 
     expect(roomManager.getCurrentRoomId()).toBeNull();
     expect(joinRoom).not.toHaveBeenCalled();
@@ -123,7 +123,7 @@ describe("roomManager", () => {
       supabase: supabase as never,
       session: { user: { id: "user-1" } } as never,
     });
-    await vi.waitFor(() => expect(callbacks.onRoomReady).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(callbacks.onRoomStateChanged).toHaveBeenCalledTimes(1));
 
     expect(presenceQuery.update).toHaveBeenCalledWith({
       current_room_id: null,
@@ -150,7 +150,7 @@ describe("roomManager", () => {
       supabase: supabase as never,
       session: { user: { id: "user-1" } } as never,
     });
-    await vi.waitFor(() => expect(callbacks.onRoomReady).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(callbacks.onRoomStateChanged).toHaveBeenCalledTimes(1));
 
     await roomManager.switchRoom("room-1");
     await roomManager.exitCurrentRoom();
@@ -212,6 +212,18 @@ describe("roomManager", () => {
     await manager.startPetApp(options);
     expect(manager.getCurrentRoomId()).toBe("room-b");
     expect(joinRoom).toHaveBeenCalledTimes(1);
+    await manager.exitCurrentRoom();
+  });
+
+  it("notifies visibility immediately when switching out of an active room before history is ready", async () => {
+    const { manager, cbs } = await initialized(); await manager.switchRoom("room-a");
+    cbs.onRoomStateChanged.mockClear(); let finish!: (messages: never[]) => void;
+    fetchRoomMessages.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const switching = manager.switchRoom("room-b");
+    expect(manager.getCurrentRoomId()).toBeNull(); expect(cbs.onRoomStateChanged).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(fetchRoomMessages).toHaveBeenCalledTimes(2));
+    finish([]); await switching;
+    expect(manager.getCurrentRoomId()).toBe("room-b"); expect(cbs.onRoomStateChanged).toHaveBeenCalledTimes(2);
     await manager.exitCurrentRoom();
   });
 
@@ -461,7 +473,7 @@ describe("roomManager", () => {
   it("deduplicates repeated initialization for the same authenticated session", async () => {
     const { manager, client, cbs } = await initialized();
     await manager.startPetApp({ supabase: client as never, session: { user: { id: "user-1" } } as never });
-    expect(cbs.onRoomReady).toHaveBeenCalledTimes(1);
+    expect(cbs.onRoomStateChanged).toHaveBeenCalledTimes(1);
   });
 
   it("marks offline without clearing the remembered room on application quit", async () => {

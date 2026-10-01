@@ -2,7 +2,7 @@ import { ROOM_STATE_QUERY, ROOM_STATE_RESULT, isRoomStateRequest, type RoomState
 // 自己窗口（label "main"）入口：启动鉴权/房间恢复，并把 Lounge 的进/出房间、
 // 退出握手等控制事件接到 renderer（自己 pet 呈现 + 房间协调者）。
 import { emit, listen } from "@tauri-apps/api/event";
-import { exitCurrentRoom, getCurrentRoomId, getRoomRevision, startPetApp, stopPetApp, switchRoom, setOnRoomReadyCallback, setSelfSkin, prepareSelfForRoom, setSelfPresentationVisible } from "./renderer.js";
+import { exitCurrentRoom, getCurrentRoomId, getRoomRevision, startPetApp, stopPetApp, switchRoom, setOnRoomStateChangedCallback, setSelfSkin, prepareSelfForRoom, setSelfPresentationVisible } from "./renderer.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 import { createRoomVisibilityController } from "./roomVisibility.js";
 import { createResumeMonitor } from "../../shared/resumeMonitor.js";
@@ -38,7 +38,7 @@ if (inTauri) {
     },
     notify: () => emit("active-room-changed", roomState()),
   });
-  setOnRoomReadyCallback(() => {
+  setOnRoomStateChangedCallback(() => {
     void visibility.sync().catch(console.error);
   });
 

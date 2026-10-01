@@ -49,9 +49,9 @@ function leaveCurrentRoomFromMenu() {
   return emit("exit-room");
 }
 
-let _onRoomReadyCb: (() => void) | null = null;
-export function setOnRoomReadyCallback(fn: () => void) {
-  _onRoomReadyCb = fn;
+let _onRoomStateChangedCb: (() => void) | null = null;
+export function setOnRoomStateChangedCallback(fn: () => void) {
+  _onRoomStateChangedCb = fn;
 }
 
 const petStage = document.querySelector<HTMLElement>(".pet-stage");
@@ -195,7 +195,7 @@ initRoomManager({
   onInteraction: coordinator.onInteraction,
   onMessagesLoaded: coordinator.onMessagesLoaded,
   onNewMessage: coordinator.onNewMessage,
-  onRoomReady: () => _onRoomReadyCb?.(),
+  onRoomStateChanged: () => _onRoomStateChangedCb?.(),
   onEnterRoom: () => selfAnimator.playTransient("enter"),
   onClearRemotePets: coordinator.onClearRemotePets,
   onPetIdResolved: (petId) => {
