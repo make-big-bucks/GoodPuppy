@@ -184,6 +184,37 @@ describe("roomManager", () => {
     expect(joinRoom).toHaveBeenCalledTimes(2); expect(manager.getCurrentRoomId()).toBe("room-a");
     await manager.exitCurrentRoom();
   });
+  it("retries the same session after remembered-room activation fails", async () => {
+    const manager = await import("./roomManager.js");
+    const cbs = createCallbacks(); manager.initRoomManager(cbs);
+    const client = createSupabase({ presenceResult: { data: { current_room_id: "room-a" }, error: null } as never });
+    const options = { supabase: client as never, session: { user: { id: "user-1" } } as never };
+    joinRoom.mockRejectedValueOnce(new Error("temporary subscription failure"));
+    await expect(manager.startPetApp(options)).rejects.toThrow("temporary subscription failure");
+    expect(manager.getCurrentRoomId()).toBeNull();
+    await manager.startPetApp(options);
+    expect(joinRoom).toHaveBeenCalledTimes(2);
+    expect(manager.getCurrentRoomId()).toBe("room-a");
+    await manager.exitCurrentRoom();
+  });
+
+  it("keeps a newer explicit room when startup restoration is canceled", async () => {
+    const manager = await import("./roomManager.js"); manager.initRoomManager(createCallbacks());
+    const client = createSupabase({ presenceResult: { data: { current_room_id: "room-a" }, error: null } as never });
+    const options = { supabase: client as never, session: { user: { id: "user-1" } } as never };
+    let finish!: (messages: never[]) => void;
+    fetchRoomMessages.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const starting = manager.startPetApp(options);
+    const canceled = expect(starting).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(fetchRoomMessages).toHaveBeenCalled());
+    const switching = manager.switchRoom("room-b"); finish([]);
+    await canceled; await switching;
+    await manager.startPetApp(options);
+    expect(manager.getCurrentRoomId()).toBe("room-b");
+    expect(joinRoom).toHaveBeenCalledTimes(1);
+    await manager.exitCurrentRoom();
+  });
+
   it("publishes the latest appearance when it changes during room preparation", async () => {
     const { manager, cbs } = await initialized();
     let finish!: () => void;

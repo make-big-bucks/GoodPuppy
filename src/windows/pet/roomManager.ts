@@ -307,7 +307,8 @@ export function stopPetApp(): Promise<void> {
 export function startPetApp({ supabase, session }: StartPetAppOptions = {}): Promise<void> {
   if (!supabase || !session?.user.id) return Promise.reject(new Error("缺少登录会话"));
   const authSessionId = authSessionIdentity(session.access_token);
-  if (context?.client === supabase && context.userId === session.user.id && context.authSessionId === authSessionId) return initialization ?? Promise.resolve();
+  if (context?.client === supabase && context.userId === session.user.id && context.authSessionId === authSessionId
+      && (initialization || currentRoomId)) return initialization ?? Promise.resolve();
   const previous = context;
   if (previous?.userId !== session.user.id) callbacks?.onSessionChanged?.();
   const next: SessionContext = { client: supabase, userId: session.user.id, authSessionId };
@@ -335,8 +336,9 @@ export function startPetApp({ supabase, session }: StartPetAppOptions = {}): Pro
   });
   initialization = result;
   void result.catch(() => {
+    // 房间失败收尾也会推进 revision；初始化缓存归属必须按任务判断。
+    if (initialization === result) initialization = null;
     if (version === revision) {
-      initialization = null;
       context = null;
       callbacks?.onRoomReady();
     }

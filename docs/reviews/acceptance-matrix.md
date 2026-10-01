@@ -19,7 +19,7 @@
 | [13](2026-10-01-project-diagnosis.md#item-13) | 连接就绪与失败 | 本地通过 | 持续连接状态、迟到 track 隔离、进入提交前再次同步与检查。 |
 | [14](2026-10-01-project-diagnosis.md#item-14) | 本地退出与迟到写入 | 本地通过 | 立即失效本地房间；心跳与退出串行、HTTP 限时；失去成员资格的 RLS 收尾已补。 |
 | [15](2026-10-01-project-diagnosis.md#item-15) | 显隐生命周期 | 本地通过 | roomVisibility 准备/显隐串行及失败回滚，自己窗口成组显隐。 |
-| [16](2026-10-01-project-diagnosis.md#item-16) | 认证刷新重建 | 本地通过 | 同账号/client 令牌刷新保留订阅，身份改变重置上下文。 |
+| [16](2026-10-01-project-diagnosis.md#item-16) | 认证刷新重建 | 本地通过 | 同 Auth session 令牌刷新保留订阅，新 session 重建；恢复失败可重试，取消初始化不重置新房间。 |
 | [17](2026-10-01-project-diagnosis.md#item-17) | 会客厅异步归属 | 本地通过 | 捕获账号/目标、refreshController、弹层实例与换肤账号队列回归。 |
 | [18](2026-10-01-project-diagnosis.md#item-18) | 刷新风暴与租约 | 本地通过 | 刷新合并、缓存在线过期更新、连接健康同步和暂停后补完整快照。 |
 | [19](2026-10-01-project-diagnosis.md#item-19) | 通知资源调度 | 本地通过 | notificationScheduler 取消/上限/TTL，真实 toast 投递与销毁回归。 |
