@@ -4,6 +4,8 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { exitCurrentRoom, getCurrentRoomId, getRoomRevision, startPetApp, stopPetApp, switchRoom, setOnRoomReadyCallback, setSelfSkin, prepareSelfForRoom, setSelfPresentationVisible } from "./renderer.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 import { createRoomVisibilityController } from "./roomVisibility.js";
+import { createResumeMonitor } from "../../shared/resumeMonitor.js";
+import { recoverRoomAfterResume } from "./roomManager.js";
 
 import { ROOM_COMMAND, ROOM_CANCEL, ROOM_RESULT, executeRoomCommand, isRoomCommand } from "../../shared/roomProtocol.js";
 
@@ -20,6 +22,8 @@ async function startFromStoredSession() {
 }
 
 if (inTauri) {
+  const disposeResumeMonitor = createResumeMonitor(recoverRoomAfterResume);
+  window.addEventListener("beforeunload", disposeResumeMonitor, { once: true });
   const visibility = createRoomVisibilityController({
     getRoomId: getCurrentRoomId,
     prepare: prepareSelfForRoom,

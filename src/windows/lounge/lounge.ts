@@ -1,4 +1,5 @@
 import { bindDialogFocus } from "../../shared/dialogFocus.js";
+import { createResumeMonitor } from "../../shared/resumeMonitor.js";
 import { saveAdoptedProfile } from "./adoption.js";
 import { createRefreshController } from "../../shared/refreshController.js";
 import { sendRoomInvitation } from "./loungeMutations.js";
@@ -12,7 +13,7 @@ import { renderRoomDetail } from "./views/room-detail.js";
 import { renderProfileCard } from "./views/profile-card.js";
 import { openChatHistory, closeChatHistory } from "./views/chat-history-dialog.js";
 import { showToast } from "./views/toast.js";
-import { showPanelSkeleton, showPanelError, hidePanelState, panelIsInError, isOfflineError } from "./views/panelState.js";
+import { showPanelSkeleton, showPanelError, hidePanelState, isOfflineError } from "./views/panelState.js";
 import { initShowcase, openShowcase } from "./views/pet-showcase.js";
 import { openSettings, closeSettings } from "./views/settings.js";
 import { buildMemberViewModels, mapPendingRoomInvitationRows, normalizeGpId } from "./loungeViewModels.js";
@@ -1302,10 +1303,9 @@ export function initLoungePanel({
   bindOnlineNotifier();
   if (!onlineListenerBound) {
     onlineListenerBound = true;
-    // 断网恢复时，若当前正停在冷启动报错态，自动重新加载（手动「重试」按钮作兜底）。
-    window.addEventListener("online", () => {
-      if (selfAuthId && panelIsInError()) void loadPanelData();
-    });
+    // 网络恢复/长暂停后重新取完整快照，补齐暂停期间丢失的成员/资料变化。
+    const disposeResumeMonitor = createResumeMonitor(async () => { if (selfAuthId) await loadPanelData(); });
+    window.addEventListener("beforeunload", disposeResumeMonitor, { once: true });
   }
   if (selfAuthId) {
     subscribeToRequests();

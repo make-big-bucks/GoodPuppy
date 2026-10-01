@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 const joinRoom = vi.fn();
 const leaveRoom = vi.fn();
@@ -27,6 +28,7 @@ vi.mock("./roomMessages.js", () => ({
 function createQuery(result: unknown) {
   return {
     select: vi.fn().mockReturnThis(),
+    abortSignal: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
     update: vi.fn().mockReturnThis(),
     upsert: vi.fn().mockResolvedValue({ error: null }),
@@ -163,6 +165,59 @@ describe("roomManager", () => {
     await manager.startPetApp({ supabase: client as never, session: { user: { id: "user-1" } } as never });
     return { manager, cbs, client };
   }
+
+  it("hides stale room state, rechecks membership and restores fresh channels after resume", async () => {
+    const { manager, cbs, client } = await initialized();
+    await manager.switchRoom("room-a"); const revision = manager.getRoomRevision();
+    const recovering = manager.recoverRoomAfterResume();
+    expect(manager.getCurrentRoomId()).toBeNull(); expect(manager.getRoomRevision()).toBeGreaterThan(revision);
+    expect(manager.recoverRoomAfterResume()).toBe(recovering);
+    await recovering;
+    expect(client.from).toHaveBeenCalledWith("room_members");
+    expect(joinRoom).toHaveBeenCalledTimes(2); expect(manager.getCurrentRoomId()).toBe("room-a");
+    expect(cbs.onClearRemotePets).toHaveBeenCalledTimes(1); await manager.exitCurrentRoom();
+  });
+
+  it("clears a remembered room when membership no longer exists after resume", async () => {
+    const { manager, client } = await initialized(); await manager.switchRoom("room-a");
+    const presence = createQuery({ data: null, error: null }); const original = client.from.getMockImplementation()!;
+    client.from.mockImplementation((table) => table === "room_members" ? createQuery({ data: null, error: null })
+      : table === "presence" ? presence : original(table));
+    await manager.recoverRoomAfterResume(); expect(manager.getCurrentRoomId()).toBeNull();
+    expect(joinRoom).toHaveBeenCalledTimes(1);
+    expect(presence.update).toHaveBeenLastCalledWith({ current_room_id: null, is_online: false, last_seen: expect.any(String) });
+  });
+
+  it("retains the remembered room on recovery failure and cancels retry when explicitly leaving", async () => {
+    const { manager, client } = await initialized(); await manager.switchRoom("room-a");
+    vi.useFakeTimers(); vi.spyOn(console, "error").mockImplementation(() => {});
+    const presence = createQuery({ data: null, error: null }); const original = client.from.getMockImplementation()!;
+    client.from.mockImplementation((table) => table === "room_members" ? createQuery({ data: null, error: new Error("network down") })
+      : table === "presence" ? presence : original(table));
+    const recovering = manager.recoverRoomAfterResume();
+    const rejection = expect(recovering).rejects.toMatchObject({ name: "AbortError" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(presence.update).toHaveBeenLastCalledWith({ is_online: false, last_seen: expect.any(String) });
+    await manager.exitCurrentRoom(); await rejection;
+    const calls = client.from.mock.calls.length; await vi.advanceTimersByTimeAsync(10000);
+    expect(client.from).toHaveBeenCalledTimes(calls);
+    expect(presence.update).toHaveBeenLastCalledWith({ current_room_id: null, is_online: false, last_seen: expect.any(String) });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("recovers automatically when the membership query becomes available on retry", async () => {
+    const { manager, client } = await initialized(); await manager.switchRoom("room-a");
+    vi.useFakeTimers(); vi.spyOn(console, "error").mockImplementation(() => {});
+    const members = createQuery({ data: { room_id: "room-a" }, error: null });
+    members.maybeSingle.mockResolvedValueOnce({ data: null, error: new Error("network down") });
+    const original = client.from.getMockImplementation()!;
+    client.from.mockImplementation((table) => table === "room_members" ? members : original(table));
+    const recovering = manager.recoverRoomAfterResume();
+    await vi.advanceTimersByTimeAsync(0); expect(manager.getCurrentRoomId()).toBeNull();
+    await vi.advanceTimersByTimeAsync(5000); await recovering;
+    expect(manager.getCurrentRoomId()).toBe("room-a"); expect(members.maybeSingle).toHaveBeenCalledTimes(2);
+    await manager.exitCurrentRoom(); expect(vi.getTimerCount()).toBe(0);
+  });
 
   it("marks a disconnected room offline and restores its lease only when all channels are ready", async () => {
     const { manager, client } = await initialized();

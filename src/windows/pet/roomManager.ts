@@ -1,5 +1,6 @@
 import * as presence from "./presence.js";
 import { compareMessagePosition } from "../../shared/messageOrder.js";
+import { retryTask } from "../../shared/retryTask.js";
 import { joinInteractions, leaveInteractions } from "./interactions.js";
 import {
   fetchRoomMessages,
@@ -41,6 +42,7 @@ let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let revision = 0;
 let pending = Promise.resolve();
 let initialization: Promise<void> | null = null;
+let resumeRecovery: { abort: AbortController; result: Promise<void> } | null = null;
 
 export function initRoomManager(cbs: RoomCallbacks) { callbacks = cbs; }
 export function getRoomRevision() { return revision; }
@@ -54,6 +56,8 @@ function stopHeartbeat() {
 }
 
 function invalidate() {
+  resumeRecovery?.abort.abort();
+  resumeRecovery = null;
   revision += 1;
   stopHeartbeat();
   if (currentRoomId) callbacks?.onClearRemotePets();
@@ -209,6 +213,44 @@ export function switchRoom(roomId: string): Promise<void> {
     await enter(session, roomId, version);
     callbacks?.onEnterRoom();
   });
+}
+
+/** 唤醒/网络恢复重建真实连接；临时失败保留房间记录，成员资格消失则明确清除。 */
+export function recoverRoomAfterResume(): Promise<void> {
+  if (resumeRecovery) return resumeRecovery.result;
+  const session = context;
+  const roomId = currentRoomId;
+  if (!session || !roomId) return Promise.resolve();
+  const version = invalidate();
+  callbacks?.onRoomReady();
+  const abort = new AbortController();
+  const result = retryTask(() => enqueue(async () => {
+    assertCurrent(version);
+    await releaseChannels(session.client);
+    assertCurrent(version);
+    await writeOffline(session, true);
+    assertCurrent(version);
+    const { data: membership, error } = await session.client.from("room_members").select("room_id")
+      .eq("room_id", roomId).eq("user_id", session.userId).abortSignal(abort.signal).maybeSingle();
+    assertCurrent(version);
+    if (error) throw error;
+    if (!membership) {
+      await writeOffline(session);
+      assertCurrent(version);
+      callbacks?.onRoomReady();
+      return;
+    }
+    try { await activateRoom(session, roomId, version); }
+    catch (error) {
+      await Promise.allSettled([releaseChannels(session.client), writeOffline(session, true)]);
+      assertCurrent(version);
+      throw error;
+    }
+  }), abort.signal, (error) => console.error("房间恢复失败，将重试：", error));
+  const recovery = { abort, result };
+  resumeRecovery = recovery;
+  void result.finally(() => { if (resumeRecovery === recovery) resumeRecovery = null; }).catch(() => {});
+  return result;
 }
 
 export function exitCurrentRoom({ rememberRoom = false }: { rememberRoom?: boolean } = {}): Promise<void> {
