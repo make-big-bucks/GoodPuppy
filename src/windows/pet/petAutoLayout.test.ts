@@ -33,3 +33,10 @@ it("converts remote logical footprints and gaps to the target desktop plane", ()
   expect(layout.get("a")).toEqual({ x: 274, y: -20 });
   expect(layout.get("b")).toEqual({ x: 598, y: -20 });
 });
+
+it("chooses scale at the final horizontal slot when a DPI change lies inside the gap", () => {
+  const layout = computeSemiFreeLayout({ selfPos: { x: 100, y: 100 }, selfSize: { width: 20, height: 120 },
+    remoteIds: ["a", "b"], petWindowWidth: 150, petWindowHeight: 120, scaleAt: point => point.x < 140 ? 2 : 1 });
+  expect(layout.get("a")).toEqual({ x: 144, y: 100 });
+  expect(layout.get("b")).toEqual({ x: 306, y: 100 });
+});

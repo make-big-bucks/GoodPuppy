@@ -23,11 +23,14 @@ export function computeSemiFreeLayout(opts: {
   const bottom = opts.selfPos.y + opts.selfSize.height;
   let edge = opts.selfPos.x + opts.selfSize.width;
   const result = new Map<string, WindowPoint>();
+  let previousScale = opts.scaleAt?.(opts.selfPos) ?? 1;
   for (const userId of opts.remoteIds) {
-    const scale = opts.scaleAt?.({ x: edge + gap, y: bottom - opts.petWindowHeight }) ?? 1;
-    const x = edge + gap * scale;
+    // 间距归前一个窗口；先固定最终横向位置，再选目标屏比例，避免跨界后用错探测点。
+    const x = Math.round(edge + gap * previousScale);
+    const scale = opts.scaleAt?.({ x, y: bottom - opts.petWindowHeight * previousScale }) ?? 1;
     result.set(userId, { x: Math.round(x), y: Math.round(bottom - opts.petWindowHeight * scale) });
     edge = x + opts.petWindowWidth * scale;
+    previousScale = scale;
   }
   return result;
 }
