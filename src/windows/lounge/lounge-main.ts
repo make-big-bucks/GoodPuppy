@@ -1,3 +1,5 @@
+import { requestRoomState, isRoomState, type RoomState } from "../../shared/roomState.js";
+import { showToast } from "./views/toast.js";
 import "../../shared/bridge.js";
 import "../../shared/styles.css";
 import { emit, listen } from "@tauri-apps/api/event";
@@ -128,24 +130,72 @@ import { requestWindow } from "../../shared/windowRequest.js";
 
 const supabase = createAppSupabaseClient();
 let activeRoomId: string | null = null;
+let authenticatedUserId: string | null = null;
+let activeRoomRevision = -1;
+let activeRoomController: string | null = null;
+let roomReadGeneration = 0;
+let latestRoomRead: Promise<void> = Promise.resolve();
 
 function sessionIsAnonymous(session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"]) {
   return Boolean(session?.user?.is_anonymous);
 }
 
 let requests = new AbortController();
+function applyRoomState(state: RoomState, queried = false) {
+  if (state.userId !== authenticatedUserId) return;
+  if (state.controllerId !== activeRoomController) {
+    if (!queried) { void synchronizeActiveRoom().catch(reportStateError); return; }
+    activeRoomController = state.controllerId; activeRoomRevision = -1;
+  }
+  if (state.revision < activeRoomRevision) return;
+  activeRoomRevision = state.revision; activeRoomId = state.roomId;
+  refreshLoungePanelActiveRoom();
+}
+function synchronizeActiveRoom(): Promise<void> {
+  const userId = authenticatedUserId; const signal = requests.signal; const generation = ++roomReadGeneration;
+  const assertCurrent = () => {
+    if (signal.aborted || userId !== authenticatedUserId) throw new DOMException("房间查询已失效", "AbortError");
+  };
+  const result = (async () => {
+    try {
+      const state = await requestRoomState({
+        listen: (event, handler) => window.goodPuppy.onAppEvent(event, handler),
+        send: (target, event, payload) => window.goodPuppy.emitToWindow(target, event, payload),
+      }, userId, signal);
+      assertCurrent();
+      if (generation !== roomReadGeneration) { await latestRoomRead; assertCurrent(); return; }
+      applyRoomState(state, true);
+    } catch (error) {
+      assertCurrent();
+      if (generation !== roomReadGeneration) { await latestRoomRead; assertCurrent(); return; }
+      throw error;
+    }
+  })();
+  latestRoomRead = result;
+  return result;
+}
+
+function reportStateError(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") return;
+  showToast(error instanceof Error ? error.message : "读取房间状态失败", "error");
+}
+
 async function changeRoom(action: "enter" | "exit", roomId?: string) {
+  const signal = requests.signal; const userId = authenticatedUserId;
+  const assertCurrent = () => { if (signal.aborted || userId !== authenticatedUserId) throw new DOMException("账号已改变", "AbortError"); };
   const result = await requestWindow<RoomResult>({
     listen: (event, handler) => window.goodPuppy.onAppEvent(event, handler),
     send: (target, event, payload) => window.goodPuppy.emitToWindow(target, event, payload),
   }, {
     target: "main", requestEvent: ROOM_COMMAND, responseEvent: ROOM_RESULT,
-    payload: { action, roomId, replyTo: "lounge" }, signal: requests.signal, cancelEvent: ROOM_CANCEL,
+    payload: { action, roomId, replyTo: "lounge" }, signal, cancelEvent: ROOM_CANCEL,
   });
   if (result.action !== action || result.requestedRoomId !== roomId
     || result.roomId !== (action === "enter" ? roomId : null)) throw new Error("房间回复与请求不一致");
-  activeRoomId = result.roomId;
-  refreshLoungePanelActiveRoom();
+  assertCurrent();
+  await synchronizeActiveRoom();
+  assertCurrent();
+  if (activeRoomId !== result.roomId) throw new Error("房间状态已发生变化，请重试");
   if (action === "enter") {
     await getCurrentWindow().hide();
     await emit("lounge-hidden");
@@ -175,23 +225,23 @@ async function init() {
       requests.abort();
       requests = new AbortController();
       void emit("auth-cleared");
-      activeRoomId = null;
+      activeRoomId = null; activeRoomRevision = -1; activeRoomController = null;
     },
     onSkinSaved: (skin: string, userId: string) => {
       void window.goodPuppy.emitToWindow("main", "set-skin", { skin, userId }).catch(console.error);
     },
   });
 
-  let authenticatedUserId = selfAuthId;
-  // 认证状态变化时同步更新会客厅（跳过初次 INITIAL_SESSION，已由 getSession 处理）
-  supabase.auth.onAuthStateChange((event, session) => {
-    if (event === "INITIAL_SESSION") return;
+  authenticatedUserId = selfAuthId;
+  // INITIAL_SESSION 也参与身份同步，重复会话由上下文比较消除。
+  supabase.auth.onAuthStateChange((_event, session) => {
     const nextUserId = session?.user.id ?? null;
     if (nextUserId !== authenticatedUserId) {
       requests.abort();
       requests = new AbortController();
-      activeRoomId = null;
+      activeRoomId = null; activeRoomRevision = -1; activeRoomController = null;
       authenticatedUserId = nextUserId;
+      void synchronizeActiveRoom().catch(reportStateError);
     }
     updateLoungePanelAuth({
       supabase,
@@ -202,27 +252,27 @@ async function init() {
   });
 
   listen("lounge-refresh", () => {
-    void emit("request-active-room");
     openLoungePanel();
+    void synchronizeActiveRoom().catch(reportStateError);
   });
 
-  // 托盘右键「房间聊天记录」：打开当前房间聊天记录。
   listen("open-room-history", () => {
-    void emit("request-active-room");
     openLoungePanel();
-    void openActiveRoomHistory();
+    const signal = requests.signal; const userId = authenticatedUserId;
+    void synchronizeActiveRoom().then(() => {
+      if (signal.aborted || userId !== authenticatedUserId) throw new DOMException("账号已改变", "AbortError");
+      return openActiveRoomHistory();
+    }).catch(reportStateError);
   });
 
-  listen<{ roomId?: string | null }>("active-room-changed", (event) => {
-    activeRoomId = event.payload?.roomId || null;
-
-    refreshLoungePanelActiveRoom();
+  listen<RoomState>("active-room-changed", (event) => {
+    if (isRoomState(event.payload)) applyRoomState(event.payload);
   });
 
   openLoungePanel();
 
   if (selfAuthId) {
-    void emit("request-active-room");
+    void synchronizeActiveRoom().catch(reportStateError);
   }
 
   await initWinTitlebar();

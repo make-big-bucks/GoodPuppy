@@ -324,6 +324,7 @@ async fn run(app: &AppHandle) -> Result<(), String> {
             }
         }
     }
+    exercise_room_state(app).await?;
     exercise_toast(app).await?;
     Ok(())
 }
@@ -447,4 +448,50 @@ async fn exercise_toast(app: &AppHandle) -> Result<(), String> {
         Some("toast-smoke-instance".into()),
     )
     .await
+}
+
+async fn exercise_room_state(app: &AppHandle) -> Result<(), String> {
+    for (request_id, user_id, expected_ok) in [
+        ("state-own", serde_json::Value::Null, true),
+        (
+            "state-foreign",
+            serde_json::Value::String("foreign-user".into()),
+            false,
+        ),
+    ] {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let listener = app.listen_any("room-state-result", move |event| {
+            if let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) {
+                if payload["requestId"].as_str() == Some(request_id) {
+                    let _ = tx.send(payload);
+                }
+            }
+        });
+        app.emit_to(
+            "main",
+            "room-state-query",
+            serde_json::json!({"requestId":request_id,"replyTo":"lounge","userId":user_id}),
+        )
+        .map_err(|error| error.to_string())?;
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            rx.recv_timeout(std::time::Duration::from_secs(10))
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+        app.unlisten(listener);
+        let result =
+            result.map_err(|error| format!("room state acknowledgement missing: {error}"))?;
+        if result["ok"].as_bool() != Some(expected_ok) {
+            return Err("room state account guard failed".into());
+        }
+        if expected_ok
+            && (!result["roomId"].is_null()
+                || !result["userId"].is_null()
+                || result["controllerId"].as_str().unwrap_or("").is_empty()
+                || result["revision"].as_u64().is_none())
+        {
+            return Err("room state snapshot is malformed".into());
+        }
+    }
+    Ok(())
 }

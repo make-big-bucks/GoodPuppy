@@ -16,7 +16,7 @@
 ## 关键边界
 
 - 房间与身份由 `roomManager.ts` 管理，操作串行并带版本；退出立即使旧回调失效。`roomVisibility.ts` 按实际房间决定自己窗口显隐。
-- `roomCoordinator.ts` 管理远程窗口，`windowReadiness.ts` 绑定实例与顺序消息；`windowRequest.ts` 管理请求 ID、取消与回执。
+- `roomCoordinator.ts` 管理远程窗口，`windowReadiness.ts` 绑定实例与顺序消息；`windowRequest.ts` 管理请求 ID、取消与回执；`roomState.ts` 定义账号/控制器/版本快照，会客厅打开记录前等待主窗口状态并刷新可访问房间。
 - `petPresenter.ts` 管理 DOM、拖动、动画暂停与监听释放，`petState.ts` 管理动画分层。`hitTesting.ts` 生成掩模，Rust `cursor.rs` / `hit_test.rs` 独占鼠标穿透。
 - 消息、Presence、互动订阅在各自模块中实现，`realtimeSubscription.ts` 持续观察就绪状态；身份/状态读取认证实例租约快照，广播只作为刷新提示；重连补快照，房间租约跟随连接健康状态。
 - 会客厅数据读取在 `loungeData.ts`，刷新合并在 `refreshController.ts`，房间进出在途状态由 `roomTransitions.ts` 独占，`authFlow.ts` 管理认证流程，登录/注册/领养/注销/绑定共用跨弹层在途门禁，`loungeSubscriptions.ts` 独占会话频道、重连刷新和释放，弹层操作在 `operationLifetime.ts` 校验实例，`loungeMutations.ts` 独占房间/邀请/资料数据操作，固定账号/目标并校验回执；调用端在 await 返回后再次校验身份，再更新界面。`skinSelection.ts` 独占换肤选择与账号写入队列，面板实例与已提交资料回执分开，皮肤通知带账号归属并以资料快照校准。长期聊天记录使用复合游标和有界缓存。

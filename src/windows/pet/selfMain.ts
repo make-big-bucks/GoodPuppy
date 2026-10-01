@@ -1,3 +1,4 @@
+import { ROOM_STATE_QUERY, ROOM_STATE_RESULT, isRoomStateRequest, type RoomState } from "../../shared/roomState.js";
 // 自己窗口（label "main"）入口：启动鉴权/房间恢复，并把 Lounge 的进/出房间、
 // 退出握手等控制事件接到 renderer（自己 pet 呈现 + 房间协调者）。
 import { emit, listen } from "@tauri-apps/api/event";
@@ -20,8 +21,10 @@ async function startFromStoredSession() {
 
   if (data.session) {
     await startPetApp({ supabase, session: data.session });
-  }
+  } else if (getSelfAuthId()) await stopPetApp();
 }
+
+function roomState(): RoomState { return { controllerId: window.goodPuppy.getWindowInstance(), roomId: getCurrentRoomId(), userId: getSelfAuthId(), revision: getRoomRevision() }; }
 
 if (inTauri) {
   const disposeResumeMonitor = createResumeMonitor(recoverRoomAfterResume);
@@ -33,7 +36,7 @@ if (inTauri) {
       await window.goodPuppy.setSelfVisible(visible);
       setSelfPresentationVisible(visible);
     },
-    notify: (roomId) => emit("active-room-changed", { roomId }),
+    notify: () => emit("active-room-changed", roomState()),
   });
   setOnRoomReadyCallback(() => {
     void visibility.sync().catch(console.error);
@@ -53,7 +56,22 @@ if (inTauri) {
   });
 
   listen("request-active-room", () => {
-    emit("active-room-changed", { roomId: getCurrentRoomId() });
+    emit("active-room-changed", roomState());
+  });
+
+  window.goodPuppy.onAppEvent(ROOM_STATE_QUERY, (payload) => {
+    if (!isRoomStateRequest(payload)) return;
+    void (async () => {
+      try {
+        await startFromStoredSession();
+        const state = roomState();
+        if (state.userId !== payload.userId) throw new Error("登录身份尚未同步，请重试");
+        await window.goodPuppy.emitToWindow("lounge", ROOM_STATE_RESULT, { requestId: payload.requestId, ok: true, ...state });
+      } catch (error) {
+        await window.goodPuppy.emitToWindow("lounge", ROOM_STATE_RESULT, { requestId: payload.requestId, ok: false,
+          error: error instanceof Error ? error.message : "读取房间状态失败" });
+      }
+    })().catch(console.error);
   });
 
   let latestRequest: string | null = null;

@@ -1205,15 +1205,12 @@ export function refreshLoungePanelActiveRoom() {
 // 数据可能尚未加载（托盘在 lounge 隐藏期间触发），先确保加载再打开。
 export async function openActiveRoomHistory() {
   if (!supabaseClient || !selfAuthId) return;
-  if (rooms.length === 0) {
-    await loadPanelData();
-  }
+  const mutation = captureMutation();
+  await loadPanelData();
+  mutation.assertCurrent();
   const activeId = getActiveRoomId?.() || null;
-  const room =
-    (activeId ? rooms.find((r) => r.id === activeId) : null) ||
-    getSelectedRoom() ||
-    rooms[0] ||
-    null;
+  const room = activeId ? rooms.find((r) => r.id === activeId) ?? null : getSelectedRoom() || rooms[0] || null;
+  if (activeId && !room) { showToast("当前房间已不可访问", "error"); return; }
   if (!room) return;
   selectedRoomId = room.id;
   renderAll();

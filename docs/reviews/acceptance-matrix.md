@@ -8,7 +8,7 @@
 | [02](2026-10-01-project-diagnosis.md#item-02) | 私有 Realtime 与身份 | 部分 | 已确认 key/metadata 不绑定身份；认证实例租约/RPC、伪造身份与旧版本拒绝已隔离验证，前端/会客厅已切换可信投影并通过伪造 payload、过期/迟到/限频回归；远端部署、真实 Realtime 和公共频道设置仍待完成。 |
 | [03](2026-10-01-project-diagnosis.md#item-03) | 房间并发边界 | 本地通过 | roomManager 版本、串行队列、受控进入/退出/切房回归。 |
 | [04](2026-10-01-project-diagnosis.md#item-04) | 注销与身份停止 | 本地通过 | stopPetApp 清身份、失效旧任务；账号变化关闭弹层，换肤通知校验归属。 |
-| [05](2026-10-01-project-diagnosis.md#item-05) | 请求关联与取消 | 本地通过 | roomProtocol/windowRequest 的 ID、目标、超时和取消回归。 |
+| [05](2026-10-01-project-diagnosis.md#item-05) | 请求关联与取消 | 本地通过 | roomProtocol/windowRequest 的 ID、目标、超时和取消回归；房间状态单独关联回执、账号/控制器/版本隔离，原生错误账号拒绝通过。 |
 | [06](2026-10-01-project-diagnosis.md#item-06) | 桥接错误传播 | 本地通过 | 窗口命令/定向事件/拖动失败向调用者传播，日志不改变业务结果。 |
 | [07](2026-10-01-project-diagnosis.md#item-07) | 远程窗口交错 | 本地通过 | remoteWindowQueue、实例令牌和延迟创建/销毁/重建回归。 |
 | [08](2026-10-01-project-diagnosis.md#item-08) | 原生注册表清理 | 本地通过 | 销毁清 HitRegistry、父子偏移和实例表；Rust 与 macOS 原生回归。 |
