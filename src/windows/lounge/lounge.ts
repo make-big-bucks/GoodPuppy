@@ -2,7 +2,7 @@ import { createRoomTransitions } from "./roomTransitions.js";
 import { createLoungeSubscriptions } from "./loungeSubscriptions.js";
 import { bindDialogFocus } from "../../shared/dialogFocus.js";
 import { createResumeMonitor } from "../../shared/resumeMonitor.js";
-import { saveAdoptedProfile } from "./adoption.js";
+import { createAuthFlow } from "./authFlow.js";
 import { createRefreshController } from "../../shared/refreshController.js";
 import { sendRoomInvitation } from "./loungeMutations.js";
 import { createOperationLifetime } from "../../shared/operationLifetime.js";
@@ -144,7 +144,13 @@ const modalBackdrop = () => document.querySelector<HTMLElement>(".lounge-modal-b
 const modalForm = () => document.querySelector<HTMLFormElement>(".lounge-modal");
 const modalLifetime = createOperationLifetime();
 let releaseModalFocus: (() => void) | null = null;
-let authActionPending = false;
+const authFlow = createAuthFlow({
+  context: () => supabaseClient ? { client: supabaseClient, userId: selfAuthId } : null,
+  success: () => onLoginSuccess,
+  refresh: () => loadPanelData(),
+  notifyError: (message) => showToast(message, "error"),
+  errorMessage: getErrorMessage,
+});
 
 function showModal(backdrop: HTMLElement, form: HTMLFormElement) {
   backdrop.hidden = false;
@@ -410,47 +416,12 @@ function openLoginDialog() {
     operation: ReturnType<typeof modalLifetime.capture>,
     values: { email?: string; password?: string; name?: string },
   ) {
-    if (!operation.isCurrent()) return;
-    if (authActionPending) { setModalMessage("上一次账号操作仍在处理中，请稍后重试"); return; }
-    const client = supabaseClient;
-    const success = onLoginSuccess;
-    if (!client) return;
-    if (action === "adopt" ? !values.name : !values.email || !values.password) {
-      setModalMessage(action === "adopt" ? "请先给宠物取个名字" : "请填写邮箱和密码");
-      return;
-    }
-    authActionPending = true;
-    setModalBusy(true);
-    setButtonLoading(button, true);
-    setModalMessage(action === "adopt" ? "正在领养..." : action === "signup" ? "正在注册..." : "正在登录...");
-    let authenticatedId: string | null = null;
-    try {
-      const credentials = { email: values.email ?? "", password: values.password ?? "" };
-      const { data, error } = action === "adopt" ? await client.auth.signInAnonymously()
-        : action === "signup" ? await client.auth.signUp(credentials) : await client.auth.signInWithPassword(credentials);
-      if (error) throw error;
-      if (!data.session) {
-        if (action !== "signup") throw new Error("登录未返回会话");
-        if (operation.isCurrent()) setModalMessage("注册成功，请检查邮箱确认账号");
-        return;
-      }
-      authenticatedId = data.session.user.id;
-      const isCurrentUser = () => supabaseClient === client && selfAuthId === authenticatedId;
-      if (!isCurrentUser()) return;
-      if (action === "adopt") await saveAdoptedProfile(client, authenticatedId, values.name!, isCurrentUser);
-      if (!isCurrentUser()) return;
-      if (operation.isCurrent()) closeModal();
-      success?.();
-      // 登录事件可能已加载过默认名字，领养资料写入后再刷新一次。
-      if (action === "adopt") await loadPanelData();
-    } catch (error) {
-      const message = getErrorMessage(error, action === "adopt" ? "领养失败" : action === "signup" ? "注册失败" : "登录失败");
-      if (operation.isCurrent()) setModalMessage(message);
-      else if (authenticatedId && supabaseClient === client && selfAuthId === authenticatedId) showToast(message, "error");
-    } finally {
-      authActionPending = false;
-      if (operation.isCurrent()) { setButtonLoading(button, false); setModalBusy(false); }
-    }
+    await authFlow.run(action, values, {
+      isCurrent: operation.isCurrent,
+      busy: (busy) => { setButtonLoading(button, busy); setModalBusy(busy); },
+      message: setModalMessage,
+      close: closeModal,
+    });
   }
 
   showModal(backdrop, form);
