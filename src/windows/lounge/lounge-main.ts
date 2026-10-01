@@ -5,6 +5,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { initLoungePanel, openActiveRoomHistory, openLoungePanel, refreshLoungePanelActiveRoom, updateLoungePanelAuth } from "./lounge.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
+import appConfig from "../../shared/appConfig.js";
+import { getSupabaseStorageKey } from "../../shared/backendConfig.js";
 import { showPanelSkeleton, hidePanelState } from "./views/panelState.js";
 
 // 是否存在已持久化的登录态。Supabase 把 session 存在 localStorage 的
@@ -12,10 +14,7 @@ import { showPanelSkeleton, hidePanelState } from "./views/panelState.js";
 // 要不要先铺骨架屏（已登录用户冷启动几乎必然有这个键）。
 function hasPersistedSession(): boolean {
   try {
-    for (let i = 0; i < localStorage.length; i += 1) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith("sb-") && key.endsWith("-auth-token")) return true;
-    }
+    return Boolean(localStorage.getItem(getSupabaseStorageKey(appConfig.supabase)));
   } catch {
     /* localStorage 不可用时按未登录处理 */
   }

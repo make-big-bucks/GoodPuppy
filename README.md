@@ -78,6 +78,12 @@ npm run tauri build
 
 Output is in `src-tauri/target/release/bundle/`.
 
+## 后端环境
+
+未配置时使用已发布的生产项目并保留已有登录态。开发时复制 `.env.example` 为 `.env.development.local`，填写独立开发项目的 URL 与 publishable key，再启动 Vite；环境可选 `production`、`development`、`test`，覆盖 URL/key 必须完整且显式指定环境。开发/测试不能指向内置生产项目，各环境使用独立登录存储；生产构建默认不读取 `.env.development.local`。`VITE_` 值会进入客户端，不能放 secret/service-role key，配置错误会在打包前失败。
+
+原生回归独占端口 `1422`，使用测试后端与独立应用标识；端口已占用会拒绝启动，不复用现有开发服务，不需要本地数据库运行。
+
 ## 自定义桌宠资源
 
 仓库内的 [hatch-puppy-pet](skills/hatch-puppy-pet/SKILL.md) 支持按角色配置画风、身体结构、性格和自定义闲置动作，生成 240×240 透明 GIF。流水线保留动作位移，提供深浅背景、状态切换和镜像伙伴的动态预览，视觉验收后才打包。

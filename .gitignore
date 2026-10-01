@@ -12,3 +12,7 @@ runs/
 
 # Supabase CLI local cache
 supabase/.temp/
+
+# Per-machine environment overrides
+.env.local
+.env.*.local

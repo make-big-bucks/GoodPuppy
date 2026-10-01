@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { assertPublishableSupabaseKey, resolveSupabaseConfig } from "./supabaseClient.js";
+import { describe, expect, it, vi } from "vitest";
+import { assertPublishableSupabaseKey, resolveSupabaseConfig, createAppSupabaseClient } from "./supabaseClient.js";
+import { resolveBackendEnvironment } from "./backendConfig.js";
+const { createClient } = vi.hoisted(() => ({ createClient: vi.fn(() => ({})) }));
+vi.mock("@supabase/supabase-js", () => ({ createClient }));
 
 describe("assertPublishableSupabaseKey", () => {
   it("accepts Supabase publishable keys for desktop clients", () => {
@@ -13,6 +16,13 @@ describe("assertPublishableSupabaseKey", () => {
 });
 
 describe("resolveSupabaseConfig", () => {
+  it("passes the isolated auth namespace to the actual client construction path", () => {
+    const config = resolveBackendEnvironment({ VITE_BACKEND_ENV: "test", VITE_SUPABASE_URL: "http://127.0.0.1:54321", VITE_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test" });
+    createAppSupabaseClient(config.supabase);
+    expect(createClient).toHaveBeenCalledWith(config.supabase.url, config.supabase.publishableKey, expect.objectContaining({
+      auth: expect.objectContaining({ storageKey: config.supabase.storageKey, persistSession: true }),
+    }));
+  });
   it("normalizes the configured Supabase URL and publishable key", () => {
     expect(
       resolveSupabaseConfig({

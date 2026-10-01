@@ -95,4 +95,6 @@ npm run tauri build
 
 - Node.js 版本：22（与 package.json、.nvmrc 和 CI 保持一致）。
 - Rust：使用当前 Tauri v2 工具链。
-- Vite 开发服务器端口固定为 `1420`，需与 `src-tauri/tauri.conf.json` 中的 `devUrl` 保持一致。
+- 后端环境按 README 配置；开发使用独立项目，禁止把 secret/service-role key 放进客户端环境变量。
+- Vite 常规开发服务器端口固定为 `1420`，需与 `src-tauri/tauri.conf.json` 中的 `devUrl` 保持一致。
+- 双实例开发使用 `1421`，原生隔离回归使用 `1422`，各自显式覆盖 `devUrl`。

@@ -110,6 +110,7 @@ export interface AppConfig {
 }
 
 export interface SupabaseConfig {
+  storageKey?: string;
   url?: string;
   publishableKey?: string;
 }
