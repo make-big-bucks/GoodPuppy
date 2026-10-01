@@ -1,3 +1,4 @@
+import { createLoungeSubscriptions } from "./loungeSubscriptions.js";
 import { bindDialogFocus } from "../../shared/dialogFocus.js";
 import { createResumeMonitor } from "../../shared/resumeMonitor.js";
 import { saveAdoptedProfile } from "./adoption.js";
@@ -6,7 +7,7 @@ import { sendRoomInvitation } from "./loungeMutations.js";
 import { createOperationLifetime } from "../../shared/operationLifetime.js";
 import { fetchLoungeData, type LoungeData, type LoungeDataContext } from "./loungeData.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { renderRoomList, renderPendingRequests } from "./views/room-list.js";
 import type { PendingTransition } from "./views/room-list.js";
 import { renderRoomDetail } from "./views/room-detail.js";
@@ -127,11 +128,6 @@ const pawInputSvg = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><ci
 let rooms: LoungeRoom[] = [];
 let pendingRequests: ConnectionRequestRow[] = [];
 let selectedRoomId: string | null = null;
-let requestChannel: RealtimeChannel | null = null;
-let sentRequestChannel: RealtimeChannel | null = null;
-let presenceChannel: RealtimeChannel | null = null;
-let roomMembersChannel: RealtimeChannel | null = null;
-let profilesChannel: RealtimeChannel | null = null;
 let pendingTransition: PendingTransition | null = null;
 let currentProfile: LoungeProfile | null = null;
 // 冷启动判定：窗口内是否已成功加载过一次数据。仅首屏（false 时）走骨架屏/整屏报错。
@@ -974,83 +970,6 @@ async function handleRoomTransition(roomId: string, type: "enter" | "exit") {
   }
 }
 
-function subscribeToRequests() {
-  if (!supabaseClient || !selfAuthId) return;
-  const version = authRevision;
-
-  if (requestChannel) {
-    void supabaseClient.removeChannel(requestChannel);
-    requestChannel = null;
-  }
-  if (sentRequestChannel) {
-    void supabaseClient.removeChannel(sentRequestChannel);
-    sentRequestChannel = null;
-  }
-
-  // 收到的邀请（to_id = 自己）
-  requestChannel = supabaseClient
-    .channel(`lounge-requests-${selfAuthId}`)
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "connection_requests",
-        filter: `to_id=eq.${selfAuthId}`,
-      },
-      () => {
-        if (version !== authRevision) return;
-        void loadPanelData();
-      },
-    )
-    .subscribe();
-
-  // 发出的邀请被接受/拒绝时（from_id = 自己），刷新房间成员列表
-  sentRequestChannel = supabaseClient
-    .channel(`lounge-sent-requests-${selfAuthId}`)
-    .on(
-      "postgres_changes",
-      {
-        event: "UPDATE",
-        schema: "public",
-        table: "connection_requests",
-        filter: `from_id=eq.${selfAuthId}`,
-      },
-      () => {
-        if (version !== authRevision) return;
-        void loadPanelData();
-      },
-    )
-    .subscribe();
-}
-
-function subscribeToRoomMembers() {
-  if (!supabaseClient || !selfAuthId) return;
-  const version = authRevision;
-
-  if (roomMembersChannel) {
-    void supabaseClient.removeChannel(roomMembersChannel);
-    roomMembersChannel = null;
-  }
-
-  // 监听 room_members 变更，实时感知新成员加入/退出
-  roomMembersChannel = supabaseClient
-    .channel(`lounge-room-members-${selfAuthId}`)
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "room_members",
-      },
-      () => {
-        if (version !== authRevision) return;
-        void loadPanelData();
-      },
-    )
-    .subscribe();
-}
-
 // 当前可见房间里的所有成员 user_id（含自己），用于过滤 profiles 变更——
 // profiles 的 SELECT RLS 为 true，订阅会收到全站任意用户的变更，必须客户端按成员过滤，
 // 否则任意陌生用户改名都会触发一次 loadPanelData。
@@ -1063,64 +982,12 @@ function knownMemberIds(): Set<string> {
   return ids;
 }
 
-function subscribeToProfilesChanges() {
-  if (!supabaseClient || !selfAuthId) return;
-  const version = authRevision;
-
-  if (profilesChannel) {
-    void supabaseClient.removeChannel(profilesChannel);
-    profilesChannel = null;
-  }
-
-  // 监听 profiles 变更，实时反映成员改名/换肤（含远程好友）。仅当变更者是已知房间成员时刷新。
-  profilesChannel = supabaseClient
-    .channel(`lounge-profiles-${selfAuthId}`)
-    .on(
-      "postgres_changes",
-      {
-        event: "UPDATE",
-        schema: "public",
-        table: "profiles",
-      },
-      (payload) => {
-        if (version !== authRevision) return;
-        const changedId = (payload.new as { id?: string } | null)?.id;
-        if (changedId && knownMemberIds().has(changedId)) {
-          void loadPanelData();
-        }
-      },
-    )
-    .subscribe();
-}
-
-function subscribeToPresenceChanges() {
-  if (!supabaseClient || !selfAuthId) return;
-  const version = authRevision;
-
-  if (presenceChannel) {
-    void supabaseClient.removeChannel(presenceChannel);
-    presenceChannel = null;
-  }
-
-  presenceChannel = supabaseClient
-    .channel(`lounge-presence-${selfAuthId}`)
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "presence",
-      },
-      (payload) => {
-        if (version !== authRevision) return;
-        // 先用旧快照做上线检测，再 loadPanelData 刷新数据（其内部会重置快照基线）。
-        const row = payload.new as LoungePresenceRow | null;
-        if (row?.user_id) notifyPresenceChange(row);
-        void loadPanelData();
-      },
-    )
-    .subscribe();
-}
+const subscriptions = createLoungeSubscriptions({
+  refresh: () => { void loadPanelData(); },
+  knownMemberIds,
+  presenceChanged: notifyPresenceChange,
+  error: (error) => console.error("lounge subscriptions:", error),
+});
 
 function bindEvents() {
   const p = panel();
@@ -1314,13 +1181,10 @@ export function initLoungePanel({
     onlineListenerBound = true;
     // 网络恢复/长暂停后重新取完整快照，补齐暂停期间丢失的成员/资料变化。
     const disposeResumeMonitor = createResumeMonitor(async () => { if (selfAuthId) await loadPanelData(); });
-    window.addEventListener("beforeunload", disposeResumeMonitor, { once: true });
+    window.addEventListener("beforeunload", () => { disposeResumeMonitor(); subscriptions.dispose(); disposeOnlineNotifier(); }, { once: true });
   }
   if (selfAuthId) {
-    subscribeToRequests();
-    subscribeToPresenceChanges();
-    subscribeToRoomMembers();
-    subscribeToProfilesChanges();
+    subscriptions.setContext({ client: supabase, userId: selfAuthId });
     startOnlineNotifier();
   }
 }
@@ -1354,10 +1218,7 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, is
   if (changed) {
     authRevision += 1;
     panelRefresh.setContext(nextSelfAuthId ? { client: supabase, userId: nextSelfAuthId } : null);
-    for (const channel of [requestChannel, sentRequestChannel, presenceChannel, roomMembersChannel, profilesChannel]) {
-      if (channel && previousClient) void previousClient.removeChannel(channel).catch(console.error);
-    }
-    requestChannel = sentRequestChannel = presenceChannel = roomMembersChannel = profilesChannel = null;
+    subscriptions.setContext(null);
     disposeOnlineNotifier();
     panelSnapshot = null;
     rooms = []; pendingRequests = []; selectedRoomId = null; pendingTransition = null;
@@ -1371,7 +1232,7 @@ export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, is
   currentUserEmail = nextSelfAuthId ? nextEmail : null;
   renderAuthState(Boolean(selfAuthId));
   if (changed && selfAuthId) {
-    subscribeToRequests(); subscribeToPresenceChanges(); subscribeToRoomMembers(); subscribeToProfilesChanges();
+    subscriptions.setContext({ client: supabase, userId: selfAuthId });
     startOnlineNotifier();
     void loadPanelData();
   } else if (!selfAuthId) hidePanelState();
