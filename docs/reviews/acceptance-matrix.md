@@ -5,7 +5,7 @@
 | 编号 | 范围 | 状态 | 当前证据 / 剩余要求 |
 |---|---|---|---|
 | [01](2026-10-01-project-diagnosis.md#item-01) | 成员与邀请授权 | 待远端 | 原子 RPC、直接写入限制及隔离 SQL 测试已准备；授权迁移仍待明确批准。 |
-| [02](2026-10-01-project-diagnosis.md#item-02) | 私有 Realtime 与身份 | 部分 | 私有频道与服务端互动身份已准备；真实订阅/track/send、项目公共频道设置及 Presence 身份信任仍需核验。 |
+| [02](2026-10-01-project-diagnosis.md#item-02) | 私有 Realtime 与身份 | 部分 | 已确认 key/metadata 不绑定身份；认证实例租约/RPC、伪造身份与旧版本拒绝已隔离验证，前端可信投影切换、真实 Realtime 和公共频道设置仍待完成。 |
 | [03](2026-10-01-project-diagnosis.md#item-03) | 房间并发边界 | 本地通过 | roomManager 版本、串行队列、受控进入/退出/切房回归。 |
 | [04](2026-10-01-project-diagnosis.md#item-04) | 注销与身份停止 | 本地通过 | stopPetApp 清身份、失效旧任务；账号变化关闭弹层，换肤通知校验归属。 |
 | [05](2026-10-01-project-diagnosis.md#item-05) | 请求关联与取消 | 本地通过 | roomProtocol/windowRequest 的 ID、目标、超时和取消回归。 |

@@ -59,3 +59,9 @@
 活动迁移包含无数据基线和后续前向迁移；原 11 个服务器迁移及未登记脚本均保留归档。新 Supabase 环境按活动迁移重建；已有环境对齐压缩后的历史，再执行前向迁移，禁止重放基线或归档中的旧删除语句。
 
 `npm run test:db` 连接独立本机 PostgreSQL（默认 `postgresql://localhost:55432/postgres`，可用 `GOODPUPPY_TEST_DATABASE_URL` 指定），创建随机临时库，验证空库重建、真实角色 RLS/RPC、私有频道策略及多连接并发接受/退出/加入，最后删除该临时库。它拒绝远程连接；Auth/Realtime/cron 平台替身仅用于本地 SQL 测试，不能代替真实服务的连接验收。
+
+## 认证 Presence 租约（准备中）
+
+`20261002073000_authenticated_presence_leases.sql` 已在隔离库验证，**前端尚未切换，不能单独应用远端**。私有 `presence_clients` 保存认证会话、实例版本与退役标记，`presence_leases` 保存成员约束下的实例状态和服务端租约；真实 Auth session/成员删除级联释放，客户端无直接访问权限。
+
+`activate_room_presence`、`update_room_presence`、`deactivate_room_presence` 校验预期账号与真实认证会话，旧版本/已退役激活被拒绝；`get_room_presence`、`get_online_room_presence` 只返回调用者所属房间的有效投影。客户端 track/broadcast 写入权限撤销，实时事件改为读取可信快照的提示，详见 [ADR-0021](adr/0021-认证实例租约与可信在线状态.md)。

@@ -5,12 +5,13 @@ BEGIN IF condition IS DISTINCT FROM true THEN RAISE EXCEPTION 'Assertion failed:
 CREATE FUNCTION public.test_denied(statement text) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
   BEGIN EXECUTE statement;
-  EXCEPTION WHEN insufficient_privilege OR raise_exception THEN RETURN;
+  EXCEPTION WHEN insufficient_privilege OR raise_exception OR serialization_failure OR check_violation THEN RETURN;
   END;
   RAISE EXCEPTION 'Expected rejection: %',statement;
 END $$;
 INSERT INTO auth.users(id) VALUES('11111111-0000-0000-0000-000000000001'),('22222222-0000-0000-0000-000000000002'),('33333333-0000-0000-0000-000000000003');
 INSERT INTO public.profiles(id) SELECT id FROM auth.users;
+INSERT INTO auth.sessions(id,user_id) SELECT id,id FROM auth.users;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','11111111-0000-0000-0000-000000000001',true);
 SELECT public.create_room('test-room','aaaaaaaa-0000-0000-0000-000000000001');
@@ -25,7 +26,7 @@ SELECT public.invite_room_member('aaaaaaaa-0000-0000-0000-000000000001','2222222
 SELECT public.invite_room_member('aaaaaaaa-0000-0000-0000-000000000001','22222222-0000-0000-0000-000000000002');
 SELECT public.test_assert((SELECT count(*)=1 FROM public.connection_requests WHERE status='pending'),'invite retry is idempotent');
 SELECT set_config('realtime.topic','presence:aaaaaaaa-0000-0000-0000-000000000001',true);
-INSERT INTO realtime.messages(topic,extension) VALUES('presence:aaaaaaaa-0000-0000-0000-000000000001','presence');
+SELECT public.test_denied($sql$INSERT INTO realtime.messages(topic,extension) VALUES('presence:aaaaaaaa-0000-0000-0000-000000000001','presence')$sql$);
 SELECT public.test_denied($sql$INSERT INTO realtime.messages(topic,extension,payload) VALUES('interactions:aaaaaaaa-0000-0000-0000-000000000001','broadcast','{}')$sql$);
 SELECT set_config('request.jwt.claim.sub','33333333-0000-0000-0000-000000000003',true);
 SELECT public.test_denied($sql$INSERT INTO public.room_members(room_id,user_id) VALUES('aaaaaaaa-0000-0000-0000-000000000001',auth.uid())$sql$);
@@ -48,6 +49,19 @@ SELECT public.send_room_interaction('aaaaaaaa-0000-0000-0000-000000000001','feed
 SELECT set_config('realtime.topic','interactions:aaaaaaaa-0000-0000-0000-000000000001',true);
 SELECT public.test_assert((SELECT payload->>'actorId'='22222222-0000-0000-0000-000000000002' FROM realtime.messages WHERE event='interaction'),'actor identity is stamped by server');
 SELECT public.test_denied($sql$SELECT public.send_room_interaction('aaaaaaaa-0000-0000-0000-000000000001','unknown','11111111-0000-0000-0000-000000000001')$sql$);
+-- 实例身份绑定 JWT，会话/账号伪造不能发布；迟到旧版本不能复活已退出实例。
+SELECT public.activate_room_presence('22222222-0000-0000-0000-000000000002','aaaaaaaa-0000-0000-0000-000000000001','bbbbbbbb-0000-0000-0000-000000000001',1,'happy');
+SELECT public.test_assert((SELECT count(*)=1 AND bool_and(user_id=auth.uid()) FROM public.get_room_presence(auth.uid(),'aaaaaaaa-0000-0000-0000-000000000001')),'presence publisher identity is server owned');
+SELECT public.test_denied($sql$SELECT public.activate_room_presence('11111111-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000001','bbbbbbbb-0000-0000-0000-000000000001',2,'happy')$sql$);
+SELECT public.test_denied($sql$INSERT INTO private.presence_leases(user_id,client_id,room_id) VALUES(auth.uid(),'bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000001')$sql$);
+SELECT public.activate_room_presence(auth.uid(),'aaaaaaaa-0000-0000-0000-000000000001','bbbbbbbb-0000-0000-0000-000000000002',1,'busy');
+SELECT public.deactivate_room_presence(auth.uid(),'aaaaaaaa-0000-0000-0000-000000000001','bbbbbbbb-0000-0000-0000-000000000001',2);
+SELECT public.test_assert((SELECT count(*)=1 FROM public.get_room_presence(auth.uid(),'aaaaaaaa-0000-0000-0000-000000000001')),'one instance exit preserves another instance');
+SELECT public.test_denied($sql$SELECT public.activate_room_presence(auth.uid(),'aaaaaaaa-0000-0000-0000-000000000001','bbbbbbbb-0000-0000-0000-000000000001',1,'happy')$sql$);
+SELECT public.test_denied($sql$SELECT public.activate_room_presence(auth.uid(),'aaaaaaaa-0000-0000-0000-000000000001','bbbbbbbb-0000-0000-0000-000000000001',2,'happy')$sql$);
+SELECT set_config('request.jwt.claim.session_id','11111111-0000-0000-0000-000000000001',true);
+SELECT public.test_denied($sql$SELECT public.get_room_presence(auth.uid(),'aaaaaaaa-0000-0000-0000-000000000001')$sql$);
+SELECT set_config('request.jwt.claim.session_id','',true);
 SELECT public.leave_room('aaaaaaaa-0000-0000-0000-000000000001');
 SELECT public.test_assert(NOT private.can_access_room_topic('presence:aaaaaaaa-0000-0000-0000-000000000001'),'membership removal revokes topic access');
 SELECT set_config('request.jwt.claim.sub','11111111-0000-0000-0000-000000000001',true);
