@@ -18,6 +18,11 @@
     "core:window:allow-monitor-from-point",
     "autostart:allow-enable",
     "autostart:allow-disable",
-    "autostart:allow-is-enabled"
+    "autostart:allow-is-enabled",
+    "core:window:allow-show",
+    "core:window:allow-set-size",
+    "core:window:allow-set-min-size",
+    "core:window:allow-minimize",
+    "core:window:allow-internal-toggle-maximize"
   ]
 }

@@ -2,10 +2,12 @@ mod bubbles;
 mod commands;
 mod cursor;
 mod hit_test;
+#[cfg(debug_assertions)]
+mod native_smoke;
 mod platform;
 mod window_labels;
+mod window_tasks;
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -13,7 +15,7 @@ use std::time::Duration;
 use bubbles::{BubbleRegistry, Bubbles};
 use commands::{
     close_bubble_window, close_pet_window, close_toast_window, focus_pet_panel, set_pet_hit_shape,
-    set_window_bounds, spawn_bubble_window, spawn_pet_window, spawn_toast_window,
+    set_self_visible, set_window_bounds, spawn_bubble_window, spawn_pet_window, spawn_toast_window,
 };
 use cursor::spawn_cursor_monitor;
 use hit_test::HitShapes;
@@ -56,7 +58,7 @@ fn open_lounge<R: Runtime>(app: &AppHandle<R>) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let hit_shapes: HitShapes = Arc::new(std::sync::Mutex::new(HashMap::new()));
+    let hit_shapes: HitShapes = Arc::new(std::sync::Mutex::new(hit_test::HitRegistry::default()));
     let monitor_hit_shapes = hit_shapes.clone();
     let bubbles: Bubbles = Arc::new(std::sync::Mutex::new(BubbleRegistry::default()));
     tauri::Builder::default()
@@ -70,6 +72,7 @@ pub fn run() {
         .manage(bubbles)
         .invoke_handler(tauri::generate_handler![
             set_window_bounds,
+            set_self_visible,
             focus_pet_panel,
             spawn_pet_window,
             close_pet_window,
@@ -130,8 +133,10 @@ pub fn run() {
                 let h = handle2.clone();
                 let inner = h.clone();
                 let _ = h.run_on_main_thread(move || {
-                    if let Some(w) = inner.get_webview_window("main") {
-                        let _ = w.hide();
+                    for label in ["bubble-self", "main"] {
+                        if let Some(w) = inner.get_webview_window(label) {
+                            let _ = w.hide();
+                        }
                     }
                     if let Some(w) = inner.get_webview_window("lounge") {
                         let _ = w.show();
@@ -217,6 +222,12 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+            #[cfg(debug_assertions)]
+            if std::env::var("GOODPUPPY_NATIVE_SMOKE").as_deref() == Ok("1")
+                && app.config().identifier == "com.goodpuppy.desktop.native-smoke"
+            {
+                native_smoke::start(app.handle().clone());
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

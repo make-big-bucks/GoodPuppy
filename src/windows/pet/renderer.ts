@@ -137,7 +137,7 @@ async function resizeSelfWindow() {
   ]);
   const size = getPetWindowSize(petScale);
   const top = pos.y + cur.height - size.height;
-  window.goodPuppy.setWindowBounds({ x: pos.x, y: top, width: size.width, height: size.height });
+  await window.goodPuppy.setWindowBounds({ x: pos.x, y: top, width: size.width, height: size.height });
   // 自己窗口尺寸变了，气泡窗口随之重排（上/下避让 + 居中）。
   void coordinator.refreshSelfBubble();
 }
@@ -214,7 +214,6 @@ initRoomManager({
 let selfPositionRestored = false;
 async function restoreSelfPosition() {
   if (selfPositionRestored) return;
-  selfPositionRestored = true;
   // pet 窗口固定 pet 尺寸：进房间时按当前缩放对齐窗口尺寸（不再靠 applyWindowLayout）。
   const size = getPetWindowSize(petScale);
   const stored: WindowPoint | null = coordinator.storedSelfPos;
@@ -223,12 +222,14 @@ async function restoreSelfPosition() {
   if (stored) {
     const monitors = await window.goodPuppy.getMonitors();
     if (isWindowPositionVisible(stored, size, monitors)) {
-      window.goodPuppy.setWindowBounds({ x: stored.x, y: stored.y, width: size.width, height: size.height });
+      await window.goodPuppy.setWindowBounds({ x: stored.x, y: stored.y, width: size.width, height: size.height });
+      selfPositionRestored = true;
       return;
     }
     clearSelfPos();
   }
-  window.goodPuppy.setWindowSize(size);
+  await window.goodPuppy.setWindowSize(size);
+  selfPositionRestored = true;
 }
 
 /** 显隐控制器在显示宠物之前调用，窗口准备也属于同一串行流程。 */

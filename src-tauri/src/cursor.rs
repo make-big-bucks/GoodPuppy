@@ -2,7 +2,6 @@
 //! 命中形状（见 `hit_test`）逐 tick 切换鼠标穿透；并在左键释放时发出 drag-end 信号。
 //! 见 `src/shared/cursorEventsController.ts` 与相关 ADR。
 
-use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -114,13 +113,18 @@ fn left_mouse_button_down() -> Option<bool> {
 /// Polls the cursor and natively toggles each pet window's mouse passthrough from
 /// the shape it published (pixel-perfect, no per-move IPC). Also emits a drag-end
 /// signal on mouse release so drag-lift animations can settle.
+struct PollGuard(Arc<AtomicBool>);
+impl Drop for PollGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
 pub(crate) fn spawn_cursor_monitor(app: &tauri::App, hit_shapes: HitShapes) {
     let handle = app.handle().clone();
     thread::spawn(move || {
-        // Per-window dedup: label → last applied `ignore_cursor_events` value.
-        let last_ignore: Arc<std::sync::Mutex<HashMap<String, bool>>> =
-            Arc::new(std::sync::Mutex::new(HashMap::new()));
         let stop = Arc::new(AtomicBool::new(false));
+        let poll_pending = Arc::new(AtomicBool::new(false));
         // Tracks the left mouse button so we can emit a drag-end signal on release.
         let last_button_down = Arc::new(AtomicBool::new(false));
 
@@ -129,13 +133,17 @@ pub(crate) fn spawn_cursor_monitor(app: &tauri::App, hit_shapes: HitShapes) {
                 break;
             }
             thread::sleep(CURSOR_POLL_INTERVAL);
+            if poll_pending.swap(true, Ordering::AcqRel) {
+                continue;
+            }
 
             let handle = handle.clone();
-            let last_ignore = last_ignore.clone();
             let last_button_down = last_button_down.clone();
             let hit_shapes = hit_shapes.clone();
             let stop = stop.clone();
+            let poll_completion = poll_pending.clone();
             let posted = handle.clone().run_on_main_thread(move || {
+                let _poll_guard = PollGuard(poll_completion);
                 if handle.get_webview_window("main").is_none() {
                     stop.store(true, Ordering::Relaxed);
                     return;
@@ -155,37 +163,45 @@ pub(crate) fn spawn_cursor_monitor(app: &tauri::App, hit_shapes: HitShapes) {
                     }
                 }
 
-                let mut guard = last_ignore.lock().unwrap();
-                let shapes = hit_shapes.lock().unwrap();
+                let windows = handle.webview_windows();
 
-                for (label, window) in handle.webview_windows() {
+                for (label, window) in windows {
                     if !is_overlay_window_label(&label) {
                         continue;
                     }
 
+                    if !window.is_visible().unwrap_or(false) {
+                        continue;
+                    }
                     let Some(client_point) = cursor_client_position(&handle, &window) else {
                         continue;
                     };
 
                     // Native owns passthrough: interactive over the pet/bubbles,
                     // ignore (click-through) elsewhere. No shape yet → ignore.
-                    let interactive = shapes
+                    let interactive = hit_shapes
+                        .lock()
+                        .unwrap()
+                        .shapes
                         .get(&label)
                         .map(|s| shape_is_interactive(s, client_point.x, client_point.y))
                         .unwrap_or(false);
                     let ignore = !interactive;
 
-                    if guard.get(&label) != Some(&ignore) {
+                    let previous = hit_shapes.lock().unwrap().ignore.get(&label).copied();
+                    if previous != Some(ignore) {
                         // 告知该窗口最新可交互状态：气泡窗口据此切关闭按钮浮现，不依赖
                         // 焦点才更新的 CSS :hover（非 key 窗口收不到 mouseMoved）。
                         let _ = window.emit_to(label.as_str(), "overlay-hover", interactive);
-                        guard.insert(label, ignore);
-                        let _ = window.set_ignore_cursor_events(ignore);
+                        if window.set_ignore_cursor_events(ignore).is_ok() {
+                            hit_shapes.lock().unwrap().ignore.insert(label, ignore);
+                        }
                     }
                 }
             });
 
             if posted.is_err() {
+                poll_pending.store(false, Ordering::Release);
                 break;
             }
         }

@@ -32,7 +32,18 @@ pub(crate) struct PetHitShape {
 
 /// label → latest published hit shape. Shared between the `set_pet_hit_shape`
 /// command (writer) and the cursor monitor (reader).
-pub(crate) type HitShapes = Arc<std::sync::Mutex<HashMap<String, PetHitShape>>>;
+#[derive(Default)]
+pub(crate) struct HitRegistry {
+    pub(crate) shapes: HashMap<String, PetHitShape>,
+    pub(crate) ignore: HashMap<String, bool>,
+}
+impl HitRegistry {
+    pub(crate) fn remove_window(&mut self, label: &str) {
+        self.shapes.remove(label);
+        self.ignore.remove(label);
+    }
+}
+pub(crate) type HitShapes = Arc<std::sync::Mutex<HitRegistry>>;
 
 fn point_in_rect(x: f64, y: f64, r: [f64; 4]) -> bool {
     x >= r[0] && y >= r[1] && x <= r[0] + r[2] && y <= r[1] + r[3]
@@ -110,5 +121,21 @@ mod tests {
     fn empty_mask_is_not_interactive() {
         let shape = shape_with_mask(Vec::new(), 0, 0, [0.0, 0.0, 0.0, 0.0]);
         assert!(!shape_is_interactive(&shape, 0.0, 0.0));
+    }
+}
+
+#[cfg(test)]
+mod registry_tests {
+    use super::*;
+    #[test]
+    fn recreated_window_does_not_inherit_hit_shape_or_passthrough_cache() {
+        let mut registry = HitRegistry::default();
+        registry
+            .shapes
+            .insert("pet-a".into(), PetHitShape::default());
+        registry.ignore.insert("pet-a".into(), true);
+        registry.remove_window("pet-a");
+        assert!(!registry.shapes.contains_key("pet-a"));
+        assert!(!registry.ignore.contains_key("pet-a"));
     }
 }

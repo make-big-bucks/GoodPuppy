@@ -135,19 +135,27 @@ pub(crate) fn configure_self_panel<R: Runtime>(_window: &WebviewWindow<R>) {}
 /// skips repositioning it until drag-end) — that live positioning is supplied by
 /// `ensure_parent_follow_listener` reacting to the parent's `Moved` events.
 #[cfg(target_os = "macos")]
-pub(crate) fn add_child_window<R: Runtime>(parent: &WebviewWindow<R>, child: &WebviewWindow<R>) {
+pub(crate) fn add_child_window<R: Runtime>(
+    parent: &WebviewWindow<R>,
+    child: &WebviewWindow<R>,
+) -> Result<(), String> {
     let (Ok(parent_ptr), Ok(child_ptr)) = (parent.ns_window(), child.ns_window()) else {
-        return;
+        return Err("parent or child native window is unavailable".into());
     };
     guard_appkit("add_child_window", || {
         let parent_ns: &NSWindow = unsafe { &*parent_ptr.cast() };
         let child_ns: &NSWindow = unsafe { &*child_ptr.cast() };
         unsafe { parent_ns.addChildWindow_ordered(child_ns, NSWindowOrderingMode::Above) };
-    });
+    })
+    .ok_or_else(|| "failed to attach child window".to_string())
 }
 
 #[cfg(not(target_os = "macos"))]
-pub(crate) fn add_child_window<R: Runtime>(_parent: &WebviewWindow<R>, _child: &WebviewWindow<R>) {}
+pub(crate) fn add_child_window<R: Runtime>(
+    _parent: &WebviewWindow<R>,
+    _child: &WebviewWindow<R>,
+) -> Result<(), String> {
+}
 
 /// Switches the macOS Dock icon on or off at runtime.
 ///
@@ -199,7 +207,7 @@ pub(crate) fn position_overlay_window<R: Runtime>(
     y: f64,
     width: f64,
     height: f64,
-) {
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use objc2::MainThreadMarker;
@@ -207,11 +215,11 @@ pub(crate) fn position_overlay_window<R: Runtime>(
         use objc2_foundation::{NSPoint, NSRect, NSSize};
 
         let Ok(ns_window_ptr) = window.ns_window() else {
-            return;
+            return Err("native window or main thread is unavailable".into());
         };
         let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
         let Some(mtm) = MainThreadMarker::new() else {
-            return;
+            return Err("native window or main thread is unavailable".into());
         };
         let primary_height = NSScreen::screens(mtm)
             .firstObject()
@@ -221,13 +229,19 @@ pub(crate) fn position_overlay_window<R: Runtime>(
         // Cocoa: origin at primary's BOTTOM-left, Y up.
         let cocoa_y = primary_height - (y + height);
         let frame = NSRect::new(NSPoint::new(x, cocoa_y), NSSize::new(width, height));
-        guard_appkit("set_frame", || ns_window.setFrame_display(frame, true));
+        guard_appkit("set_frame", || ns_window.setFrame_display(frame, true))
+            .ok_or_else(|| "failed to position native window".to_string())?;
     }
 
     #[cfg(not(target_os = "macos"))]
     {
         use tauri::{LogicalPosition, LogicalSize};
-        let _ = window.set_size(LogicalSize::new(width, height));
-        let _ = window.set_position(LogicalPosition::new(x, y));
+        window
+            .set_size(LogicalSize::new(width, height))
+            .map_err(|error| error.to_string())?;
+        window
+            .set_position(LogicalPosition::new(x, y))
+            .map_err(|error| error.to_string())?;
     }
+    Ok(())
 }

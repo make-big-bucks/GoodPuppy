@@ -71,6 +71,18 @@ pub(crate) fn unregister_bubble(bubbles: &Bubbles, label: &str) {
     reg.offset_of.remove(label);
 }
 
+/// 父窗口销毁后，同名新窗口必须能够重新安装跟随监听。
+pub(crate) fn unregister_parent(bubbles: &Bubbles, label: &str) {
+    let mut reg = bubbles.lock().unwrap();
+    reg.listening_parents.remove(label);
+    if let Some(children) = reg.children_of.remove(label) {
+        for child in children {
+            reg.parent_of.remove(&child);
+            reg.offset_of.remove(&child);
+        }
+    }
+}
+
 /// Attach a `Moved` listener to the parent pet window that repositions every
 /// registered bubble child by its stored offset. Active on Windows (`set_parent`
 /// never moves the child) AND macOS (`addChildWindow` doesn't reposition the child
@@ -83,16 +95,15 @@ pub(crate) fn ensure_parent_follow_listener<R: Runtime>(
     parent_label: &str,
     bubbles: &Bubbles,
 ) {
-    {
-        let mut reg = bubbles.lock().unwrap();
-        if reg.listening_parents.contains(parent_label) {
-            return;
-        }
-        reg.listening_parents.insert(parent_label.to_string());
-    }
     let Some(parent) = app.get_webview_window(parent_label) else {
         return;
     };
+    {
+        let mut reg = bubbles.lock().unwrap();
+        if !reg.listening_parents.insert(parent_label.to_string()) {
+            return;
+        }
+    }
     let app = app.clone();
     let bubbles = bubbles.clone();
     let parent_label = parent_label.to_string();
@@ -156,13 +167,46 @@ pub(crate) fn refresh_bubble_offset<R: Runtime>(
     let Some(parent) = window.app_handle().get_webview_window(&parent_label) else {
         return;
     };
-    let Some((px, py)) = parent
-        .outer_position()
-        .ok()
-        .and_then(|p| parent.scale_factor().ok().map(|s| (p.x as f64 / s, p.y as f64 / s)))
-    else {
+    let Some((px, py)) = parent.outer_position().ok().and_then(|p| {
+        parent
+            .scale_factor()
+            .ok()
+            .map(|s| (p.x as f64 / s, p.y as f64 / s))
+    }) else {
         return;
     };
     let mut reg = bubbles.lock().unwrap();
     reg.offset_of.insert(label, (x - px, y - py));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn destruction_releases_parent_listener_and_all_child_offsets() {
+        let bubbles = Arc::new(std::sync::Mutex::new(BubbleRegistry::default()));
+        register_bubble(&bubbles, "bubble-a", "pet-a", 20.0, 30.0, (10.0, 10.0));
+        bubbles
+            .lock()
+            .unwrap()
+            .listening_parents
+            .insert("pet-a".into());
+        unregister_parent(&bubbles, "pet-a");
+        let registry = bubbles.lock().unwrap();
+        assert!(!registry.listening_parents.contains("pet-a"));
+        assert!(!registry.children_of.contains_key("pet-a"));
+        assert!(!registry.parent_of.contains_key("bubble-a"));
+        assert!(!registry.offset_of.contains_key("bubble-a"));
+    }
+    #[test]
+    fn removing_one_bubble_preserves_its_sibling() {
+        let bubbles = Arc::new(std::sync::Mutex::new(BubbleRegistry::default()));
+        register_bubble(&bubbles, "bubble-a", "pet-a", 0.0, 0.0, (0.0, 0.0));
+        register_bubble(&bubbles, "bubble-b", "pet-a", 0.0, 0.0, (0.0, 0.0));
+        unregister_bubble(&bubbles, "bubble-a");
+        let registry = bubbles.lock().unwrap();
+        assert_eq!(registry.children_of["pet-a"], vec!["bubble-b"]);
+        assert!(!registry.offset_of.contains_key("bubble-a"));
+        assert!(registry.offset_of.contains_key("bubble-b"));
+    }
 }

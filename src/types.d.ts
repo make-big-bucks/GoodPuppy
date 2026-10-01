@@ -55,9 +55,10 @@ export interface GoodPuppyBridge {
    * 回退到当前窗口所在屏 / 主屏。 */
   getCursorMonitorWorkArea(): Promise<WindowPoint & WindowSize>;
   setWindowPosition(position: WindowPoint): void;
-  setWindowSize(size: WindowSize): void;
+  setWindowSize(size: WindowSize): Promise<void>;
+  setSelfVisible(visible: boolean): Promise<void>;
   /** 原子化设置窗口位置+尺寸（单次 IPC），避免增高/翻转时的闪烁跳动。 */
-  setWindowBounds(bounds: WindowPoint & WindowSize): void;
+  setWindowBounds(bounds: WindowPoint & WindowSize): Promise<void>;
   /** 让置顶面板成为 key window，使记号棒输入框可接收键盘输入；返回是否成为 key window。 */
   setFocus(reason?: string): Promise<boolean>;
   /** 是否支持系统原生窗口拖拽；缺失时回退到手动跟随。 */

@@ -6,15 +6,14 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder}
 
 use crate::bubbles::{
     ensure_parent_follow_listener, refresh_bubble_offset, register_bubble, unregister_bubble,
-    Bubbles,
+    unregister_parent, Bubbles,
 };
 use crate::hit_test::{HitShapes, PetHitShape};
 use crate::platform::{
     add_child_window, configure_floating_overlay, configure_self_panel, position_overlay_window,
 };
+use crate::window_tasks::{destroy_window, on_main_thread};
 
-#[cfg(target_os = "macos")]
-use crate::platform::guard_appkit;
 #[cfg(target_os = "macos")]
 use objc2_app_kit::NSWindow;
 
@@ -27,12 +26,12 @@ pub(crate) fn set_pet_hit_shape(
     shape: PetHitShape,
 ) {
     if let Ok(mut map) = shapes.lock() {
-        map.insert(window.label().to_string(), shape);
+        map.shapes.insert(window.label().to_string(), shape);
     }
 }
 
 #[tauri::command]
-pub(crate) fn set_window_bounds(
+pub(crate) async fn set_window_bounds(
     window: WebviewWindow,
     bubbles: tauri::State<'_, Bubbles>,
     x: f64,
@@ -46,9 +45,11 @@ pub(crate) fn set_window_bounds(
     // bookkeeping is Windows-only but harmless to keep updated everywhere.
     refresh_bubble_offset(&window, &bubbles, x, y);
     let win = window.clone();
-    window
-        .run_on_main_thread(move || position_overlay_window(&win, x, y, width, height))
-        .map_err(|e| e.to_string())
+    let app = window.app_handle().clone();
+    on_main_thread(&app, move || {
+        position_overlay_window(&win, x, y, width, height)
+    })
+    .await
 }
 
 /// Dynamically create a transparent, always-on-top pet overlay window for a
@@ -58,47 +59,49 @@ pub(crate) fn set_window_bounds(
 #[tauri::command]
 pub(crate) async fn spawn_pet_window(
     app: AppHandle,
+    caller: WebviewWindow,
+    shapes: tauri::State<'_, HitShapes>,
+    bubbles: tauri::State<'_, Bubbles>,
     label: String,
     x: f64,
     y: f64,
     width: f64,
     height: f64,
 ) -> Result<(), String> {
+    require_role(caller.label(), "main")?;
+    require_remote_label(&label, "pet-")?;
     if app.get_webview_window(&label).is_some() {
         return Ok(());
     }
 
-    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("windows/pet.html".into()))
-        .title("GoodPuppy")
-        // macOS: 普通窗口默认不接受 first mouse —— 失焦后第一次左键只用于激活窗口、
-        // 不会派发到 webview，导致需要点两次才能拖动。静态 main/lounge 已在
-        // tauri.conf.json 设了 acceptFirstMouse；动态 pet 窗口在此对齐。
-        .accept_first_mouse(true)
-        .inner_size(width, height)
-        .resizable(false)
-        .maximizable(false)
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .shadow(false)
-        .focused(false)
-        .visible(false)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let window =
+        WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("windows/pet.html".into()))
+            .title("GoodPuppy")
+            // macOS: 普通窗口默认不接受 first mouse —— 失焦后第一次左键只用于激活窗口、
+            // 不会派发到 webview，导致需要点两次才能拖动。静态 main/lounge 已在
+            // tauri.conf.json 设了 acceptFirstMouse；动态 pet 窗口在此对齐。
+            .accept_first_mouse(true)
+            .inner_size(width, height)
+            .resizable(false)
+            .maximizable(false)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .shadow(false)
+            .focused(false)
+            .visible(false)
+            .build()
+            .map_err(|e| e.to_string())?;
 
-    // Configure overlay level + final geometry on the main thread BEFORE showing,
-    // so the window never flashes at the wrong position or below other windows.
-    // Plain floating window (no panel promotion) so it can be destroyed safely.
+    watch_resources(&window, shapes.inner().clone(), bubbles.inner().clone());
     let win = window.clone();
-    window
-        .run_on_main_thread(move || {
-            configure_floating_overlay(&win);
-            position_overlay_window(&win, x, y, width, height);
-            let _ = win.show();
-        })
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    on_main_thread(&app, move || {
+        configure_floating_overlay(&win);
+        position_overlay_window(&win, x, y, width, height)?;
+        win.show().map_err(|error| error.to_string())
+    })
+    .await
 }
 
 /// Destroy a previously spawned pet overlay window (member went offline / left).
@@ -111,21 +114,15 @@ pub(crate) async fn spawn_pet_window(
 /// `configure_floating_overlay`.) The destroy is still wrapped so any residual
 /// AppKit teardown exception is logged rather than aborting the process.
 #[tauri::command]
-pub(crate) async fn close_pet_window(app: AppHandle, label: String) -> Result<(), String> {
+pub(crate) async fn close_pet_window(
+    app: AppHandle,
+    caller: WebviewWindow,
+    label: String,
+) -> Result<(), String> {
+    require_role(caller.label(), "main")?;
+    require_remote_label(&label, "pet-")?;
     if let Some(window) = app.get_webview_window(&label) {
-        let win = window.clone();
-        window
-            .run_on_main_thread(move || {
-                #[cfg(target_os = "macos")]
-                guard_appkit("destroy_window", || {
-                    let _ = win.destroy();
-                });
-                #[cfg(not(target_os = "macos"))]
-                {
-                    let _ = win.destroy();
-                }
-            })
-            .map_err(|e| e.to_string())?;
+        destroy_window(window).await?;
     }
     Ok(())
 }
@@ -140,6 +137,8 @@ pub(crate) async fn close_pet_window(app: AppHandle, label: String) -> Result<()
 #[tauri::command]
 pub(crate) async fn spawn_bubble_window(
     app: AppHandle,
+    caller: WebviewWindow,
+    shapes: tauri::State<'_, HitShapes>,
     bubbles: tauri::State<'_, Bubbles>,
     label: String,
     parent_label: String,
@@ -149,6 +148,8 @@ pub(crate) async fn spawn_bubble_window(
     width: f64,
     height: f64,
 ) -> Result<(), String> {
+    require_role(caller.label(), "main")?;
+    validate_bubble_pair(&label, &parent_label, is_self)?;
     if app.get_webview_window(&label).is_some() {
         return Ok(());
     }
@@ -156,7 +157,11 @@ pub(crate) async fn spawn_bubble_window(
         return Err(format!("parent window {parent_label} not found"));
     };
 
-    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("windows/bubble.html".into()))
+    let builder =
+        WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("windows/bubble.html".into()));
+    #[cfg(target_os = "windows")]
+    let builder = builder.owner(&parent).map_err(|error| error.to_string())?;
+    let window = builder
         .title("GoodPuppy")
         .accept_first_mouse(true)
         .inner_size(width, height)
@@ -176,24 +181,28 @@ pub(crate) async fn spawn_bubble_window(
     let parent_origin = parent
         .outer_position()
         .ok()
-        .and_then(|p| parent.scale_factor().ok().map(|s| (p.x as f64 / s, p.y as f64 / s)))
+        .and_then(|p| {
+            parent
+                .scale_factor()
+                .ok()
+                .map(|s| (p.x as f64 / s, p.y as f64 / s))
+        })
         .unwrap_or((x, y));
     register_bubble(&bubbles, &label, &parent_label, x, y, parent_origin);
 
+    watch_resources(&window, shapes.inner().clone(), bubbles.inner().clone());
     let win = window.clone();
     let parent_for_main = parent.clone();
-    let is_self_flag = is_self;
-    window
-        .run_on_main_thread(move || {
-            configure_floating_overlay(&win);
-            if is_self_flag {
-                configure_self_panel(&win);
-            }
-            position_overlay_window(&win, x, y, width, height);
-            add_child_window(&parent_for_main, &win);
-            let _ = win.show();
-        })
-        .map_err(|e| e.to_string())?;
+    on_main_thread(&app, move || {
+        configure_floating_overlay(&win);
+        if is_self {
+            configure_self_panel(&win);
+        }
+        position_overlay_window(&win, x, y, width, height)?;
+        add_child_window(&parent_for_main, &win)?;
+        win.show().map_err(|error| error.to_string())
+    })
+    .await?;
 
     ensure_parent_follow_listener(&app, &parent_label, &bubbles);
     Ok(())
@@ -206,24 +215,13 @@ pub(crate) async fn spawn_bubble_window(
 #[tauri::command]
 pub(crate) async fn close_bubble_window(
     app: AppHandle,
-    bubbles: tauri::State<'_, Bubbles>,
+    caller: WebviewWindow,
     label: String,
 ) -> Result<(), String> {
-    unregister_bubble(&bubbles, &label);
+    require_role(caller.label(), "main")?;
+    require_remote_label(&label, "bubble-")?;
     if let Some(window) = app.get_webview_window(&label) {
-        let win = window.clone();
-        window
-            .run_on_main_thread(move || {
-                #[cfg(target_os = "macos")]
-                guard_appkit("destroy_bubble_window", || {
-                    let _ = win.destroy();
-                });
-                #[cfg(not(target_os = "macos"))]
-                {
-                    let _ = win.destroy();
-                }
-            })
-            .map_err(|e| e.to_string())?;
+        destroy_window(window).await?;
     }
     Ok(())
 }
@@ -238,12 +236,15 @@ pub(crate) async fn close_bubble_window(
 #[tauri::command]
 pub(crate) async fn spawn_toast_window(
     app: AppHandle,
+    caller: WebviewWindow,
     label: String,
     x: f64,
     y: f64,
     width: f64,
     height: f64,
 ) -> Result<(), String> {
+    require_role(caller.label(), "lounge")?;
+    require_remote_label(&label, "toast-")?;
     if app.get_webview_window(&label).is_some() {
         return Ok(());
     }
@@ -266,35 +267,27 @@ pub(crate) async fn spawn_toast_window(
             .map_err(|e| e.to_string())?;
 
     let win = window.clone();
-    window
-        .run_on_main_thread(move || {
-            configure_floating_overlay(&win);
-            position_overlay_window(&win, x, y, width, height);
-            let _ = win.show();
-        })
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    on_main_thread(&app, move || {
+        configure_floating_overlay(&win);
+        position_overlay_window(&win, x, y, width, height)?;
+        win.show().map_err(|error| error.to_string())
+    })
+    .await
 }
 
 /// Destroy a toast window (auto-dismiss / manual close / clicked through).
 /// Plain floating NSWindow — standard Tauri teardown, guarded on macOS against
 /// the window-teardown race the spawned pet/bubble windows also guard.
 #[tauri::command]
-pub(crate) async fn close_toast_window(app: AppHandle, label: String) -> Result<(), String> {
+pub(crate) async fn close_toast_window(
+    app: AppHandle,
+    caller: WebviewWindow,
+    label: String,
+) -> Result<(), String> {
+    require_role(caller.label(), "lounge")?;
+    require_remote_label(&label, "toast-")?;
     if let Some(window) = app.get_webview_window(&label) {
-        let win = window.clone();
-        window
-            .run_on_main_thread(move || {
-                #[cfg(target_os = "macos")]
-                guard_appkit("destroy_toast_window", || {
-                    let _ = win.destroy();
-                });
-                #[cfg(not(target_os = "macos"))]
-                {
-                    let _ = win.destroy();
-                }
-            })
-            .map_err(|e| e.to_string())?;
+        destroy_window(window).await?;
     }
     Ok(())
 }
@@ -307,6 +300,9 @@ pub(crate) async fn close_toast_window(app: AppHandle, label: String) -> Result<
 /// dismissed, otherwise the menu teardown resigns key again.
 #[tauri::command]
 pub(crate) fn focus_pet_panel(window: WebviewWindow) -> bool {
+    if window.label() != "bubble-self" {
+        return false;
+    }
     #[cfg(target_os = "macos")]
     {
         let Ok(ns_window_ptr) = window.ns_window() else {
@@ -319,5 +315,94 @@ pub(crate) fn focus_pet_panel(window: WebviewWindow) -> bool {
     #[cfg(not(target_os = "macos"))]
     {
         window.set_focus().is_ok()
+    }
+}
+
+fn require_role(actual: &str, expected: &str) -> Result<(), String> {
+    if actual == expected {
+        Ok(())
+    } else {
+        Err("window role is not allowed to perform this operation".into())
+    }
+}
+fn require_remote_label(label: &str, prefix: &str) -> Result<(), String> {
+    let suffix = label.strip_prefix(prefix).unwrap_or("");
+    if suffix.is_empty()
+        || suffix == "self"
+        || !suffix
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return Err("invalid dynamic window label".into());
+    }
+    Ok(())
+}
+fn validate_bubble_pair(label: &str, parent: &str, is_self: bool) -> Result<(), String> {
+    if is_self && label == "bubble-self" && parent == "main" {
+        return Ok(());
+    }
+    if is_self {
+        return Err("invalid self panel identity".into());
+    }
+    require_remote_label(label, "bubble-")?;
+    require_remote_label(parent, "pet-")?;
+    if label.strip_prefix("bubble-") != parent.strip_prefix("pet-") {
+        return Err("bubble and parent identities differ".into());
+    }
+    Ok(())
+}
+fn watch_resources(window: &WebviewWindow, shapes: HitShapes, bubbles: Bubbles) {
+    let label = window.label().to_string();
+    window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            shapes.lock().unwrap().remove_window(&label);
+            unregister_bubble(&bubbles, &label);
+            unregister_parent(&bubbles, &label);
+        }
+    });
+}
+
+#[tauri::command]
+pub(crate) async fn set_self_visible(
+    app: AppHandle,
+    caller: WebviewWindow,
+    visible: bool,
+) -> Result<(), String> {
+    require_role(caller.label(), "main")?;
+    let main = app
+        .get_webview_window("main")
+        .ok_or("main window unavailable")?;
+    let bubble = app.get_webview_window("bubble-self");
+    on_main_thread(&app, move || {
+        if visible {
+            main.show().map_err(|error| error.to_string())?;
+            if let Some(bubble) = bubble {
+                add_child_window(&main, &bubble)?;
+                bubble.show().map_err(|error| error.to_string())?;
+            }
+        } else {
+            if let Some(bubble) = bubble {
+                bubble.hide().map_err(|error| error.to_string())?;
+            }
+            main.hide().map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    })
+    .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn panel_identity_and_dynamic_roles_are_enforced() {
+        assert!(validate_bubble_pair("bubble-self", "main", true).is_ok());
+        assert!(validate_bubble_pair("bubble-self", "main", false).is_err());
+        assert!(validate_bubble_pair("bubble-a", "pet-b", false).is_err());
+        assert!(validate_bubble_pair("bubble-a", "pet-a", false).is_ok());
+        assert!(require_remote_label("main", "pet-").is_err());
+        assert!(require_remote_label("bubble-self", "bubble-").is_err());
+        assert!(require_remote_label("pet-", "pet-").is_err());
+        assert!(require_role("pet-a", "main").is_err());
     }
 }

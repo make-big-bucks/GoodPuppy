@@ -113,18 +113,22 @@ const goodPuppy: GoodPuppyBridge = {
       };
     });
   },
+  setSelfVisible(visible: boolean) {
+    if (!inTauri) return Promise.resolve();
+    return windowCommand<void>("set_self_visible", { visible });
+  },
   setWindowPosition(position: WindowPoint) {
     if (!appWindow) return;
     if (!position || typeof position.x !== "number" || typeof position.y !== "number") return;
     appWindow.setPosition(new LogicalPosition(Math.round(position.x), Math.round(position.y)));
   },
   setWindowSize(size: WindowSize) {
-    if (!appWindow) return;
-    if (!size || typeof size.width !== "number" || typeof size.height !== "number") return;
-    appWindow.setSize(new LogicalSize(Math.round(size.width), Math.round(size.height)));
+    if (!appWindow) return Promise.resolve();
+    if (!size || typeof size.width !== "number" || typeof size.height !== "number") return Promise.resolve();
+    return appWindow.setSize(new LogicalSize(Math.round(size.width), Math.round(size.height)));
   },
   setWindowBounds(bounds: WindowPoint & WindowSize) {
-    if (!appWindow) return;
+    if (!appWindow) return Promise.resolve();
     if (
       !bounds ||
       typeof bounds.x !== "number" ||
@@ -132,14 +136,14 @@ const goodPuppy: GoodPuppyBridge = {
       typeof bounds.width !== "number" ||
       typeof bounds.height !== "number"
     )
-      return;
+      return Promise.resolve();
     // 原子化 resize + reposition（单次 IPC，避免增高/翻转时窗口闪烁跳动）。
-    invoke("set_window_bounds", {
+    return windowCommand<void>("set_window_bounds", {
       x: Math.round(bounds.x),
       y: Math.round(bounds.y),
       width: Math.round(bounds.width),
       height: Math.round(bounds.height),
-    }).catch((error) => console.error("set_window_bounds failed:", error));
+    });
   },
   setFocus(reason = "?") {
     // 让置顶面板成为 key window，使记号棒的 textarea 能接收键盘输入。

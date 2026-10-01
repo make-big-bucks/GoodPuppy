@@ -87,3 +87,7 @@ Output is in `src-tauri/target/release/bundle/`.
 ```bash
 python3 -m unittest discover -s skills/hatch-puppy-pet/tests -v
 ```
+
+## 原生窗口回归检查
+
+`npm run test:native` 使用独立应用标识验证创建、显隐、销毁和同名重建，自动准备 Vite 并回收自己启动的服务器，不使用已保存账号。仅开发构建提供该检查；Windows 需在 Windows 上执行。
