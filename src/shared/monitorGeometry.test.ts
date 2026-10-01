@@ -6,6 +6,12 @@ const primary = { position: { x: 0, y: 0 }, size: { width: 2880, height: 1800 },
 const secondary = { position: { x: -1920, y: 0 }, size: { width: 1920, height: 1080 }, scaleFactor: 1,
   workArea: { position: { x: -1920, y: 0 }, size: { width: 1920, height: 1040 } } };
 describe("monitor geometry", () => {
+  it("preserves Windows global origins for a scaled secondary monitor", () => {
+    const scaled = { position: { x: 1920, y: 0 }, size: { width: 2560, height: 1440 }, scaleFactor: 2,
+      workArea: { position: { x: 1920, y: 40 }, size: { width: 2560, height: 1360 } } };
+    expect(monitorRect(scaled, true, true)).toEqual({ x: 1920, y: 40, width: 2560, height: 1360 });
+    expect(monitorRect(scaled, true)).toEqual({ x: 960, y: 20, width: 1280, height: 680 });
+  });
   it("keeps display bounds separate from menu and dock reservations", () => {
     expect(monitorRect(primary)).toEqual({ x: 0, y: 0, width: 1440, height: 900 });
     expect(monitorRect(primary, true)).toEqual({ x: 0, y: 25, width: 1440, height: 825 });

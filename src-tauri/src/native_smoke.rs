@@ -370,6 +370,14 @@ async fn exercise_toast(app: &AppHandle) -> Result<(), String> {
         lounge.clone(),
         "toast-smoke".into(),
         Some("toast-smoke-instance".into()),
+        Some(
+            if cfg!(target_os = "windows") {
+                "desktop-physical-v2"
+            } else {
+                "desktop-logical-v2"
+            }
+            .into(),
+        ),
         300.0,
         300.0,
         340.0,

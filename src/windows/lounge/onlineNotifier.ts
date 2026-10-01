@@ -134,8 +134,8 @@ const scheduler = createNotificationScheduler<OnlineNotifyPayload>({
     await Promise.all(listeners.map((listener) => listener.ready));
     const workArea = await window.goodPuppy.getCursorMonitorWorkArea();
     if (signal.aborted) return;
-    const pos = computeToastPosition({ workArea, platform: platform(), index: slot, card: { width: TOAST_W, height: TOAST_H } });
-    await window.goodPuppy.spawnToastWindow({ label, instanceId, ...pos, width: TOAST_W, height: TOAST_H });
+    const pos = computeToastPosition({ workArea, desktopScale: workArea.desktopScale, platform: platform(), index: slot, card: { width: TOAST_W, height: TOAST_H } });
+    await window.goodPuppy.spawnToastWindow({ label, instanceId, coordinateSpace: workArea.coordinateSpace, ...pos, width: TOAST_W, height: TOAST_H });
   },
   close: (label, instanceId) => window.goodPuppy.closeToastWindow(label, instanceId),
   deliver: (label, instanceId, payload) => window.goodPuppy.emitToWindow(label, "toast-data", { instanceId, payload }),

@@ -59,9 +59,9 @@ export interface GoodPuppyBridge {
   /** 当前所有已连接显示器的整屏矩形（逻辑像素），用于校验存档窗口位置是否仍可见
    * （外接屏断开后旧坐标可能整窗落在屏外）。 */
   getMonitors(): Promise<Array<WindowPoint & WindowSize>>;
-  /** 光标当前所在显示器的可用区域（逻辑像素），用于定位上线提醒 toast；
+  /** 光标所在屏的桌面工作区（Windows 物理/macOS 逻辑单位），携带换算比例；
    * 回退到当前窗口所在屏 / 主屏。 */
-  getCursorMonitorWorkArea(): Promise<WindowPoint & WindowSize>;
+  getCursorMonitorWorkArea(): Promise<WindowPoint & WindowSize & { desktopScale: number; coordinateSpace: "desktop-physical-v2" | "desktop-logical-v2" }>;
   setWindowPosition(position: WindowPoint): Promise<void>;
   setWindowSize(size: WindowSize): Promise<void>;
   setSelfVisible(visible: boolean): Promise<void>;
@@ -102,7 +102,7 @@ export interface GoodPuppyBridge {
   /** 协调者请求销毁某只远程气泡窗口（自己的气泡窗口整会话只隐藏不销毁）。 */
   closeBubbleWindow(label: string, instanceId?: string): Promise<void>;
   /** 创建一只上线提醒 toast 窗口（label `toast-<seq>`），不透明圆角卡片置顶不抢焦点。 */
-  spawnToastWindow(opts: { instanceId?: string; label: string; x: number; y: number; width: number; height: number }): Promise<void>;
+  spawnToastWindow(opts: { instanceId?: string; coordinateSpace?: "desktop-physical-v2" | "desktop-logical-v2"; label: string; x: number; y: number; width: number; height: number }): Promise<void>;
   /** 销毁某只 toast 窗口（自动消失 / 手动关闭 / 点击进入后）。 */
   closeToastWindow(label: string, instanceId?: string): Promise<void>;
   /** 向指定窗口定向发送一个跨窗口事件（协调者 → 呈现者，或呈现者 → 协调者）。 */

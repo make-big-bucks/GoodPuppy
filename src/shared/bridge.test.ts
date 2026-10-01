@@ -43,6 +43,12 @@ describe("native bridge error contract", () => {
     const bridge = (await import("./bridge.js")).default;
     await expect(bridge.startWindowDrag()).rejects.toThrow("drag denied");
   });
+  it("preserves the desktop coordinate marker for toast creation", async () => {
+    const bridge = (await import("./bridge.js")).default;
+    invoke.mockResolvedValue(undefined);
+    await bridge.spawnToastWindow({ label: "toast-a", coordinateSpace: "desktop-physical-v2", x: 3768, y: 928, width: 340, height: 104 });
+    expect(invoke).toHaveBeenCalledWith("spawn_toast_window", expect.objectContaining({ coordinateSpace: "desktop-physical-v2", x: 3768, width: 340 }));
+  });
   it("does not convert spawn failures into success", async () => {
     invoke.mockRejectedValue(new Error("creation denied"));
     const log = vi.spyOn(console, "error").mockImplementation(() => {});

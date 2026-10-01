@@ -245,3 +245,51 @@ pub(crate) fn position_overlay_window<R: Runtime>(
     }
     Ok(())
 }
+
+/// 桌面坐标协议：Windows 位置使用全局物理像素，内容尺寸仍为逻辑像素。
+pub(crate) fn position_desktop_overlay_window<R: Runtime>(
+    window: &WebviewWindow<R>,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let monitor = window
+            .available_monitors()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .min_by(|a, b| {
+                let distance = |monitor: &tauri::Monitor| {
+                    let origin = monitor.position();
+                    let size = monitor.size();
+                    let dx = (origin.x as f64 - x)
+                        .max(0.0)
+                        .max(x - (origin.x as f64 + size.width as f64));
+                    let dy = (origin.y as f64 - y)
+                        .max(0.0)
+                        .max(y - (origin.y as f64 + size.height as f64));
+                    dx * dx + dy * dy
+                };
+                distance(a).total_cmp(&distance(b))
+            })
+            .ok_or("target display is unavailable")?;
+        let scale = monitor.scale_factor();
+        window
+            .set_position(tauri::PhysicalPosition::new(
+                x.round() as i32,
+                y.round() as i32,
+            ))
+            .map_err(|error| error.to_string())?;
+        window
+            .set_size(tauri::PhysicalSize::new(
+                (width * scale).round() as u32,
+                (height * scale).round() as u32,
+            ))
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    position_overlay_window(window, x, y, width, height)
+}

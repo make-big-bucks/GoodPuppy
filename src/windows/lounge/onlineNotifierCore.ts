@@ -60,7 +60,7 @@ const DEFAULT_MARGIN = 16;
 const DEFAULT_GAP = 12;
 
 /**
- * 计算第 index 张 toast 卡片在目标屏可用区内的左上角坐标（逻辑像素）。
+ * 计算第 index 张卡片的桌面位置；内容逻辑尺寸和间距按 desktopScale 换算。
  * macOS：右上角向下堆叠；Windows：右下角（taskbar 上方）向上堆叠。
  */
 export function computeToastPosition(opts: {
@@ -70,14 +70,17 @@ export function computeToastPosition(opts: {
   card: Size;
   margin?: number;
   gap?: number;
+  desktopScale?: number;
 }): { x: number; y: number } {
-  const margin = opts.margin ?? DEFAULT_MARGIN;
-  const gap = opts.gap ?? DEFAULT_GAP;
-  const x = opts.workArea.x + opts.workArea.width - opts.card.width - margin;
-  const step = opts.card.height + gap;
+  const scale = opts.desktopScale ?? 1;
+  const margin = (opts.margin ?? DEFAULT_MARGIN) * scale;
+  const gap = (opts.gap ?? DEFAULT_GAP) * scale;
+  const card = { width: opts.card.width * scale, height: opts.card.height * scale };
+  const x = opts.workArea.x + opts.workArea.width - card.width - margin;
+  const step = card.height + gap;
 
   if (opts.platform === "windows") {
-    const bottom = opts.workArea.y + opts.workArea.height - opts.card.height - margin;
+    const bottom = opts.workArea.y + opts.workArea.height - card.height - margin;
     return { x, y: bottom - opts.index * step };
   }
 

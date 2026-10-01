@@ -10,7 +10,8 @@ use crate::bubbles::{
 };
 use crate::hit_test::{HitShapes, PetHitShape};
 use crate::platform::{
-    add_child_window, configure_floating_overlay, configure_self_panel, position_overlay_window,
+    add_child_window, configure_floating_overlay, configure_self_panel,
+    position_desktop_overlay_window, position_overlay_window,
 };
 use crate::window_tasks::{
     destroy_window, finish_window_creation, on_main_thread, WindowInstances,
@@ -389,6 +390,7 @@ pub(crate) async fn spawn_toast_window(
     caller: WebviewWindow,
     label: String,
     instance_id: Option<String>,
+    coordinate_space: Option<String>,
     x: f64,
     y: f64,
     width: f64,
@@ -397,6 +399,12 @@ pub(crate) async fn spawn_toast_window(
     require_role(caller.label(), "lounge")?;
     require_remote_label(&label, "toast-")?;
     validate_geometry(x, y, width, height)?;
+    let desktop = match coordinate_space.as_deref() {
+        None => false,
+        Some("desktop-physical-v2") if cfg!(target_os = "windows") => true,
+        Some("desktop-logical-v2") if !cfg!(target_os = "windows") => true,
+        _ => return Err("unsupported desktop coordinate space".into()),
+    };
     let instance_id = instance_id.unwrap_or_else(new_instance_id);
     if app.get_webview_window(&label).is_some() {
         if matches_instance(&app, &label, Some(&instance_id)) {
@@ -435,7 +443,11 @@ pub(crate) async fn spawn_toast_window(
     let win = window.clone();
     let setup = on_main_thread(&app, move || {
         configure_floating_overlay(&win);
-        position_overlay_window(&win, x, y, width, height)?;
+        if desktop {
+            position_desktop_overlay_window(&win, x, y, width, height)?;
+        } else {
+            position_overlay_window(&win, x, y, width, height)?;
+        }
         win.show().map_err(|error| error.to_string())
     })
     .await;

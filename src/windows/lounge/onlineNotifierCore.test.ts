@@ -195,3 +195,8 @@ describe("isWithinDedupeWindow", () => {
     expect(isWithinDedupeWindow(1000, 12_000, 10_000)).toBe(false);
   });
 });
+
+it("scales toast cards and spacing in the target physical desktop plane", () => {
+  expect(computeToastPosition({ workArea: { x: 1920, y: 0, width: 2560, height: 1400 },
+    platform: "windows", index: 1, card: { width: 340, height: 104 }, desktopScale: 2 })).toEqual({ x: 3768, y: 928 });
+});

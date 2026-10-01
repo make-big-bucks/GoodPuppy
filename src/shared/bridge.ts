@@ -84,17 +84,20 @@ const goodPuppy: GoodPuppyBridge = {
   },
   async getCursorMonitorWorkArea() {
     // 上线提醒 toast 的目标屏：取光标当前所在屏的「可用区」（扣除菜单栏/dock/taskbar），
-    // 回退到当前窗口所在屏 / 主屏。workArea 为物理像素，换算成逻辑像素以与窗口坐标一致。
+    // 回退到当前窗口所在屏 / 主屏；Windows 保留全局物理位置，macOS 恢复逻辑位置。
     const fallback = {
       x: 0,
       y: 0,
       width: window.screen.availWidth,
       height: window.screen.availHeight,
+      desktopScale: 1, coordinateSpace: "desktop-logical-v2" as const,
     };
     if (!appWindow) return fallback;
     const toWorkArea = (monitor: Monitor | null) => {
       if (!monitor) return null;
-      return monitorRect(monitor, true);
+      const physical = navigator.platform.startsWith("Win");
+      return { ...monitorRect(monitor, true, physical), desktopScale: physical ? monitor.scaleFactor : 1,
+        coordinateSpace: physical ? "desktop-physical-v2" as const : "desktop-logical-v2" as const };
     };
     try {
       const cursor = await cursorPosition();
@@ -222,10 +225,11 @@ const goodPuppy: GoodPuppyBridge = {
     if (!inTauri) return Promise.resolve();
     return windowCommand<void>("close_bubble_window", { label, instanceId });
   },
-  spawnToastWindow(opts: { instanceId?: string; label: string; x: number; y: number; width: number; height: number }) {
+  spawnToastWindow(opts: { instanceId?: string; coordinateSpace?: "desktop-physical-v2" | "desktop-logical-v2"; label: string; x: number; y: number; width: number; height: number }) {
     if (!inTauri) return Promise.resolve();
     return windowCommand<void>("spawn_toast_window", {
       label: opts.label,
+      coordinateSpace: opts.coordinateSpace,
       instanceId: opts.instanceId,
       x: Math.round(opts.x),
       y: Math.round(opts.y),
