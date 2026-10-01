@@ -102,14 +102,11 @@ async function ensureProfile(session: SessionContext, version: number) {
   } else { callbacks?.onPetIdResolved(data.pet_id || "default"); callbacks?.onSkinResolved?.(data.skin || "default"); }
 }
 
-function startHeartbeat(session: SessionContext, version: number) {
+function startHeartbeat(version: number, pulse: () => void) {
   stopHeartbeat();
   heartbeatTimer = setInterval(() => {
     if (version !== revision || !currentRoomId) return;
-    void session.client.from("presence").update({ last_seen: new Date().toISOString() })
-      .eq("user_id", session.userId).then(({ error }) => {
-        if (error) console.error("presence heartbeat:", error);
-      });
+    pulse();
   }, 60_000);
 }
 
@@ -120,16 +117,39 @@ async function activateRoom(session: SessionContext, roomId: string, version: nu
   const messages: LocalMessage[] = [];
   let committed = false;
   let users: PresenceUser[] = [];
+  const connection = { messages: false, presence: false, interactions: false };
+  const healthy = () => Object.values(connection).every(Boolean);
+  let pulseQueued = false;
+  const pulse = () => {
+    if (pulseQueued || !committed || version !== revision) return;
+    pulseQueued = true;
+    // 与退出/切房串行，旧心跳写入不能落到新房间的在线写入之后。
+    void enqueue(async () => {
+      pulseQueued = false;
+      if (version !== revision || currentRoomId !== roomId) return;
+      const { error } = await session.client.from("presence").update({
+        is_online: healthy(), last_seen: new Date().toISOString(),
+      }).eq("user_id", session.userId);
+      if (error) throw error;
+    }).catch((error) => console.error("presence heartbeat:", error));
+  };
+  const observe = (name: keyof typeof connection) => (ready: boolean) => {
+    if (version !== revision) return;
+    const changed = connection[name] !== ready;
+    connection[name] = ready;
+    if (changed) pulse();
+  };
   // 先建立订阅，快照加载期间缓冲新消息，避免查询与订阅间的空隙。
   await subscribeToRoomMessages(session.client, roomId, (message) => {
     if (version !== revision) return;
     if (committed) cbs.onNewMessage(message);
     else messages.push(message);
-  });
+  }, observe("messages"));
   assertCurrent(version);
   const history = await fetchRoomMessages(session.client, roomId);
   assertCurrent(version);
   await presence.joinRoom(session.client, roomId, session.userId, {
+    onConnectionChange: observe("presence"),
     onPresenceChange: (nextUsers) => {
       if (version !== revision) return;
       users = nextUsers;
@@ -139,15 +159,18 @@ async function activateRoom(session: SessionContext, roomId: string, version: nu
   });
   assertCurrent(version);
   await joinInteractions(session.client, roomId, {
+    onConnectionChange: observe("interactions"),
     onInteraction: (payload) => { if (version === revision && committed) cbs.onInteraction(payload); },
   });
   assertCurrent(version);
+  if (!healthy()) throw new Error("房间连接在准备期间中断，请重试");
   const { error } = await session.client.from("presence").upsert({
     user_id: session.userId, current_room_id: roomId, is_online: true,
     last_seen: new Date().toISOString(),
   }, { onConflict: "user_id" });
   assertCurrent(version);
   if (error) throw error;
+  if (!healthy()) throw new Error("房间连接在准备期间中断，请重试");
   // 全部准备成功后才提交 active 状态；迟到的回调不能修改其它房间。
   currentRoomId = roomId;
   committed = true;
@@ -155,7 +178,7 @@ async function activateRoom(session: SessionContext, roomId: string, version: nu
   cbs.onMessagesLoaded([...merged.values()].sort((a, b) =>
     compareMessagePosition({ id: a.id, createdAt: a.created_at }, { id: b.id, createdAt: b.created_at })));
   cbs.onPresenceChange(users);
-  startHeartbeat(session, version);
+  startHeartbeat(version, pulse);
   cbs.onRoomReady();
 }
 

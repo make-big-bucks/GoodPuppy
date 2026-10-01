@@ -1,4 +1,4 @@
-import { subscribeChannel } from "../../shared/realtimeSubscription.js";
+import { subscribeChannel, type ConnectionObserver } from "../../shared/realtimeSubscription.js";
 import type { RealtimeChannel, RealtimePresenceState, SupabaseClient } from "@supabase/supabase-js";
 import type { PetStatus, PresenceUser } from "../../types";
 
@@ -18,6 +18,7 @@ type LocalPresencePatch = {
 
 type JoinRoomOptions = LocalPresencePatch & {
   onPresenceChange?: (users: PresenceUser[]) => void;
+  onConnectionChange?: ConnectionObserver;
 };
 
 let presenceChannel: RealtimeChannel | null = null;
@@ -82,7 +83,7 @@ export async function joinRoom(
   supabase: SupabaseClient,
   roomId: string,
   nextSelfId: string,
-  { onPresenceChange, status, petId, skin }: JoinRoomOptions = {},
+  { onPresenceChange, onConnectionChange, status, petId, skin }: JoinRoomOptions = {},
 ) {
   selfId = nextSelfId;
   onPresenceChangeHandler = typeof onPresenceChange === "function" ? onPresenceChange : () => {};
@@ -119,6 +120,7 @@ export async function joinRoom(
     presenceReady = connected;
     if (!connected) { knownUsers.clear(); emitPresence(); }
     else syncOnlineState();
+    onConnectionChange?.(connected);
   });
 }
 

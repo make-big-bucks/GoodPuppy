@@ -1,4 +1,5 @@
-import { subscribeChannel } from "../../shared/realtimeSubscription.js";
+import { subscribeChannel, type ConnectionObserver } from "../../shared/realtimeSubscription.js";
+import { retryTask } from "../../shared/retryTask.js";
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import type { LocalMessage } from "../../types";
 
@@ -12,6 +13,7 @@ type MessageInsert = {
 
 let messagesChannel: RealtimeChannel | null = null;
 let messagesClient: SupabaseClient | null = null;
+let recoveryAbort: AbortController | null = null;
 
 // 拉取的房间历史上限；按发送者分组后每只宠物再裁剪到 MAX_STACK_MESSAGES。
 const ROOM_HISTORY_LIMIT = 120;
@@ -29,15 +31,17 @@ function msgToLocal(msg: MessageInsert): LocalMessage {
 export async function fetchRoomMessages(
   supabase: SupabaseClient,
   roomId: string,
+  signal?: AbortSignal,
 ): Promise<LocalMessage[]> {
-  const { data, error } = await supabase
+  let query = supabase
     .from("messages")
     .select("id, content, created_at, sender_id, kind")
     .eq("room_id", roomId)
     .eq("kind", "text")
     .order("created_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(ROOM_HISTORY_LIMIT);
+    .order("id", { ascending: false });
+  if (signal) query = query.abortSignal(signal);
+  const { data, error } = await query.limit(ROOM_HISTORY_LIMIT);
   if (error) throw error;
   return (data || []).map(msgToLocal).reverse();
 }
@@ -47,6 +51,7 @@ export async function subscribeToRoomMessages(
   supabase: SupabaseClient,
   roomId: string,
   onMessage: (msg: LocalMessage) => void,
+  onConnectionChange?: ConnectionObserver,
 ): Promise<void> {
   await unsubscribeRoomMessages(supabase);
   messagesClient = supabase;
@@ -71,12 +76,23 @@ export async function subscribeToRoomMessages(
   await subscribeChannel(joinedChannel, async (reconnected) => {
     if (!reconnected || messagesChannel !== joinedChannel) return;
     const version = recoveryGeneration;
-    const history = await fetchRoomMessages(supabase, roomId);
+    const abort = recoveryAbort!;
+    let history: LocalMessage[];
+    try {
+      history = await retryTask(() => fetchRoomMessages(supabase, roomId, abort.signal), abort.signal,
+        (error) => console.error("房间消息补查失败，将重试：", error));
+    } catch (error) { if (abort.signal.aborted) return; throw error; }
     if (messagesChannel !== joinedChannel || version !== recoveryGeneration) return;
     for (const message of history) onMessage(message);
   }, undefined, (_ready, error) => {
-    if (!_ready) recoveryGeneration += 1;
-    if (messagesChannel === joinedChannel && error) console.error("房间消息频道：", error);
+    if (messagesChannel !== joinedChannel) return;
+    if (!_ready) {
+      recoveryGeneration += 1;
+      recoveryAbort?.abort();
+      recoveryAbort = new AbortController();
+    }
+    onConnectionChange?.(_ready, error);
+    if (error) console.error("房间消息频道：", error);
   });
 }
 
@@ -85,5 +101,7 @@ export async function unsubscribeRoomMessages(supabase: SupabaseClient): Promise
   const owner = messagesClient ?? supabase;
   messagesChannel = null;
   messagesClient = null;
+  recoveryAbort?.abort();
+  recoveryAbort = null;
   if (previous) await owner.removeChannel(previous);
 }

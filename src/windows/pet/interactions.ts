@@ -1,4 +1,4 @@
-import { subscribeChannel } from "../../shared/realtimeSubscription.js";
+import { subscribeChannel, type ConnectionObserver } from "../../shared/realtimeSubscription.js";
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import type { InteractionPayload } from "../../types";
 
@@ -20,7 +20,7 @@ function isInteractionPayload(payload: unknown): payload is InteractionPayload {
 export async function joinInteractions(
   supabase: SupabaseClient,
   roomId: string,
-  { onInteraction }: { onInteraction?: (payload: InteractionPayload) => void } = {},
+  { onInteraction, onConnectionChange }: { onInteraction?: (payload: InteractionPayload) => void; onConnectionChange?: ConnectionObserver } = {},
 ) {
   ready = false;
   activeRoom = { client: supabase, roomId };
@@ -41,7 +41,7 @@ export async function joinInteractions(
   });
 
   await subscribeChannel(joinedChannel, undefined, undefined, (connected) => {
-    if (channel === joinedChannel) ready = connected;
+    if (channel === joinedChannel) { ready = connected; onConnectionChange?.(connected); }
   });
 }
 

@@ -72,10 +72,10 @@ describe("roomManager", () => {
     vi.resetModules();
     vi.clearAllMocks();
     fetchRoomMessages.mockResolvedValue([]);
-    subscribeToRoomMessages.mockResolvedValue(undefined);
-    joinRoom.mockResolvedValue(undefined);
+    subscribeToRoomMessages.mockImplementation(async (_client, _room, _message, connected) => { connected?.(true); });
+    joinRoom.mockImplementation(async (_client, _room, _self, options) => { options?.onConnectionChange?.(true); });
     leaveRoom.mockResolvedValue(undefined);
-    joinInteractions.mockResolvedValue(undefined);
+    joinInteractions.mockImplementation(async (_client, _room, options) => { options?.onConnectionChange?.(true); });
     leaveInteractions.mockResolvedValue(undefined);
     unsubscribeRoomMessages.mockResolvedValue(undefined);
   });
@@ -164,6 +164,60 @@ describe("roomManager", () => {
     return { manager, cbs, client };
   }
 
+  it("marks a disconnected room offline and restores its lease only when all channels are ready", async () => {
+    const { manager, client } = await initialized();
+    const query = createQuery({ data: null, error: null });
+    const original = client.from.getMockImplementation()!;
+    client.from.mockImplementation((table) => table === "presence" ? query : original(table));
+    await manager.switchRoom("room-a");
+    const messagesConnected = subscribeToRoomMessages.mock.calls[0][3];
+    const presenceConnected = joinRoom.mock.calls[0][3].onConnectionChange;
+    messagesConnected(false); presenceConnected(false);
+    await vi.waitFor(() => expect(query.update).toHaveBeenLastCalledWith({ is_online: false, last_seen: expect.any(String) }));
+    messagesConnected(true);
+    await vi.waitFor(() => expect(query.update).toHaveBeenLastCalledWith({ is_online: false, last_seen: expect.any(String) }));
+    presenceConnected(true);
+    await vi.waitFor(() => expect(query.update).toHaveBeenLastCalledWith({ is_online: true, last_seen: expect.any(String) }));
+    await manager.exitCurrentRoom(); const count = query.update.mock.calls.length;
+    messagesConnected(true); presenceConnected(true);
+    await Promise.resolve(); expect(query.update).toHaveBeenCalledTimes(count);
+    expect(query.update).toHaveBeenLastCalledWith({ current_room_id: null, is_online: false, last_seen: expect.any(String) });
+  });
+
+  it("rejects entry when an earlier channel disconnects during final online persistence", async () => {
+    const { manager, client } = await initialized();
+    const query = createQuery({ data: null, error: null });
+    let finish!: (value: { error: null }) => void;
+    query.upsert.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const original = client.from.getMockImplementation()!;
+    client.from.mockImplementation((table) => table === "presence" ? query : original(table));
+    const entering = manager.switchRoom("room-a");
+    const rejection = expect(entering).rejects.toThrow("准备期间中断");
+    await vi.waitFor(() => expect(query.upsert).toHaveBeenCalled());
+    subscribeToRoomMessages.mock.calls[0][3](false); finish({ error: null });
+    await rejection; expect(manager.getCurrentRoomId()).toBeNull();
+    expect(query.update).toHaveBeenLastCalledWith({ current_room_id: null, is_online: false, last_seen: expect.any(String) });
+  });
+
+  it("finishes an in-flight old heartbeat before persisting the new room", async () => {
+    const { manager, client } = await initialized();
+    const query = createQuery({ data: null, error: null });
+    const original = client.from.getMockImplementation()!;
+    client.from.mockImplementation((table) => table === "presence" ? query : original(table));
+    await manager.switchRoom("room-a");
+    let finish!: (value: { error: null }) => void;
+    query.eq.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }) as never);
+    const oldHealth = subscribeToRoomMessages.mock.calls[0][3]; oldHealth(false);
+    await vi.waitFor(() => expect(query.eq).toHaveBeenCalled());
+    const switching = manager.switchRoom("room-b");
+    await Promise.resolve(); expect(query.upsert).toHaveBeenCalledTimes(1);
+    finish({ error: null }); await switching;
+    expect(query.upsert).toHaveBeenLastCalledWith(expect.objectContaining({ current_room_id: "room-b", is_online: true }), { onConflict: "user_id" });
+    const count = query.update.mock.calls.length; oldHealth(true); oldHealth(false);
+    await Promise.resolve(); expect(query.update).toHaveBeenCalledTimes(count);
+    await manager.exitCurrentRoom();
+  });
+
   it("invalidates an entry immediately when exit occurs during history loading", async () => {
     const { manager, cbs } = await initialized();
     let finish!: (messages: never[]) => void;
@@ -197,7 +251,7 @@ describe("roomManager", () => {
   it("buffers and deduplicates realtime messages while loading history", async () => {
     const { manager, cbs } = await initialized();
     const message = { id: "m1", from: "user-2", info: "hello", created_at: "2026-10-01T00:00:00Z" };
-    subscribeToRoomMessages.mockImplementationOnce(async (_client, _room, onMessage) => { onMessage(message); });
+    subscribeToRoomMessages.mockImplementationOnce(async (_client, _room, onMessage, connected) => { connected?.(true); onMessage(message); });
     fetchRoomMessages.mockResolvedValueOnce([message]);
     await manager.switchRoom("room-a");
     expect(cbs.onMessagesLoaded).toHaveBeenCalledWith([message]);
