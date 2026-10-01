@@ -16,7 +16,7 @@
 | [10](2026-10-01-project-diagnosis.md#item-10) | 发送关联与重复提交 | 本地通过 | 消息请求关联、编辑器版本与在途禁用回归。 |
 | [11](2026-10-01-project-diagnosis.md#item-11) | 异步监听释放 | 本地通过 | eventSubscription 监听就绪、迟到注册和取消回归。 |
 | [12](2026-10-01-project-diagnosis.md#item-12) | 窗口就绪协议 | 本地通过 | windowReadiness 握手/实例/顺序快照，实际 webview 回执。 |
-| [13](2026-10-01-project-diagnosis.md#item-13) | 连接就绪与失败 | 本地通过 | 持续连接状态、迟到 track 隔离、进入提交前再次同步与检查。 |
+| [13](2026-10-01-project-diagnosis.md#item-13) | 连接就绪与失败 | 本地通过 | 持续连接状态、进入提交前再次同步与检查；可信快照按连接代次失效，断线后的迟到响应不能恢复旧在线列表。 |
 | [14](2026-10-01-project-diagnosis.md#item-14) | 本地退出与迟到写入 | 本地通过 | 立即失效本地房间；心跳与退出串行、HTTP 限时；失去成员资格的 RLS 收尾已补。 |
 | [15](2026-10-01-project-diagnosis.md#item-15) | 显隐生命周期 | 本地通过 | roomVisibility 准备/显隐串行及失败回滚，自己窗口成组显隐。 |
 | [16](2026-10-01-project-diagnosis.md#item-16) | 认证刷新重建 | 本地通过 | 同 Auth session 令牌刷新保留订阅，新 session 重建；恢复失败可重试，取消初始化不重置新房间。 |

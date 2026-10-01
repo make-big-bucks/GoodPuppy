@@ -9,7 +9,7 @@ type Options = LocalPresencePatch & { revision?: number; onPresenceChange?: (use
   onConnectionChange?: ConnectionObserver; onMembershipLost?: () => void };
 type Row = { user_id: string; pet_id?: string; skin?: string; status?: string | null; remaining_ms: number; expiresAt?: number };
 type Session = { client: SupabaseClient; roomId: string; userId: string; revision: number; channel: RealtimeChannel;
-  abort: AbortController; options: Options; ready: boolean; active: boolean; status: PetStatus;
+  abort: AbortController; options: Options; connectionVersion: number; ready: boolean; active: boolean; status: PetStatus;
   rows: Row[]; loading: boolean; dirty: boolean; timer: ReturnType<typeof setTimeout> | null; poll: ReturnType<typeof setInterval> | null; nextRead: number; signature: string };
 const clientId = crypto.randomUUID();
 let fallbackRevision = 0;
@@ -31,9 +31,10 @@ async function rpc(session: Session, name: string, extra = {}) {
   if (error) throw error;
 }
 async function read(session: Session) {
+  const version = session.connectionVersion;
   const started = performance.now();
   const { data, error } = await session.client.rpc("get_room_presence", { p_user: session.userId, p_room: session.roomId }).abortSignal(session.abort.signal);
-  if (current !== session) return;
+  if (current !== session || version !== session.connectionVersion) return;
   if (error) {
     session.rows = []; emit(session);
     if (error.code === "42501") session.options.onMembershipLost?.();
@@ -51,7 +52,9 @@ function refresh(session: Session) {
   session.dirty = true;
   if (session.loading || session.timer) return;
   session.timer = setTimeout(async () => {
-    session.timer = null; session.loading = true; session.dirty = false;
+    session.timer = null;
+    if (current !== session || !session.ready) return;
+    session.loading = true; session.dirty = false;
     session.nextRead = Date.now() + 500;
     try { await read(session); } catch (error) { if (!session.abort.signal.aborted) console.error("presence snapshot:", error); }
     finally { session.loading = false; if (session.dirty) refresh(session); }
@@ -61,7 +64,7 @@ export async function joinRoom(client: SupabaseClient, roomId: string, userId: s
   await leaveRoom();
   const channel = client.channel(`presence:${roomId}`, { config: { private: true } });
   const session: Session = { client, roomId, userId, revision: options.revision ?? ++fallbackRevision, channel,
-    abort: new AbortController(), options, ready: false, active: false, status: options.status ?? null,
+    abort: new AbortController(), options, connectionVersion: 0, ready: false, active: false, status: options.status ?? null,
     rows: [], loading: false, dirty: false, timer: null, poll: null, nextRead: 0, signature: "" };
   current = session; emit(session);
   channel.on("broadcast", { event: "presence-changed" }, () => refresh(session));
@@ -72,7 +75,7 @@ export async function joinRoom(client: SupabaseClient, roomId: string, userId: s
   }, undefined, (ready, error) => {
     if (current !== session) return;
     session.ready = ready;
-    if (!ready) { session.rows = []; emit(session); }
+    if (!ready) { session.connectionVersion += 1; session.rows = []; emit(session); }
     session.options.onConnectionChange?.(ready, error);
   });
   if (current !== session) return;

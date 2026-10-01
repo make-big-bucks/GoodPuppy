@@ -34,6 +34,21 @@ describe("trusted presence snapshots", () => {
     finish({ data: [{ user_id: "late", remaining_ms: 100000 }], error: null }); await flush();
     expect(users).toHaveBeenLastCalledWith([]);
   });
+  it("discards an in-flight snapshot when its connection generation disconnects", async () => {
+    const api = await import("./presence.js"); const f = fixture(); const users = vi.fn();
+    const joining = api.joinRoom(f.client as never, "room-a", "self", { onPresenceChange: users });
+    await flush(); f.status("SUBSCRIBED"); await joining;
+    let finish!: (result: any) => void;
+    const pending = new Promise<any>(resolve => { finish = resolve; });
+    f.rpc.mockImplementationOnce(() => Object.assign(pending, { abortSignal: () => pending }));
+    f.hint(); await vi.advanceTimersByTimeAsync(0);
+    f.status("CHANNEL_ERROR"); expect(users).toHaveBeenLastCalledWith([]);
+    finish({ data: [{ user_id: "stale", remaining_ms: 100000 }], error: null }); await flush();
+    expect(users).toHaveBeenLastCalledWith([]);
+    f.status("SUBSCRIBED"); await flush();
+    expect(users).toHaveBeenLastCalledWith([expect.objectContaining({ userId: "friend" })]);
+    await api.leaveRoom();
+  });
   it("ignores forged broadcast identity and never consumes client Presence keys", async () => {
     const api = await import("./presence.js"); const f = fixture(); const users = vi.fn();
     const joining = api.joinRoom(f.client as never, "room-a", "self", { onPresenceChange: users, revision: 2 });
