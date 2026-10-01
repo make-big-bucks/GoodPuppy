@@ -57,7 +57,7 @@ pub(crate) async fn set_window_bounds(
     // offset from the parent; refresh it so the Windows `Moved` follow stays exact.
     // macOS auto-follow re-derives the offset from the child's own frame, so this
     // bookkeeping is Windows-only but harmless to keep updated everywhere.
-    refresh_bubble_offset(&window, &bubbles, x, y);
+    let bubbles = bubbles.inner().clone();
     let win = window.clone();
     let app = window.app_handle().clone();
     let app_check = app.clone();
@@ -67,7 +67,10 @@ pub(crate) async fn set_window_bounds(
         {
             return Err("stale window geometry request".into());
         }
-        position_overlay_window(&win, x, y, width, height)
+        position_overlay_window(&win, x, y, width, height)?;
+        // 位置真正应用后才提交跟随偏移；失败不能污染下一次父窗口移动。
+        refresh_bubble_offset(&win, &bubbles, x, y);
+        Ok(())
     })
     .await
 }
