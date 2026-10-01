@@ -9,7 +9,7 @@
 | [03](2026-10-01-project-diagnosis.md#item-03) | 房间并发边界 | 本地通过 | roomManager 版本、串行队列、受控进入/退出/切房回归。 |
 | [04](2026-10-01-project-diagnosis.md#item-04) | 注销与身份停止 | 本地通过 | stopPetApp 清身份、失效旧任务；账号变化关闭弹层，换肤通知校验归属。 |
 | [05](2026-10-01-project-diagnosis.md#item-05) | 请求关联与取消 | 本地通过 | roomProtocol/windowRequest 的 ID、目标、超时和取消回归；房间状态单独关联回执、账号/控制器/版本隔离，原生错误账号拒绝通过。 |
-| [06](2026-10-01-project-diagnosis.md#item-06) | 桥接错误传播 | 本地通过 | 窗口命令/定向事件/拖动失败向调用者传播，日志不改变业务结果。 |
+| [06](2026-10-01-project-diagnosis.md#item-06) | 桥接错误传播 | 本地通过 | 窗口命令/事件/拖动/自启动错误向调用者传播；自启动失败保留原状态，日志不改变业务结果。 |
 | [07](2026-10-01-project-diagnosis.md#item-07) | 远程窗口交错 | 本地通过 | remoteWindowQueue、实例令牌和延迟创建/销毁/重建回归。 |
 | [08](2026-10-01-project-diagnosis.md#item-08) | 原生注册表清理 | 本地通过 | 销毁清 HitRegistry、父子偏移和实例表；Rust 与 macOS 原生回归。 |
 | [09](2026-10-01-project-diagnosis.md#item-09) | 快照与实时消息 | 本地通过 | 订阅先就绪、历史合并、重连补查/去重及可取消重试。 |

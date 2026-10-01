@@ -274,7 +274,7 @@ const goodPuppy: GoodPuppyBridge = {
       return await isEnabled();
     } catch (error) {
       console.error("autostart isEnabled failed:", error);
-      return false;
+      throw error;
     }
   },
   async setAutostart(enabled: boolean) {
@@ -286,7 +286,7 @@ const goodPuppy: GoodPuppyBridge = {
       return await isEnabled();
     } catch (error) {
       console.error("autostart set failed:", error);
-      return false;
+      throw error;
     }
   },
   getAppConfig() {

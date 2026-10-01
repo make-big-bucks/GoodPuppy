@@ -1,3 +1,5 @@
+import { createAutostartController } from "../autostartController.js";
+import { showToast } from "./toast.js";
 // 会客厅设置页（方案 A：整窗内切换）。点侧边栏齿轮 → 隐藏房间布局、显示本视图，
 // 左上「← 返回」切回。设置项分组：桌宠 / 通用 / 账号。
 //
@@ -149,26 +151,34 @@ function renderAccount(root: HTMLElement, cb: SettingsCallbacks) {
   }
 }
 
+const autostart = createAutostartController({
+  read: () => window.goodPuppy.isAutostartEnabled(),
+  write: (enabled) => window.goodPuppy.setAutostart(enabled),
+});
 async function wireAutostart(root: HTMLElement) {
   const toggle = root.querySelector<HTMLButtonElement>(".settings-toggle");
   if (!toggle) return;
-
+  const current = () => toggle.isConnected && !root.hidden;
   const apply = (enabled: boolean) => {
-    toggle.setAttribute("aria-checked", String(enabled));
-    toggle.classList.toggle("is-on", enabled);
+    toggle.setAttribute("aria-checked", String(enabled)); toggle.classList.toggle("is-on", enabled);
   };
-
-  const enabled = await window.goodPuppy.isAutostartEnabled();
-  apply(enabled);
-  toggle.disabled = false;
-
+  if (!window.__TAURI_INTERNALS__) { toggle.title = "请在桌面应用中设置自启动"; return; }
+  try {
+    const enabled = await autostart.read();
+    if (!current()) return;
+    apply(enabled); toggle.disabled = false;
+  } catch {
+    if (current()) { toggle.title = "自启动状态读取失败"; toggle.setAttribute("aria-label", "自启动状态不可用"); showToast("无法读取自启动状态", "error"); }
+    return;
+  }
   toggle.addEventListener("click", async () => {
     if (toggle.disabled) return;
-    const next = toggle.getAttribute("aria-checked") !== "true";
-    toggle.disabled = true;
-    const result = await window.goodPuppy.setAutostart(next);
-    apply(result);
-    toggle.disabled = false;
+    const next = toggle.getAttribute("aria-checked") !== "true"; toggle.disabled = true;
+    try {
+      const result = await autostart.write(next);
+      if (current()) apply(result);
+    } catch { if (current()) showToast("无法修改自启动设置，请重试", "error"); }
+    finally { if (toggle.isConnected) toggle.disabled = false; }
   });
 }
 

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const { invoke, emitTo, listen, startDragging, setPosition } = vi.hoisted(() => ({ invoke: vi.fn(), emitTo: vi.fn(), listen: vi.fn(), startDragging: vi.fn(), setPosition: vi.fn() }));
+const { invoke, emitTo, listen, startDragging, setPosition, autostartEnabled, autostartDisable } = vi.hoisted(() => ({ invoke: vi.fn(), emitTo: vi.fn(), listen: vi.fn(), startDragging: vi.fn(), setPosition: vi.fn(), autostartEnabled: vi.fn(), autostartDisable: vi.fn() }));
+vi.mock("@tauri-apps/plugin-autostart", () => ({ isEnabled: autostartEnabled, disable: autostartDisable, enable: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ emitTo }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ listen, startDragging, setPosition, label: "main" }) }));
@@ -9,6 +10,16 @@ beforeEach(() => {
   vi.stubGlobal("window", { __TAURI_INTERNALS__: {} });
 });
 describe("native bridge error contract", () => {
+  it("does not turn autostart read or disable failures into a false state", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const bridge = (await import("./bridge.js")).default;
+      autostartEnabled.mockRejectedValueOnce(new Error("read denied"));
+      await expect(bridge.isAutostartEnabled()).rejects.toThrow("read denied");
+      autostartDisable.mockRejectedValueOnce(new Error("disable denied"));
+      await expect(bridge.setAutostart(false)).rejects.toThrow("disable denied");
+    } finally { log.mockRestore(); }
+  });
   it("reads layout bounds from one native snapshot and preserves read failures", async () => {
     const bridge = (await import("./bridge.js")).default;
     invoke.mockResolvedValueOnce({ x: -100, y: 20, width: 150, height: 120 });
