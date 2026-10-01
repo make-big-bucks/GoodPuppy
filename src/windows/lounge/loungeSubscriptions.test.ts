@@ -11,9 +11,9 @@ function client() {
   return { value, channels };
 }
 function fixture() {
-  const refresh = vi.fn(); const presenceChanged = vi.fn(); const error = vi.fn();
-  const subscriptions = createLoungeSubscriptions({ refresh, presenceChanged, error, knownMemberIds: () => new Set(["self", "friend"]) });
-  return { subscriptions, refresh, presenceChanged, error };
+  const refresh = vi.fn(); const error = vi.fn();
+  const subscriptions = createLoungeSubscriptions({ refresh, error, knownMemberIds: () => new Set(["self", "friend"]) });
+  return { subscriptions, refresh, error };
 }
 describe("lounge subscription ownership", () => {
   it("subscribes to private room hints and ignores retired room callbacks", async () => {
@@ -23,6 +23,23 @@ describe("lounge subscription ownership", () => {
     expect(c.value.channel).toHaveBeenCalledWith("presence:room-a", { config: { private: true } });
     group.callback({ user_id: "forged" }); expect(f.refresh).toHaveBeenCalledTimes(1);
     await f.subscriptions.syncRooms([]); group.callback({ user_id: "forged" }); expect(f.refresh).toHaveBeenCalledTimes(1);
+    f.subscriptions.dispose();
+  });
+  it("waits for canonical room retirement and never recreates it after logout", async () => {
+    const f = fixture(); const c = client();
+    f.subscriptions.setContext({ client: c.value as never, userId: "self" });
+    await f.subscriptions.syncRooms(["room-a"]);
+    let finish!: (status: string) => void;
+    c.value.removeChannel.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await f.subscriptions.syncRooms([]);
+    const rejoining = f.subscriptions.syncRooms(["room-a"]);
+    await Promise.resolve();
+    expect(c.channels.filter(channel => channel.name === "presence:room-a")).toHaveLength(1);
+    f.subscriptions.setContext(null); finish("ok"); await rejoining;
+    expect(c.channels.filter(channel => channel.name === "presence:room-a")).toHaveLength(1);
+    f.subscriptions.setContext({ client: c.value as never, userId: "self" });
+    await f.subscriptions.syncRooms(["room-a"]);
+    expect(c.channels.filter(channel => channel.name === "presence:room-a")).toHaveLength(2);
     f.subscriptions.dispose();
   });
   it("releases partially created channels and can retry the same identity after setup failure", () => {
@@ -54,7 +71,7 @@ describe("lounge subscription ownership", () => {
     f.subscriptions.setContext({ client: next.value as never, userId: "other" });
     expect(old.value.removeChannel).toHaveBeenCalledTimes(5); expect(next.value.removeChannel).not.toHaveBeenCalled();
     old.channels[4].callback({ new: { user_id: "friend" } }); old.channels[0].status("SUBSCRIBED");
-    expect(f.refresh).not.toHaveBeenCalled(); expect(f.presenceChanged).not.toHaveBeenCalled();
+    expect(f.refresh).not.toHaveBeenCalled();
     f.subscriptions.dispose();
   });
   it("uses fresh topic names when relogging into the same client while removal is pending", () => {

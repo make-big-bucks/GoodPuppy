@@ -987,7 +987,6 @@ function knownMemberIds(): Set<string> {
 const subscriptions = createLoungeSubscriptions({
   refresh: () => { void loadPanelData(); },
   knownMemberIds,
-  presenceChanged: () => {},
   error: (error) => console.error("lounge subscriptions:", error),
 });
 

@@ -1,12 +1,10 @@
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
-import type { LoungePresenceRow } from "../../types";
 
 type Context = { client: SupabaseClient; userId: string };
 /** 会话独占频道；频道名带代次，旧 unsubscribe 不会删除同客户端的新订阅。 */
 export function createLoungeSubscriptions(deps: {
   refresh: () => void;
   knownMemberIds: () => Set<string>;
-  presenceChanged: (row: LoungePresenceRow) => void;
   error: (error: unknown) => void;
 }) {
   let generation = 0;
@@ -51,10 +49,6 @@ export function createLoungeSubscriptions(deps: {
             if (spec.name === "profiles") {
               const id = (payload.new as { id?: string })?.id;
               if (!id || !deps.knownMemberIds().has(id)) return;
-            }
-            if (spec.name === "presence") {
-              const row = payload.new as LoungePresenceRow;
-              if (row?.user_id) deps.presenceChanged(row);
             }
             deps.refresh();
           }).subscribe((status, error) => {
