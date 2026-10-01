@@ -2,7 +2,7 @@
 
 A transparent, always-on-top desktop pet built with Tauri v2.
 
-正常退出软件会标记离线并保留所在房间，启动时自动恢复；主动退出房间或注销会清除记录。如果没有可恢复的房间，桌面宠物和自己的气泡窗口保持隐藏，进入房间后才显示，退出房间后收起。
+正常托盘和系统退出共用三秒清理握手，标记离线并保留所在房间，启动时自动恢复；主动退出房间或注销会清除记录。如果没有可恢复的房间，桌面宠物和自己的气泡窗口保持隐藏，进入房间后才显示，退出房间后收起，强制终止时依靠在线租约过期。
 
 ## Prerequisites
 
@@ -90,7 +90,7 @@ python3 -m unittest discover -s skills/hatch-puppy-pet/tests -v
 
 ## 原生窗口回归检查
 
-`npm run test:native` 使用独立应用标识验证创建、显隐、销毁和同名重建，自动准备 Vite 并回收自己启动的服务器，不使用已保存账号。仅开发构建提供该检查；Windows 需在 Windows 上执行。
+`npm run test:native` 使用独立应用标识验证创建、显隐、销毁、同名重建与退出清理回执，自动准备 Vite 并回收自己启动的服务器，不使用已保存账号。仅开发构建提供该检查；Windows 需在 Windows 上执行。
 
 ## 完整验证
 

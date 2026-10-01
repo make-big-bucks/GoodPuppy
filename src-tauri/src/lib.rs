@@ -5,12 +5,11 @@ mod hit_test;
 #[cfg(debug_assertions)]
 mod native_smoke;
 mod platform;
+mod quit;
 mod window_labels;
 mod window_tasks;
 
 use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
 
 use bubbles::{BubbleRegistry, Bubbles};
 use commands::{
@@ -72,6 +71,7 @@ pub fn run() {
         .manage(hit_shapes)
         .manage(bubbles)
         .manage(window_tasks::WindowInstances::default())
+        .manage(quit::QuitState::default())
         .invoke_handler(tauri::generate_handler![
             set_window_bounds,
             set_self_visible,
@@ -195,34 +195,18 @@ pub fn run() {
                         open_lounge(tray.app_handle());
                     }
                 })
-                .on_menu_event(|app, event| {
-                    match event.id().as_ref() {
-                        "open-lounge" => open_lounge(app),
-                        "room-history" => {
-                            open_lounge(app);
-                            if let Some(w) = app.get_webview_window("lounge") {
-                                let _ = w.emit("open-room-history", ());
-                            }
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "open-lounge" => open_lounge(app),
+                    "room-history" => {
+                        open_lounge(app);
+                        if let Some(w) = app.get_webview_window("lounge") {
+                            let _ = w.emit("open-room-history", ());
                         }
-                        "quit" => {
-                            // 握手式退出：通知 JS 清理 presence，JS 完成后回 ack，Rust 立即退出。
-                            // 3s 超时兜底：网络异常或 JS 未响应时仍能正常关闭。
-                            let app_handle = app.clone();
-                            thread::spawn(move || {
-                                let (tx, rx) = std::sync::mpsc::channel::<()>();
-                                let tx2 = tx.clone();
-                                app_handle.once("app-quit-ready", move |_| {
-                                    let _ = tx2.send(());
-                                });
-                                if let Some(pet) = app_handle.get_webview_window("main") {
-                                    let _ = pet.emit("app-before-quit", ());
-                                }
-                                let _ = rx.recv_timeout(Duration::from_millis(3000));
-                                app_handle.exit(0);
-                            });
-                        }
-                        _ => {}
                     }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
                 })
                 .build(app)?;
             #[cfg(debug_assertions)]
@@ -233,8 +217,20 @@ pub fn run() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+                // Tauri 的 restart 不允许 prevent_exit；本项目不调用 restart。
+                if code == Some(tauri::RESTART_EXIT_CODE) {
+                    return;
+                }
+                if !app.state::<quit::QuitState>().allowed() {
+                    api.prevent_exit();
+                    quit::request(app, code.unwrap_or(0));
+                }
+            }
+        });
 }
 
 #[cfg(test)]

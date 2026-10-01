@@ -84,8 +84,9 @@ if (inTauri) {
 
   // 退出前清理 presence，完成后通知 Rust 可以 exit（握手）。
   // 崩溃/强杀场景由 lounge 的 last_seen 时间阈值兜底。
-  listen("app-before-quit", async () => {
+  listen<{ requestId: string }>("app-before-quit", async ({ payload }) => {
+    if (!payload?.requestId) return;
     await exitCurrentRoom({ rememberRoom: true }).catch(console.error);
-    emit("app-quit-ready", null);
+    void emit("app-quit-ready", { requestId: payload.requestId }).catch(console.error);
   });
 }
