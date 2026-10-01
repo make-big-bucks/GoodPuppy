@@ -21,6 +21,30 @@ describe("presenter resource ownership", () => {
     expect(publish).toHaveBeenCalledTimes(2);
     presenter.dispose(); vi.restoreAllMocks();
   });
+  it("releases manual dragging after a position write rejects", async () => {
+    vi.useFakeTimers(); const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    class ElementStub extends EventTarget { closest() { return this; } }
+    vi.stubGlobal("Element", ElementStub);
+    const doc = Object.assign(new EventTarget(), { visibilityState: "visible", createElement: () => ({ getContext: () => null }) });
+    const position = vi.fn().mockRejectedValue(new Error("position denied"));
+    const win = Object.assign(new EventTarget(), { requestAnimationFrame: () => 42, goodPuppy: {
+      supportsNativeWindowDrag: () => false, onDragEnded: () => () => {}, publishHitShape: vi.fn(async () => {}),
+      getWindowPosition: async () => ({ x: 10, y: 20 }), setWindowPosition: position,
+    } });
+    vi.stubGlobal("document", doc); vi.stubGlobal("window", win); vi.stubGlobal("cancelAnimationFrame", () => {});
+    const release = vi.fn();
+    const stage = Object.assign(new ElementStub(), { classList: { contains: () => false },
+      setPointerCapture: vi.fn(), hasPointerCapture: () => true, releasePointerCapture: release });
+    const animator = { pause() {}, resume() {}, destroy() {}, setHeld: vi.fn(), onState: () => {} };
+    const presenter = createPetPresenter({ stage: stage as never, petImage: new EventTarget() as never,
+      animator: animator as never, isDraggable: () => true, onShowContextMenu: () => {} });
+    const event = (type: string, x: number) => Object.assign(new Event(type), { button: 0, pointerId: 1, screenX: x, screenY: 0 });
+    stage.dispatchEvent(event("pointerdown", 100)); await Promise.resolve();
+    stage.dispatchEvent(event("pointermove", 110)); await Promise.resolve(); await Promise.resolve();
+    expect(release).toHaveBeenCalledWith(1); expect(animator.setHeld).toHaveBeenLastCalledWith(null);
+    stage.dispatchEvent(event("pointermove", 120)); expect(position).toHaveBeenCalledTimes(1);
+    presenter.dispose(); log.mockRestore();
+  });
   it("stops hidden work, resumes once and disposes all callbacks and timers", () => {
     vi.useFakeTimers();
     const release = vi.fn(); const frame = vi.fn(() => 42); const cancel = vi.fn();

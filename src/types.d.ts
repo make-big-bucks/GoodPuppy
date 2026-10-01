@@ -53,7 +53,7 @@ export interface GoodPuppyBridge {
   /** 光标当前所在显示器的可用区域（逻辑像素），用于定位上线提醒 toast；
    * 回退到当前窗口所在屏 / 主屏。 */
   getCursorMonitorWorkArea(): Promise<WindowPoint & WindowSize>;
-  setWindowPosition(position: WindowPoint): void;
+  setWindowPosition(position: WindowPoint): Promise<void>;
   setWindowSize(size: WindowSize): Promise<void>;
   setSelfVisible(visible: boolean): Promise<void>;
   /** 原子化设置窗口位置+尺寸（单次 IPC），避免增高/翻转时的闪烁跳动。 */

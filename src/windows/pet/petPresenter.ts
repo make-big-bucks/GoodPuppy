@@ -202,7 +202,14 @@ export function createPetPresenter(opts: PetPresenterOptions): PetPresenter {
     const deltaY = event.screenY - pointerStart.y;
     isDragging = true;
     if (windowStart) {
-      window.goodPuppy.setWindowPosition({ x: windowStart.x + deltaX, y: windowStart.y + deltaY });
+      const start = pointerStart;
+      void window.goodPuppy.setWindowPosition({ x: windowStart.x + deltaX, y: windowStart.y + deltaY }).catch((error) => {
+        if (disposed || pointerStart !== start) return;
+        pointerStart = null; windowStart = null; isDragging = false;
+        if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
+        setForceInteractive(false); stopDragLift();
+        console.error("Manual drag position update failed:", error);
+      });
     }
   }, listenerOptions);
 

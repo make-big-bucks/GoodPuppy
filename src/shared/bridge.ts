@@ -117,9 +117,9 @@ const goodPuppy: GoodPuppyBridge = {
     return windowCommand<void>("set_self_visible", { visible });
   },
   setWindowPosition(position: WindowPoint) {
-    if (!appWindow) return;
-    if (!position || typeof position.x !== "number" || typeof position.y !== "number") return;
-    appWindow.setPosition(new LogicalPosition(Math.round(position.x), Math.round(position.y)));
+    if (!appWindow) return Promise.resolve();
+    if (!position || typeof position.x !== "number" || typeof position.y !== "number") return Promise.resolve();
+    return appWindow.setPosition(new LogicalPosition(Math.round(position.x), Math.round(position.y)));
   },
   setWindowSize(size: WindowSize) {
     if (!appWindow) return Promise.resolve();

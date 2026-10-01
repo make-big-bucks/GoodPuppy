@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const { invoke, emitTo, listen, startDragging } = vi.hoisted(() => ({ invoke: vi.fn(), emitTo: vi.fn(), listen: vi.fn(), startDragging: vi.fn() }));
+const { invoke, emitTo, listen, startDragging, setPosition } = vi.hoisted(() => ({ invoke: vi.fn(), emitTo: vi.fn(), listen: vi.fn(), startDragging: vi.fn(), setPosition: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ emitTo }));
-vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ listen, startDragging, label: "main" }) }));
+vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ listen, startDragging, setPosition, label: "main" }) }));
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
@@ -16,6 +16,12 @@ describe("native bridge error contract", () => {
     expect(invoke).toHaveBeenCalledWith("get_pet_monitor_work_area", { label: "pet-user", instanceId: "instance-a" });
     invoke.mockRejectedValueOnce(new Error("stale target"));
     await expect(bridge.getPetMonitorWorkArea("pet-user", "old")).rejects.toThrow("stale target");
+  });
+  it("returns window position write failures to the manual drag caller", async () => {
+    const bridge = (await import("./bridge.js")).default;
+    setPosition.mockRejectedValueOnce(new Error("position denied"));
+    await expect(bridge.setWindowPosition({ x: 10, y: 20 })).rejects.toThrow("position denied");
+    expect(setPosition).toHaveBeenCalledWith(expect.objectContaining({ x: 10, y: 20 }));
   });
   it("returns native dragging rejection to the presenter's cleanup path", async () => {
     startDragging.mockRejectedValueOnce(new Error("drag denied"));
