@@ -51,6 +51,53 @@ async fn run(app: &AppHandle) -> Result<(), String> {
     if invalid.is_ok() || app.get_webview_window("pet-invalid-geometry").is_some() {
         return Err("invalid geometry created a native window".into());
     }
+    commands::spawn_pet_window(
+        app.clone(),
+        main.clone(),
+        app.state::<HitShapes>(),
+        app.state::<Bubbles>(),
+        "pet-rollback".into(),
+        Some("rollback-instance".into()),
+        200.0,
+        200.0,
+        150.0,
+        120.0,
+    )
+    .await?;
+    let rollback = app
+        .get_webview_window("pet-rollback")
+        .ok_or("rollback window unavailable")?;
+    let failure = crate::window_tasks::finish_window_creation(
+        rollback,
+        "rollback-instance".into(),
+        Err("injected setup failure".into()),
+    )
+    .await;
+    if failure.err().as_deref() != Some("injected setup failure")
+        || app.get_webview_window("pet-rollback").is_some()
+    {
+        return Err("failed creation did not preserve error and destroy the window".into());
+    }
+    commands::spawn_pet_window(
+        app.clone(),
+        main.clone(),
+        app.state::<HitShapes>(),
+        app.state::<Bubbles>(),
+        "pet-rollback".into(),
+        Some("retry-instance".into()),
+        200.0,
+        200.0,
+        150.0,
+        120.0,
+    )
+    .await?;
+    commands::close_pet_window(
+        app.clone(),
+        main.clone(),
+        "pet-rollback".into(),
+        Some("retry-instance".into()),
+    )
+    .await?;
     for cycle in 0..2 {
         let instance = format!("native-smoke-{cycle}");
         commands::spawn_pet_window(

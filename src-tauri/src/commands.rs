@@ -12,7 +12,9 @@ use crate::hit_test::{HitShapes, PetHitShape};
 use crate::platform::{
     add_child_window, configure_floating_overlay, configure_self_panel, position_overlay_window,
 };
-use crate::window_tasks::{destroy_window, on_main_thread, WindowInstances};
+use crate::window_tasks::{
+    destroy_window, finish_window_creation, on_main_thread, WindowInstances,
+};
 
 #[cfg(target_os = "macos")]
 use objc2_app_kit::NSWindow;
@@ -186,12 +188,13 @@ pub(crate) async fn spawn_pet_window(
         instance_id.clone(),
     );
     let win = window.clone();
-    on_main_thread(&app, move || {
+    let setup = on_main_thread(&app, move || {
         configure_floating_overlay(&win);
         position_overlay_window(&win, x, y, width, height)?;
         win.show().map_err(|error| error.to_string())
     })
-    .await
+    .await;
+    finish_window_creation(window, instance_id, setup).await
 }
 
 /// Destroy a previously spawned pet overlay window (member went offline / left).
@@ -293,7 +296,7 @@ pub(crate) async fn spawn_bubble_window(
     let win = window.clone();
     let parent_for_main = parent.clone();
     let follow_bubbles = bubbles.inner().clone();
-    on_main_thread(&app, move || {
+    let setup = on_main_thread(&app, move || {
         configure_floating_overlay(&win);
         if is_self {
             configure_self_panel(&win);
@@ -312,7 +315,8 @@ pub(crate) async fn spawn_bubble_window(
         add_child_window(&parent_for_main, &win)?;
         win.show().map_err(|error| error.to_string())
     })
-    .await?;
+    .await;
+    finish_window_creation(window, instance_id, setup).await?;
 
     ensure_parent_follow_listener(&app, &parent_label, &bubbles);
     Ok(())
@@ -397,15 +401,16 @@ pub(crate) async fn spawn_toast_window(
         &window,
         app.state::<HitShapes>().inner().clone(),
         app.state::<Bubbles>().inner().clone(),
-        instance_id,
+        instance_id.clone(),
     );
     let win = window.clone();
-    on_main_thread(&app, move || {
+    let setup = on_main_thread(&app, move || {
         configure_floating_overlay(&win);
         position_overlay_window(&win, x, y, width, height)?;
         win.show().map_err(|error| error.to_string())
     })
-    .await
+    .await;
+    finish_window_creation(window, instance_id, setup).await
 }
 
 /// Destroy a toast window (auto-dismiss / manual close / clicked through).

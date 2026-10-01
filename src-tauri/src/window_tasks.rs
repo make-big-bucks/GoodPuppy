@@ -55,3 +55,18 @@ pub(crate) async fn destroy_window<R: Runtime>(
         .map_err(|error| error.to_string())?
         .map_err(|error| format!("window destruction did not complete: {error}"))
 }
+
+/// 创建后配置失败也必须等到真实销毁，才能释放标签并允许重试。
+pub(crate) async fn finish_window_creation<R: Runtime>(
+    window: WebviewWindow<R>,
+    instance_id: String,
+    setup: Result<(), String>,
+) -> Result<(), String> {
+    match setup {
+        Ok(()) => Ok(()),
+        Err(error) => match destroy_window(window, Some(instance_id)).await {
+            Ok(()) => Err(error),
+            Err(cleanup) => Err(format!("{error}; window cleanup failed: {cleanup}")),
+        },
+    }
+}
