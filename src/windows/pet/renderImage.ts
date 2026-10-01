@@ -1,4 +1,4 @@
-import { DEFAULT_PET } from "./animationCatalog.js";
+import { DEFAULT_PET } from "../../shared/pet/animationCatalog.js";
 type StateMeta = { mirrored?: boolean };
 const versions = new WeakMap<HTMLImageElement, number>();
 

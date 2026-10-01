@@ -120,7 +120,7 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue((run / 'qa/preview.html').is_file())
         with Image.open(run / 'gifs/idle-peek.gif') as image:
             self.assertEqual(image.n_frames, 3)
-        # Static installation check must distinguish packaged files from a registered ID.
+        # Installation checks must use the same automatic registry as the build.
         project = self.root/'project'
         directory = project/'public/pets'/request['pet_id']
         shutil.copytree(run/'gifs', directory)
@@ -128,11 +128,14 @@ class PipelineTests(unittest.TestCase):
             dict(state=r['state'], file=r['state']+'.gif', frames=r['frames'],
                  durationsMs=r['durations_ms'], loop=r['loop']) for r in request['states']])
         (directory/'pet.json').write_text(json.dumps(manifest))
-        catalog = project/'src/windows/pet/animationCatalog.ts'
-        catalog.parent.mkdir(parents=True)
-        catalog.write_text('const PET_REGISTRY = Object.freeze({shiba: "shiba"});')
+        (project/'tools').mkdir()
+        registry = SCRIPTS.parents[2]/'tools/petRegistry.mjs'
+        shutil.copyfile(registry, project/'tools/petRegistry.mjs')
         self.cli('check_project_pet.py', '--project-root', project, '--pet-id', request['pet_id'], success=False)
-        catalog.write_text('const PET_REGISTRY = Object.freeze({' + json.dumps(request['pet_id']) + ':' + json.dumps(request['pet_id']) + '});')
+        # The real registry requires its default shiba directory as well.
+        shutil.copytree(directory, project/'public/pets/shiba')
+        default_manifest = dict(manifest, id='shiba')
+        (project/'public/pets/shiba/pet.json').write_text(json.dumps(default_manifest))
         self.cli('check_project_pet.py', '--project-root', project, '--pet-id', request['pet_id'])
         # No review cannot package; even a recorded synthetic review cannot deliver fixtures.
         self.cli('package_custom_pet.py', '--run-dir', run, '--pet-name', 'fixture', '--description', 'test', '--gif-dir', run/'gifs', success=False)

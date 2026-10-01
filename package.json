@@ -21,7 +21,8 @@
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --lib --locked",
     "test:assets": "node tools/python-task.mjs assets",
     "build:mac": "tauri build",
-    "build:windows": "tauri build --config src-tauri/tauri.windows.conf.json"
+    "build:windows": "tauri build --config src-tauri/tauri.windows.conf.json",
+    "check:dependencies": "node tools/check-dependencies.mjs"
   },
   "keywords": [
     "desktop-pet",

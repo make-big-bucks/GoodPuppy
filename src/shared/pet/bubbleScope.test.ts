@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { bubbleScopeKey } from "./bubbleScope.js";
-import { compareMessagePosition } from "../../shared/messageOrder.js";
+import { compareMessagePosition } from "../messageOrder.js";
 it("separates viewer, room and sender scope", () => {
   const scope = { viewerId: "a", roomId: "room", senderId: "self" };
   expect(bubbleScopeKey(scope)).not.toBe(bubbleScopeKey({ ...scope, viewerId: "b" }));

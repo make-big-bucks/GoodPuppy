@@ -5,13 +5,13 @@
 // 并把 roomManager 的订阅回调接到协调者上。
 import { PetAnimator } from "./petState.js";
 import * as presence from "./presence.js";
-import { loadPetManifest, DEFAULT_SKIN, resolveSkin } from "./animationCatalog.js";
-import { clampPetScale, getPetWindowSize, isWindowPositionVisible } from "./petLayout.js";
+import { loadPetManifest, DEFAULT_SKIN, resolveSkin } from "../../shared/pet/animationCatalog.js";
+import { clampPetScale, getPetWindowSize, isWindowPositionVisible } from "../../shared/pet/petLayout.js";
 import { clearSelfPos } from "./petPositionStore.js";
 import {
   readStoredScale,
   writeStoredScale,
-} from "./preferences.js";
+} from "../../shared/pet/preferences.js";
 import { createPetPresenter } from "./petPresenter.js";
 import { createRoomCoordinator } from "./roomCoordinator.js";
 import {
@@ -24,7 +24,7 @@ import {
   type SelfComposeSubmitPayload,
   type PetPrefModePayload,
   type PetPrefScalePayload,
-} from "./petWindowEvents.js";
+} from "../../shared/pet/petWindowEvents.js";
 import { emit } from "@tauri-apps/api/event";
 import { showSelfContextMenu } from "./contextMenu.js";
 import {

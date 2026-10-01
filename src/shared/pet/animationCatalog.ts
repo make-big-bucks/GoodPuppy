@@ -1,4 +1,4 @@
-import { createBoundedFetch } from "../../shared/boundedFetch.js";
+import { createBoundedFetch } from "../boundedFetch.js";
 import PET_REGISTRY from "virtual:pet-assets";
 import type { PetManifest, PetManifestSkin, PetManifestState } from "../../types";
 

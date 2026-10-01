@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Verify a staged pet's files and literal registration in the current GoodPuppy project."""
+"""Verify a staged pet's files and actual automatic registration in the current GoodPuppy project."""
 from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 from pathlib import Path
 from puppy_states import REQUIRED_STATES, configure_states
 from validate_gifs import validate_gif
@@ -28,15 +29,14 @@ def check(project: Path, pet_id: str) -> dict:
     configure_states(records)
     for row in records:
         errors.extend(validate_gif(directory, row['state'], 50)['errors'])
-    source = (project / 'src/windows/pet/animationCatalog.ts').read_text(encoding='utf-8')
-    registry = re.search(r'const PET_REGISTRY = Object\.freeze\(\{(.*?)\}\)', source, re.S)
-    if not registry:
-        errors.append('cannot inspect registry automatically; verify current runtime registration manually')
+    registry_tool = project / 'tools/petRegistry.mjs'
+    if not registry_tool.is_file():
+        errors.append('project automatic registry tool is missing')
     else:
-        entries = re.findall(r'''(?:["']([^"']+)["']|([A-Za-z_][\w]*))\s*:\s*["']([^"']+)["']''', registry.group(1))
-        mapping = {quoted or bare: value for quoted, bare, value in entries}
-        if mapping.get(pet_id) != pet_id:
-            errors.append('pet id is not registered to its own directory; runtime would fall back to shiba')
+        result = subprocess.run(['node', str(registry_tool), str(project / 'public/pets'), pet_id],
+                                capture_output=True, text=True, timeout=30)
+        if result.returncode:
+            errors.append('runtime registration failed: ' + result.stderr.strip()[:1000])
     return dict(ok=not errors, pet_id=pet_id, directory=str(directory), errors=errors,
                 runtime_preview='not_checked', note='Static integration only; still verify state transitions and interactions in the app')
 

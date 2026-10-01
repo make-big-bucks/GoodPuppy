@@ -6,8 +6,8 @@ import { createPresenterEndpoint } from "./windowReadiness.js";
 import "../../shared/bridge.js";
 import "../../shared/styles.css";
 import { PetAnimator } from "./petState.js";
-import { loadPetManifest } from "./animationCatalog.js";
-import { getPetWindowSize } from "./petLayout.js";
+import { loadPetManifest } from "../../shared/pet/animationCatalog.js";
+import { getPetWindowSize } from "../../shared/pet/petLayout.js";
 import { createPetPresenter } from "./petPresenter.js";
 import { showRemoteContextMenu } from "./contextMenu.js";
 import {
@@ -26,7 +26,7 @@ import {
   type PetInteractionPayload,
   type PetModePayload,
   type PetArrangePayload,
-} from "./petWindowEvents.js";
+} from "../../shared/pet/petWindowEvents.js";
 
 const bridge = window.goodPuppy;
 const instanceId = bridge.getWindowInstance();

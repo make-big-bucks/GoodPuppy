@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scaleToPercent } from "./settings.js";
-import { DEFAULT_PET_SCALE, MIN_PET_SCALE, MAX_PET_SCALE } from "../../pet/petLayout.js";
+import { DEFAULT_PET_SCALE, MIN_PET_SCALE, MAX_PET_SCALE } from "../../../shared/pet/petLayout.js";
 
 describe("scaleToPercent", () => {
   it("renders the default scale as 100%", () => {

@@ -5,7 +5,7 @@ import {
   isIdleVariant,
   durationFromManifest,
   getStateImagePath,
-} from "./animationCatalog.js";
+} from "../../shared/pet/animationCatalog.js";
 import type { PetManifest } from "../../types";
 
 type TimerId = ReturnType<typeof setTimeout> | number;

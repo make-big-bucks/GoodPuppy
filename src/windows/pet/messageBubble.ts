@@ -1,5 +1,5 @@
 import { compareMessagePosition, type MessagePosition } from "../../shared/messageOrder.js";
-import { bubbleScopeKey, type BubbleScope } from "./bubbleScope.js";
+import { bubbleScopeKey, type BubbleScope } from "../../shared/pet/bubbleScope.js";
 import { buildMessageList, insertMessage, trimMessages } from "./messageLog.js";
 import type { LocalMessage } from "../../types";
 

@@ -3,7 +3,7 @@ import { createEventSubscription } from "../../shared/eventSubscription.js";
 import { createRoomCoordinator } from "./roomCoordinator.js";
 import { WINDOW_READY, WINDOW_READY_REQUEST } from "./windowReadiness.js";
 
-vi.mock("./animationCatalog.js", () => ({ INTERACTIONS: {}, durationFromManifest: () => 20, loadPetManifest: async () => ({ states: {} }) }));
+vi.mock("../../shared/pet/animationCatalog.js", () => ({ INTERACTIONS: {}, durationFromManifest: () => 20, loadPetManifest: async () => ({ states: {} }) }));
 vi.mock("./interactions.js", () => ({ sendInteraction: vi.fn() }));
 function deferred<T = void>() {
   let resolve!: (value: T) => void;

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readPetRegistry } from "./petRegistry.js";
+import { readPetRegistry } from "./petRegistry.mjs";
 const directories: string[] = [];
 afterEach(() => { for (const path of directories.splice(0)) rmSync(path, { recursive: true }); });
 function pet(root: string, id: string) {
@@ -11,6 +11,11 @@ function pet(root: string, id: string) {
   writeFileSync(join(path, "idle.gif"), "synthetic-test-only");
 }
 describe("build-time pet discovery", () => {
+  it("rejects a directory that would overwrite the reserved default alias", () => {
+    const root = mkdtempSync(join(tmpdir(), "goodpuppy-pets-")); directories.push(root);
+    pet(root, "shiba"); pet(root, "default");
+    expect(() => readPetRegistry(root)).toThrow("reserved");
+  });
   it("registers a new validated folder without changing frontend source", () => {
     const root = mkdtempSync(join(tmpdir(), "goodpuppy-pets-")); directories.push(root);
     pet(root, "shiba"); pet(root, "ghost");

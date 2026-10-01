@@ -10,17 +10,17 @@ import {
   readStoredScale,
   writeStoredScale,
   type PetMode,
-} from "../../pet/preferences.js";
+} from "../../../shared/pet/preferences.js";
 import {
   clampPetScale,
   MIN_PET_SCALE,
   MAX_PET_SCALE,
-} from "../../pet/petLayout.js";
+} from "../../../shared/pet/petLayout.js";
 import {
   COORDINATOR_LABEL,
   PET_PREF_MODE,
   PET_PREF_SCALE,
-} from "../../pet/petWindowEvents.js";
+} from "../../../shared/pet/petWindowEvents.js";
 
 export type SettingsAccount = {
   isLoggedIn: boolean;

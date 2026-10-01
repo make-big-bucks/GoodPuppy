@@ -1,4 +1,4 @@
-import { getStateImagePath } from "../../pet/animationCatalog.js";
+import { getStateImagePath } from "./animationCatalog.js";
 
 type PetAvatarOptions = {
   petId?: string;

@@ -26,7 +26,7 @@ import {
   type PetHistoryPayload,
   type BubblePlacementPayload,
   type SelfComposeResultPayload,
-} from "./petWindowEvents.js";
+} from "../../shared/pet/petWindowEvents.js";
 
 import { requestWindow } from "../../shared/windowRequest.js";
 import { emit } from "@tauri-apps/api/event";

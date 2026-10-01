@@ -8,7 +8,7 @@ import { createRemoteWindowQueue } from "./remoteWindowQueue.js";
 // 把每只在线远程成员映射成一个独立的 pet 窗口（label pet-<userId>）：
 // presence 变化 → spawn / close 窗口；状态/消息/互动用 emit_to 定向转发给各窗口。
 // 远程窗口是「哑呈现者」，不碰网络。见 docs/superpowers/specs/2026-06-17-多窗口独立桌宠-phaseB-design.md。
-import { INTERACTIONS, durationFromManifest, loadPetManifest } from "./animationCatalog.js";
+import { INTERACTIONS, durationFromManifest, loadPetManifest } from "../../shared/pet/animationCatalog.js";
 import { sendInteraction } from "./interactions.js";
 import {
   orderRemotePetIds,
@@ -16,10 +16,10 @@ import {
   getBubbleWindowSize,
   computeBubbleWindowPosition,
   isWindowPositionVisible,
-} from "./petLayout.js";
+} from "../../shared/pet/petLayout.js";
 import { computeSemiFreeLayout } from "./petAutoLayout.js";
 import { readRemotePos, writeRemotePos, clearRemotePos, readSelfPos, writeSelfPos } from "./petPositionStore.js";
-import { readStoredMode, writeStoredMode, type PetMode } from "./preferences.js";
+import { readStoredMode, writeStoredMode, type PetMode } from "../../shared/pet/preferences.js";
 import {
   petWindowLabel,
   bubbleWindowLabel,
@@ -39,7 +39,7 @@ import {
   type PetMovedPayload,
   type PetInteractRequestPayload,
   type BubblePlacementPayload,
-} from "./petWindowEvents.js";
+} from "../../shared/pet/petWindowEvents.js";
 import type { PetPresenter } from "./petPresenter.js";
 import type { InteractionPayload, LocalMessage, PresenceUser, WindowPoint } from "../../types";
 

@@ -1,4 +1,4 @@
-import { readPetRegistry } from "./tools/petRegistry.js";
+import { readPetRegistry } from "./tools/petRegistry.mjs";
 import { resolveBackendEnvironment } from "./src/shared/backendConfig.js";
 import { defineConfig, loadEnv } from "vite";
 import { resolve } from "path";

@@ -35,11 +35,11 @@ npm run tauri build
 - `windows/pet.html`：透明桌宠主窗口 DOM 结构，加载 `src/windows/pet/main.ts`。
 - `windows/lounge.html`：会客厅窗口 DOM 结构，加载 `src/windows/lounge/lounge-main.ts`。
 - `src/shared/bridge.ts`：Tauri API 与浏览器 fallback 的桥接层。
-- `src/shared/`：跨窗口共享配置、桥接、Supabase client、基础样式和设计 token。
+- `src/shared/`：跨窗口共享配置、桥接、Supabase client、基础样式和设计 token；`src/shared/pet/` 放资源、偏好、布局、头像及事件契约。
 - `src/windows/pet/renderer.ts`：宠物渲染和主交互逻辑。
 - `src/windows/lounge/lounge.ts`：会客厅、房间、邀请和请求相关 UI/数据逻辑。
 - `src/windows/pet/petState.ts`：`PetAnimator` 分层动画状态机（瞬时层 > 状态层 > 基础层），每只 pet 一个实例。见 `docs/adr/0008-分层动画状态机与实时事件.md`。
-- `src/windows/pet/animationCatalog.ts`：动画「行为事实」与形象注册表（状态分层、互动路由、`pet.json` 加载、皮肤路径解析）；资源放 `public/pets/<id>/`，皮肤变体放 `public/pets/<id>/skins/<skin>/`。
+- `src/shared/pet/animationCatalog.ts`：动画「行为事实」与形象注册表（状态分层、互动路由、`pet.json` 加载、皮肤路径解析）；资源放 `public/pets/<id>/`，皮肤变体放 `public/pets/<id>/skins/<skin>/`。
 - `src/windows/pet/interactions.ts`：跨用户瞬时互动的 Realtime broadcast 总线。
 - `src/windows/pet/presence.ts`：房间在线状态；payload 携带持续状态（情绪/工作）、`pet_id` 与 `skin`（换肤）。
 - `tools/generate-skins.mjs`：离线换肤生成器（`npm run gen:skins`），配置 `tools/skins.json`。见 `docs/adr/0010-离线调色板换肤.md`。
@@ -50,6 +50,7 @@ npm run tauri build
 
 ## 开发原则
 
+- 窗口目录之间不直接依赖，共享层不能反向依赖窗口；`npm run check:dependencies` 检查静态、类型、导出和动态导入，已包含在 verify/CI。
 - 优先遵循现有文件风格：原生 ES modules、少量函数级拆分、无前端框架。
 - 业务逻辑主要放在 webview 前端；Rust 主进程保持薄层，只承担 Tauri/系统能力。该原则来自 `docs/adr/0004-前端-webview-承担业务逻辑.md`。
 - 不要引入 React、Vue、状态管理库或大型 UI 框架，除非用户明确要求并同步更新架构说明。

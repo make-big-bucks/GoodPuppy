@@ -1,5 +1,5 @@
 import { getDisplayName } from "../loungeViewModels.js";
-import { createPetAvatar } from "./pet-avatar.js";
+import { createPetAvatar } from "../../../shared/pet/pet-avatar.js";
 import type { ConnectionRequestRow, LoungeRoom } from "../../../types";
 
 export type PendingTransition = { roomId: string; type: "enter" | "exit" };

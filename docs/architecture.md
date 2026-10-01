@@ -11,7 +11,7 @@
 | `lounge` | `windows/lounge.html` → `lounge-main.ts` | 登录、账号、房间、邀请、设置与聊天记录 |
 | `toast-*` | `windows/toast.html` | 有界、可取消的上线提醒 |
 
-独立登录窗口已移除；登录统一在会客厅弹层中完成。跨窗口通过事件协议协作，不共享可变的模块状态。
+独立登录窗口已移除；登录统一在会客厅弹层中完成。跨窗口通过事件协议协作，不共享可变的模块状态。资源目录、布局、偏好、头像组件和事件契约统一放在 `src/shared/pet/`；窗口之间禁止直接导入，共享层禁止依赖窗口。`check:dependencies` 随 verify/CI 执行。
 
 ## 关键边界
 
@@ -20,7 +20,7 @@
 - `petPresenter.ts` 管理 DOM、拖动、动画暂停与监听释放，`petState.ts` 管理动画分层。`hitTesting.ts` 生成掩模，Rust `cursor.rs` / `hit_test.rs` 独占鼠标穿透。
 - 消息、Presence、互动订阅在各自模块中实现，`realtimeSubscription.ts` 持续观察就绪状态；重连补快照，房间租约跟随连接健康状态。
 - 会客厅数据读取在 `loungeData.ts`，刷新合并在 `refreshController.ts`，弹层操作在 `operationLifetime.ts` 校验实例，账号资料写入使用捕获身份。长期聊天记录使用复合游标和有界缓存。
-- 账号皮肤保存在 profiles；大小、模式与窗口位置是设备偏好；气泡关闭游标按账号、房间与发送者隔离。资源从 `public/pets/*/pet.json` 自动注册并在构建时检查。
+- 账号皮肤保存在 profiles；大小、模式与窗口位置是设备偏好；气泡关闭游标按账号、房间与发送者隔离。资源从 `public/pets/*/pet.json` 通过 `tools/petRegistry.mjs` 自动注册并在构建时检查。
 - Rust `commands.rs` 校验调用窗口角色，`window_tasks.rs` 等待实际原生结果，`quit.rs` 统一限时退出握手。
 
 环境由 `backendConfig.ts` 统一解析，覆盖必须显式选择环境；生产保留既有认证键，开发/测试使用独立键。原生回归独占 1422 端口与测试后端，配置校验在打包前执行。

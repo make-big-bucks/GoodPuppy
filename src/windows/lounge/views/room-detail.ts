@@ -1,5 +1,5 @@
 import { getRoomAction } from "../loungeViewModels.js";
-import { createPetAvatar } from "./pet-avatar.js";
+import { createPetAvatar } from "../../../shared/pet/pet-avatar.js";
 import type { LoungeRoom } from "../../../types";
 import type { PendingTransition } from "./room-list.js";
 

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getStateImagePath, loadPetManifest, DEFAULT_SKIN } from "../../pet/animationCatalog.js";
+import { getStateImagePath, loadPetManifest, DEFAULT_SKIN } from "../../../shared/pet/animationCatalog.js";
 
 type ShowcaseOptions = {
   petId: string;

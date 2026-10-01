@@ -1,4 +1,4 @@
-import { INTERACTIONS, STATUS_OPTIONS } from "./animationCatalog.js";
+import { INTERACTIONS, STATUS_OPTIONS } from "../../shared/pet/animationCatalog.js";
 import { Menu, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import type { PetStatus } from "../../types";
 

@@ -1,6 +1,6 @@
 import "../../shared/bridge.js";
 import "./toast.css";
-import { createPetAvatar } from "../lounge/views/pet-avatar.js";
+import { createPetAvatar } from "../../shared/pet/pet-avatar.js";
 import type { OnlineNotifyPayload } from "../../types";
 
 // 房间上线提醒 toast 窗口入口。窗口由 Lounge 经 native spawn_toast_window 创建，

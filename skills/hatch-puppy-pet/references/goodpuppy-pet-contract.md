@@ -1,6 +1,6 @@
 # GoodPuppy resource and integration contract
 
-The runtime uses `src/windows/pet/animationCatalog.ts` and `petState.ts`, with images
+The runtime uses `src/shared/pet/animationCatalog.ts` and `src/windows/pet/petState.ts`, with images
 under `public/pets/<id>/<state>.gif`. It does not use a Codex sprite atlas or numbered
 `state_images` files. Package metadata:
 
@@ -37,12 +37,12 @@ When the user asks for integration into GoodPuppy:
 1. Complete the visual review and package first. Inspect existing destination files;
    preserve unrelated pets and do not silently replace a same-ID character.
 2. Copy the reviewed package to `public/pets/<id>/`.
-3. Inspect the current `PET_REGISTRY` in `src/windows/pet/animationCatalog.ts` and add
-   the new ID mapping. Unknown IDs currently resolve to shiba. Do not change the
-   default or account selection unless requested; if selection UI/data is needed,
-   handle it explicitly rather than claiming copying files made it selectable.
+3. Registration is automatic: the build reads `public/pets/*/pet.json` through
+   `tools/petRegistry.mjs`. Keep the manifest ID equal to the directory and provide
+   every listed state/skin file. `default` is reserved for shiba. Do not change the
+   default or account selection unless requested; copying files does not select it.
 4. Run `check_project_pet.py --project-root <repo> --pet-id <id>`, frontend tests and
-   build when changing registration. This checks static registration, manifest and
+   build when changing registration. This checks the actual registry, manifest and
    decoded GIFs; it does not replace a running-app review.
 5. Verify the loaded image path, idle variants, state transitions and partner-facing
    cuddle in the app. Report any unverified desktop behavior separately.
