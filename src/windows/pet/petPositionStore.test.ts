@@ -27,7 +27,7 @@ describe("petPositionStore", () => {
     expect(readSelfPos(storage)).toBeNull();
     writeSelfPos({ x: 42.6, y: -10.2 }, storage);
     expect(readSelfPos(storage)).toEqual({ x: 43, y: -10 });
-    expect(storage._map.get("pet-pos:self")).toBe('{"x":43,"y":-10}');
+    expect(storage._map.get("pet-pos:self")).toBe('{"space":"window-logical-v1","x":43,"y":-10}');
   });
 
   it("round-trips a remote position per room+member", () => {
@@ -45,6 +45,13 @@ describe("petPositionStore", () => {
     expect(readSelfPos(fakeStorage({ "pet-pos:self": '{"x":1}' }))).toBeNull();
     expect(readSelfPos(fakeStorage({ "pet-pos:self": '{"x":null,"y":2}' }))).toBeNull();
     expect(readSelfPos(fakeStorage({ "pet-pos:self": '{"x":"a","y":2}' }))).toBeNull();
+  });
+
+  it("reads the legacy contract but refuses unknown coordinate spaces", () => {
+    expect(readSelfPos(fakeStorage({ "pet-pos:self": '{"x":-1920,"y":40}' }))).toEqual({ x: -1920, y: 40 });
+    expect(readSelfPos(fakeStorage({ "pet-pos:self": '{"space":"desktop-physical-v2","x":2000,"y":40}' }))).toBeNull();
+    expect(readSelfPos(fakeStorage({ "pet-pos:self": '{"space":null,"x":2000,"y":40}' }))).toBeNull();
+    expect(readRemotePos("r", "u", fakeStorage({ "pet-pos:r:u": '{"space":"desktop-physical-v2","x":2000,"y":40}' }))).toBeNull();
   });
 
   it("ignores writes of non-finite coordinates", () => {
