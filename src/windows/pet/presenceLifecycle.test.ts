@@ -15,13 +15,14 @@ function fixture() {
   return { channel, client, rpc, status: (value: string) => status(value), hint: (payload?: unknown) => hint(payload), setRows: (value: typeof rows) => { rows = value; } };
 }
 describe("trusted presence snapshots", () => {
-  it("clears expired proofs even while a snapshot request is delayed", async () => {
+  it("clears expired proofs without broadcast or polling and releases the expiry timer", async () => {
     const api = await import("./presence.js"); const f = fixture(); const users = vi.fn();
     f.setRows([{ user_id: "friend", pet_id: "shiba", skin: "blue", status: "happy", remaining_ms: 100 }]);
     const joining = api.joinRoom(f.client as never, "room-a", "self", { onPresenceChange: users });
     await flush(); f.status("SUBSCRIBED"); await joining;
-    await vi.advanceTimersByTimeAsync(101); f.hint();
+    await vi.advanceTimersByTimeAsync(101);
     expect(users).toHaveBeenLastCalledWith([]); await api.leaveRoom();
+    expect(vi.getTimerCount()).toBe(0);
   });
   it("does not apply an old snapshot after the session closes", async () => {
     const api = await import("./presence.js"); const f = fixture(); const users = vi.fn();

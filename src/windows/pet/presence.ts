@@ -10,14 +10,23 @@ type Options = LocalPresencePatch & { revision?: number; onPresenceChange?: (use
 type Row = { user_id: string; pet_id?: string; skin?: string; status?: string | null; remaining_ms: number; expiresAt?: number };
 type Session = { client: SupabaseClient; roomId: string; userId: string; revision: number; channel: RealtimeChannel;
   abort: AbortController; options: Options; connectionVersion: number; ready: boolean; active: boolean; status: PetStatus;
-  rows: Row[]; loading: boolean; dirty: boolean; timer: ReturnType<typeof setTimeout> | null; poll: ReturnType<typeof setInterval> | null; nextRead: number; signature: string };
+  rows: Row[]; loading: boolean; dirty: boolean; timer: ReturnType<typeof setTimeout> | null; expiry: ReturnType<typeof setTimeout> | null; poll: ReturnType<typeof setInterval> | null; nextRead: number; signature: string };
 const clientId = crypto.randomUUID();
 let fallbackRevision = 0;
 let current: Session | null = null;
 
 function emit(session: Session) {
   if (current !== session) return;
-  const users = session.rows.filter(row => row.user_id !== session.userId && (row.expiresAt ?? 0) > performance.now()).map(row => {
+  if (session.expiry) clearTimeout(session.expiry);
+  session.expiry = null;
+  const now = performance.now();
+  const live = session.rows.filter(row => row.user_id !== session.userId && (row.expiresAt ?? 0) > now);
+  // 本地证明按自身期限失效，不依赖广播、轮询或正在等待的网络请求。
+  if (live.length) {
+    const nextExpiry = Math.min(...live.map(row => row.expiresAt!));
+    session.expiry = setTimeout(() => { session.expiry = null; emit(session); }, Math.max(1, Math.ceil(nextExpiry - now)));
+  }
+  const users = live.map(row => {
     const petId = resolvePetDir(row.pet_id ?? "default");
     return { userId: row.user_id, petId, skin: resolveSkin(petId, row.skin),
       status: row.status && getBehavior(row.status)?.kind === "status" ? row.status : null };
@@ -65,7 +74,7 @@ export async function joinRoom(client: SupabaseClient, roomId: string, userId: s
   const channel = client.channel(`presence:${roomId}`, { config: { private: true } });
   const session: Session = { client, roomId, userId, revision: options.revision ?? ++fallbackRevision, channel,
     abort: new AbortController(), options, connectionVersion: 0, ready: false, active: false, status: options.status ?? null,
-    rows: [], loading: false, dirty: false, timer: null, poll: null, nextRead: 0, signature: "" };
+    rows: [], loading: false, dirty: false, timer: null, expiry: null, poll: null, nextRead: 0, signature: "" };
   current = session; emit(session);
   channel.on("broadcast", { event: "presence-changed" }, () => refresh(session));
   await subscribeChannel(channel, async (reconnected) => {
@@ -103,7 +112,7 @@ export async function leaveRoom() {
   const session = current;
   current = null;
   if (!session) return;
-  session.abort.abort(); if (session.timer) clearTimeout(session.timer); if (session.poll) clearInterval(session.poll);
+  session.abort.abort(); if (session.timer) clearTimeout(session.timer); if (session.expiry) clearTimeout(session.expiry); if (session.poll) clearInterval(session.poll);
   session.options.onPresenceChange?.([]);
   const results = await Promise.allSettled([
     session.client.removeChannel(session.channel),
