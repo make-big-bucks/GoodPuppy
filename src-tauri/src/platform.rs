@@ -155,6 +155,8 @@ pub(crate) fn add_child_window<R: Runtime>(
     _parent: &WebviewWindow<R>,
     _child: &WebviewWindow<R>,
 ) -> Result<(), String> {
+    // Windows owner 在构建时设置；这里不需要 AppKit 的额外挂接。
+    Ok(())
 }
 
 /// Switches the macOS Dock icon on or off at runtime.
