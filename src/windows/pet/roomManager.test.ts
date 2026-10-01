@@ -155,4 +155,122 @@ describe("roomManager", () => {
     expect(roomManager.getCurrentRoomId()).toBeNull();
     expect(callbacks.onClearRemotePets).toHaveBeenCalledTimes(1);
   });
+  async function initialized() {
+    const manager = await import("./roomManager.js");
+    const cbs = createCallbacks();
+    const client = createSupabase();
+    manager.initRoomManager(cbs);
+    await manager.startPetApp({ supabase: client as never, session: { user: { id: "user-1" } } as never });
+    return { manager, cbs, client };
+  }
+
+  it("invalidates an entry immediately when exit occurs during history loading", async () => {
+    const { manager, cbs } = await initialized();
+    let finish!: (messages: never[]) => void;
+    fetchRoomMessages.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const entering = manager.switchRoom("room-a").catch((error) => error);
+    await vi.waitFor(() => expect(fetchRoomMessages).toHaveBeenCalledTimes(1));
+    const exiting = manager.exitCurrentRoom();
+    expect(manager.getCurrentRoomId()).toBeNull();
+    finish([]);
+    expect((await entering).name).toBe("AbortError");
+    await exiting;
+    expect(joinRoom).not.toHaveBeenCalled();
+    expect(cbs.onMessagesLoaded).not.toHaveBeenCalled();
+  });
+
+  it("does not let late room A results replace room B", async () => {
+    const { manager } = await initialized();
+    let finish!: (messages: never[]) => void;
+    fetchRoomMessages.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const enteringA = manager.switchRoom("room-a").catch((error) => error);
+    await vi.waitFor(() => expect(fetchRoomMessages).toHaveBeenCalledTimes(1));
+    const enteringB = manager.switchRoom("room-b");
+    finish([]);
+    expect((await enteringA).name).toBe("AbortError");
+    await enteringB;
+    expect(manager.getCurrentRoomId()).toBe("room-b");
+    expect(joinRoom.mock.calls.map((call) => call[1])).toEqual(["room-b"]);
+    await manager.exitCurrentRoom();
+  });
+
+  it("buffers and deduplicates realtime messages while loading history", async () => {
+    const { manager, cbs } = await initialized();
+    const message = { id: "m1", from: "user-2", info: "hello", created_at: "2026-10-01T00:00:00Z" };
+    subscribeToRoomMessages.mockImplementationOnce(async (_client, _room, onMessage) => { onMessage(message); });
+    fetchRoomMessages.mockResolvedValueOnce([message]);
+    await manager.switchRoom("room-a");
+    expect(cbs.onMessagesLoaded).toHaveBeenCalledWith([message]);
+    expect(cbs.onNewMessage).not.toHaveBeenCalled();
+    const oldCallback = subscribeToRoomMessages.mock.calls[0][2];
+    await manager.exitCurrentRoom();
+    oldCallback(message);
+    expect(cbs.onNewMessage).not.toHaveBeenCalled();
+  });
+
+  it("commits room state only after online persistence succeeds", async () => {
+    const { manager } = await initialized();
+    let finish!: (result: { error: null }) => void;
+    const query = createQuery({ data: null, error: null });
+    query.upsert.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const client = manager.getActiveSupabase() as unknown as ReturnType<typeof createSupabase>;
+    const original = client.from.getMockImplementation()!;
+    client.from.mockImplementation((table) => table === "presence" ? query : original(table));
+    const entering = manager.switchRoom("room-a");
+    await vi.waitFor(() => expect(query.upsert).toHaveBeenCalled());
+    expect(manager.getCurrentRoomId()).toBeNull();
+    finish({ error: null });
+    await entering;
+    expect(manager.getCurrentRoomId()).toBe("room-a");
+    await manager.exitCurrentRoom();
+  });
+
+  it("clears identity immediately and cancels pending entry on logout", async () => {
+    const { manager } = await initialized();
+    let finish!: (messages: never[]) => void;
+    fetchRoomMessages.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const entering = manager.switchRoom("room-a").catch((error) => error);
+    await vi.waitFor(() => expect(fetchRoomMessages).toHaveBeenCalled());
+    const stopping = manager.stopPetApp();
+    expect(manager.getSelfAuthId()).toBeNull();
+    expect(manager.getActiveSupabase()).toBeNull();
+    finish([]);
+    expect((await entering).name).toBe("AbortError");
+    await stopping;
+    expect(joinRoom).not.toHaveBeenCalled();
+  });
+
+  it("rejects failed entry and releases all resources even if a cleanup fails", async () => {
+    const { manager } = await initialized();
+    joinRoom.mockRejectedValueOnce(new Error("track failed"));
+    await expect(manager.switchRoom("room-a")).rejects.toThrow("track failed");
+    expect(manager.getCurrentRoomId()).toBeNull();
+    await manager.switchRoom("room-b");
+    leaveInteractions.mockRejectedValueOnce(new Error("unsubscribe failed"));
+    const exiting = manager.exitCurrentRoom();
+    expect(manager.getCurrentRoomId()).toBeNull();
+    await expect(exiting).rejects.toThrow("unsubscribe failed");
+    expect(unsubscribeRoomMessages).toHaveBeenCalled();
+    expect(leaveRoom).toHaveBeenCalled();
+  });
+
+  it("deduplicates repeated initialization for the same authenticated session", async () => {
+    const { manager, client, cbs } = await initialized();
+    await manager.startPetApp({ supabase: client as never, session: { user: { id: "user-1" } } as never });
+    expect(cbs.onRoomReady).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks offline without clearing the remembered room on application quit", async () => {
+    const { manager, client } = await initialized();
+    const query = createQuery({ data: null, error: null });
+    const original = client.from.getMockImplementation()!;
+    client.from.mockImplementation((table) => table === "presence" ? query : original(table));
+    await manager.switchRoom("room-a");
+    await manager.exitCurrentRoom({ rememberRoom: true });
+    expect(query.update).toHaveBeenLastCalledWith({
+      is_online: false, last_seen: expect.any(String),
+    });
+    expect(manager.getCurrentRoomId()).toBeNull();
+  });
+
 });

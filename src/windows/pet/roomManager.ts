@@ -30,196 +30,213 @@ type StartPetAppOptions = {
   session?: Session | null;
 };
 
-let activeSupabase: SupabaseClient | null = null;
-let selfAuthId: string | null = null;
+type SessionContext = { client: SupabaseClient; userId: string };
+let context: SessionContext | null = null;
 let currentRoomId: string | null = null;
-let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let callbacks: RoomCallbacks | null = null;
-let hasStartedPetApp = false;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let revision = 0;
+let pending = Promise.resolve();
+let initialization: Promise<void> | null = null;
 
-export function initRoomManager(cbs: RoomCallbacks) {
-  callbacks = cbs;
-}
-
-export function getCurrentRoomId() {
-  return currentRoomId;
-}
-
-export function getActiveSupabase() {
-  return activeSupabase;
-}
-
-export function getSelfAuthId() {
-  return selfAuthId;
-}
+export function initRoomManager(cbs: RoomCallbacks) { callbacks = cbs; }
+export function getCurrentRoomId() { return currentRoomId; }
+export function getActiveSupabase() { return context?.client ?? null; }
+export function getSelfAuthId() { return context?.userId ?? null; }
 
 function stopHeartbeat() {
-  if (heartbeatTimer != null) {
-    clearInterval(heartbeatTimer);
-    heartbeatTimer = null;
-  }
+  if (heartbeatTimer != null) clearInterval(heartbeatTimer);
+  heartbeatTimer = null;
 }
 
-function startHeartbeat() {
+function invalidate() {
+  revision += 1;
+  stopHeartbeat();
+  if (currentRoomId) callbacks?.onClearRemotePets();
+  currentRoomId = null;
+  return revision;
+}
+
+function assertCurrent(version: number) {
+  if (version !== revision) throw new DOMException("房间操作已取消", "AbortError");
+}
+
+function enqueue(work: () => Promise<void>): Promise<void> {
+  const result = pending.then(work);
+  pending = result.catch(() => {});
+  return result;
+}
+
+/** 释放所有通道；一个通道失败不能阻止其它资源的清理。 */
+async function releaseChannels(client: SupabaseClient) {
+  const results = await Promise.allSettled([
+    leaveInteractions(), presence.leaveRoom(), unsubscribeRoomMessages(client),
+  ]);
+  const failure = results.find((result) => result.status === "rejected");
+  if (failure?.status === "rejected") throw failure.reason;
+}
+
+async function writeOffline(session: SessionContext, rememberRoom = false) {
+  const { error } = await session.client.from("presence").update({
+    ...(rememberRoom ? {} : { current_room_id: null }),
+    is_online: false,
+    last_seen: new Date().toISOString(),
+  }).eq("user_id", session.userId);
+  if (error) throw error;
+}
+
+async function ensureProfile(session: SessionContext, version: number) {
+  const { data, error } = await session.client.from("profiles").select("id, pet_id")
+    .eq("id", session.userId).maybeSingle();
+  assertCurrent(version);
+  if (error) throw error;
+  if (!data) {
+    const { error: insertError } = await session.client.from("profiles")
+      .upsert({ id: session.userId, display_name: "", pet_id: "default" }, { onConflict: "id", ignoreDuplicates: true });
+    assertCurrent(version);
+    if (insertError) throw insertError;
+  } else callbacks?.onPetIdResolved(data.pet_id || "default");
+}
+
+function startHeartbeat(session: SessionContext, version: number) {
   stopHeartbeat();
   heartbeatTimer = setInterval(() => {
-    if (!activeSupabase || !selfAuthId || !currentRoomId) return;
-    void activeSupabase
-      .from("presence")
-      .update({ last_seen: new Date().toISOString() })
-      .eq("user_id", selfAuthId)
-      .then(({ error }) => {
+    if (version !== revision || !currentRoomId) return;
+    void session.client.from("presence").update({ last_seen: new Date().toISOString() })
+      .eq("user_id", session.userId).then(({ error }) => {
         if (error) console.error("presence heartbeat:", error);
       });
   }, 60_000);
 }
 
-async function markPresenceNotInRoom(logLabel = "presence exit"): Promise<void> {
-  if (!activeSupabase || !selfAuthId) return;
-  const { error } = await activeSupabase
-    .from("presence")
-    .update({
-      current_room_id: null,
-      is_online: false,
-      last_seen: new Date().toISOString(),
-    })
-    .eq("user_id", selfAuthId);
-  if (error) console.error(`${logLabel}:`, error);
-}
-
-async function ensureProfile(): Promise<void> {
-  if (!activeSupabase || !selfAuthId || !callbacks) return;
-  const { data, error } = await activeSupabase
-    .from("profiles")
-    .select("id, pet_id")
-    .eq("id", selfAuthId)
-    .maybeSingle();
-  if (error && error.code !== "PGRST116") throw error;
-  if (!data) {
-    const { error: insertError } = await activeSupabase
-      .from("profiles")
-      .upsert({ id: selfAuthId, display_name: "", pet_id: "default" }, { onConflict: "id", ignoreDuplicates: true });
-    if (insertError) throw insertError;
-  } else {
-    callbacks.onPetIdResolved(data.pet_id || "default");
-  }
-}
-
-async function activateRoom(roomId: string): Promise<void> {
-  if (!callbacks) return;
-  currentRoomId = roomId;
-
-  try {
-    if (activeSupabase && selfAuthId) {
-      const messages = await fetchRoomMessages(activeSupabase, roomId);
-      callbacks.onMessagesLoaded(messages);
-      await subscribeToRoomMessages(activeSupabase, roomId, (msg) => callbacks!.onNewMessage(msg));
-    }
-  } catch (error) {
-    console.error(error);
-  }
-
-  callbacks.onRoomReady();
-
-  if (!activeSupabase || !selfAuthId) return;
-
-  await presence.joinRoom(activeSupabase, roomId, selfAuthId, {
-    onPresenceChange: callbacks.onPresenceChange,
-    status: callbacks.getSelfStatus(),
-    petId: callbacks.getSelfPetId(),
-    skin: callbacks.getSelfSkin(),
+async function activateRoom(session: SessionContext, roomId: string, version: number) {
+  assertCurrent(version);
+  const cbs = callbacks;
+  if (!cbs) throw new Error("房间控制器尚未初始化");
+  const messages: LocalMessage[] = [];
+  let committed = false;
+  let users: PresenceUser[] = [];
+  // 先建立订阅，快照加载期间缓冲新消息，避免查询与订阅间的空隙。
+  await subscribeToRoomMessages(session.client, roomId, (message) => {
+    if (version !== revision) return;
+    if (committed) cbs.onNewMessage(message);
+    else messages.push(message);
   });
-
-  void activeSupabase
-    .from("presence")
-    .upsert(
-      {
-        user_id: selfAuthId,
-        current_room_id: roomId,
-        is_online: true,
-        last_seen: new Date().toISOString(),
-      },
-      { onConflict: "user_id" },
-    )
-    .then(({ error }) => {
-      if (error) console.error("presence upsert:", error);
-    });
-
-  startHeartbeat();
-  await joinInteractions(activeSupabase, roomId, { onInteraction: callbacks.onInteraction });
+  assertCurrent(version);
+  const history = await fetchRoomMessages(session.client, roomId);
+  assertCurrent(version);
+  await presence.joinRoom(session.client, roomId, session.userId, {
+    onPresenceChange: (nextUsers) => {
+      if (version !== revision) return;
+      users = nextUsers;
+      if (committed) cbs.onPresenceChange(nextUsers);
+    },
+    status: cbs.getSelfStatus(), petId: cbs.getSelfPetId(), skin: cbs.getSelfSkin(),
+  });
+  assertCurrent(version);
+  await joinInteractions(session.client, roomId, {
+    onInteraction: (payload) => { if (version === revision && committed) cbs.onInteraction(payload); },
+  });
+  assertCurrent(version);
+  const { error } = await session.client.from("presence").upsert({
+    user_id: session.userId, current_room_id: roomId, is_online: true,
+    last_seen: new Date().toISOString(),
+  }, { onConflict: "user_id" });
+  assertCurrent(version);
+  if (error) throw error;
+  // 全部准备成功后才提交 active 状态；迟到的回调不能修改其它房间。
+  currentRoomId = roomId;
+  committed = true;
+  const merged = new Map([...history, ...messages].map((message) => [message.id, message]));
+  cbs.onMessagesLoaded([...merged.values()].sort((a, b) =>
+    a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)));
+  cbs.onPresenceChange(users);
+  startHeartbeat(session, version);
+  cbs.onRoomReady();
 }
 
-async function loadCurrentRoom(): Promise<void> {
-  if (!activeSupabase || !selfAuthId || !callbacks) return;
-
+async function enter(session: SessionContext, roomId: string, version: number) {
+  assertCurrent(version);
   try {
-    const { data: presenceRow } = await activeSupabase
-      .from("presence")
-      .select("current_room_id, is_online")
-      .eq("user_id", selfAuthId)
-      .maybeSingle();
-    const lastRoomId = presenceRow?.current_room_id;
-    if (lastRoomId) {
-      const { data: membership } = await activeSupabase
-        .from("room_members")
-        .select("room_id")
-        .eq("room_id", lastRoomId)
-        .eq("user_id", selfAuthId)
-        .maybeSingle();
-      if (membership) {
-        await activateRoom(lastRoomId);
-        return;
-      }
-      await markPresenceNotInRoom("clear stale room presence");
-    } else if (presenceRow?.is_online) {
-      await markPresenceNotInRoom("clear stale online presence");
+    await releaseChannels(session.client);
+    assertCurrent(version);
+    await activateRoom(session, roomId, version);
+  } catch (error) {
+    // 旧操作也要释放已创建的通道，但不触碰更新版本的本地状态。
+    await Promise.allSettled([releaseChannels(session.client), writeOffline(session)]);
+    if (version === revision) {
+      invalidate();
+      callbacks?.onRoomReady();
     }
-  } catch (error) {
-    console.error("restore last room failed:", error);
+    throw error;
   }
-
-  callbacks.onRoomReady();
 }
 
-export async function switchRoom(roomId: string): Promise<void> {
-  if (!activeSupabase || !selfAuthId || roomId === currentRoomId) return;
-  try {
-    await leaveInteractions();
-    await presence.leaveRoom();
-    await activateRoom(roomId);
+export function switchRoom(roomId: string): Promise<void> {
+  const session = context;
+  if (!session) return Promise.reject(new Error("请先登录"));
+  if (!roomId) return Promise.reject(new Error("请选择房间"));
+  if (roomId === currentRoomId) return Promise.resolve();
+  const version = invalidate();
+  return enqueue(async () => {
+    await enter(session, roomId, version);
     callbacks?.onEnterRoom();
-  } catch (error) {
-    console.error(error);
-  }
+  });
 }
 
-export async function exitCurrentRoom(): Promise<void> {
-  if (!currentRoomId) return;
-  stopHeartbeat();
-  await leaveInteractions();
-  await presence.leaveRoom();
-  await markPresenceNotInRoom();
-  if (activeSupabase) await unsubscribeRoomMessages(activeSupabase);
-  currentRoomId = null;
-  callbacks?.onClearRemotePets();
+export function exitCurrentRoom({ rememberRoom = false }: { rememberRoom?: boolean } = {}): Promise<void> {
+  const session = context;
+  invalidate();
+  callbacks?.onRoomReady();
+  if (!session) return Promise.resolve();
+  return enqueue(async () => {
+    const results = await Promise.allSettled([releaseChannels(session.client), writeOffline(session, rememberRoom)]);
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
+  });
 }
 
-export function startPetApp({ supabase, session }: StartPetAppOptions = {}) {
-  if (supabase) activeSupabase = supabase;
-  if (session?.user?.id) selfAuthId = session.user.id;
+/** 注销与用户切换独立于退出房间：立即清身份，使旧任务失效。 */
+export function stopPetApp(): Promise<void> {
+  const result = exitCurrentRoom();
+  context = null;
+  initialization = null;
+  return result;
+}
 
-  const doLoad = () =>
-    ensureProfile()
-      .then(() => loadCurrentRoom())
-      .catch((error) => {
-        console.error(error);
-        callbacks?.onRoomReady();
-      });
-
-  if (hasStartedPetApp) {
-    doLoad();
-    return;
-  }
-  hasStartedPetApp = true;
-  doLoad();
+export function startPetApp({ supabase, session }: StartPetAppOptions = {}): Promise<void> {
+  if (!supabase || !session?.user.id) return Promise.reject(new Error("缺少登录会话"));
+  if (context?.client === supabase && context.userId === session.user.id) return initialization ?? Promise.resolve();
+  const previous = context;
+  const next: SessionContext = { client: supabase, userId: session.user.id };
+  const version = invalidate();
+  context = next;
+  const result = enqueue(async () => {
+    if (previous) await Promise.allSettled([releaseChannels(previous.client), writeOffline(previous)]);
+    assertCurrent(version);
+    await ensureProfile(next, version);
+    const { data, error } = await next.client.from("presence").select("current_room_id, is_online")
+      .eq("user_id", next.userId).maybeSingle();
+    assertCurrent(version);
+    if (error) throw error;
+    if (data?.current_room_id) {
+      const { data: membership, error: memberError } = await next.client.from("room_members")
+        .select("room_id").eq("room_id", data.current_room_id).eq("user_id", next.userId).maybeSingle();
+      assertCurrent(version);
+      if (memberError) throw memberError;
+      if (membership) { await enter(next, data.current_room_id, version); return; }
+      await writeOffline(next);
+    } else if (data?.is_online) await writeOffline(next);
+    assertCurrent(version);
+    callbacks?.onRoomReady();
+  });
+  initialization = result;
+  void result.catch(() => {
+    if (version === revision) {
+      initialization = null;
+      context = null;
+      callbacks?.onRoomReady();
+    }
+  });
+  return result;
 }

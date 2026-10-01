@@ -1,3 +1,4 @@
+import { subscribeChannel } from "../../shared/realtimeSubscription.js";
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import type { LocalMessage } from "../../types";
 
@@ -10,6 +11,7 @@ type MessageInsert = {
 };
 
 let messagesChannel: RealtimeChannel | null = null;
+let messagesClient: SupabaseClient | null = null;
 
 // 拉取的房间历史上限；按发送者分组后每只宠物再裁剪到 MAX_STACK_MESSAGES。
 const ROOM_HISTORY_LIMIT = 120;
@@ -45,10 +47,8 @@ export async function subscribeToRoomMessages(
   roomId: string,
   onMessage: (msg: LocalMessage) => void,
 ): Promise<void> {
-  if (messagesChannel) {
-    await supabase.removeChannel(messagesChannel);
-    messagesChannel = null;
-  }
+  await unsubscribeRoomMessages(supabase);
+  messagesClient = supabase;
   messagesChannel = supabase
     .channel("room-messages-" + roomId)
     .on(
@@ -63,13 +63,14 @@ export async function subscribeToRoomMessages(
         if (payload.new?.kind !== "text") return;
         onMessage(msgToLocal(payload.new as MessageInsert));
       },
-    )
-    .subscribe();
+    );
+  await subscribeChannel(messagesChannel);
 }
 
 export async function unsubscribeRoomMessages(supabase: SupabaseClient): Promise<void> {
-  if (messagesChannel) {
-    await supabase.removeChannel(messagesChannel);
-    messagesChannel = null;
-  }
+  const previous = messagesChannel;
+  const owner = messagesClient ?? supabase;
+  messagesChannel = null;
+  messagesClient = null;
+  if (previous) await owner.removeChannel(previous);
 }

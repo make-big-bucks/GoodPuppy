@@ -1,3 +1,4 @@
+import { subscribeChannel } from "../../shared/realtimeSubscription.js";
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import type { InteractionPayload } from "../../types";
 
@@ -21,27 +22,27 @@ export async function joinInteractions(
 ) {
   onInteractionHandler = typeof onInteraction === "function" ? onInteraction : () => {};
 
-  if (channel) {
-    await channel.unsubscribe();
-    channel = null;
-  }
+  const previous = channel;
+  channel = null;
+  if (previous) await previous.unsubscribe();
 
   channel = supabase.channel(`interactions:${roomId}`, {
     config: { broadcast: { self: false } },
   });
 
+  const joinedChannel = channel;
+  const handler = onInteractionHandler;
   channel.on("broadcast", { event: "interaction" }, ({ payload }) => {
-    if (isInteractionPayload(payload)) onInteractionHandler(payload);
+    if (channel === joinedChannel && isInteractionPayload(payload)) handler(payload);
   });
 
-  await channel.subscribe();
+  await subscribeChannel(joinedChannel);
 }
 
 export async function leaveInteractions() {
-  if (channel) {
-    await channel.unsubscribe();
-    channel = null;
-  }
+  const previous = channel;
+  channel = null;
+  if (previous) await previous.unsubscribe();
   onInteractionHandler = () => {};
 }
 

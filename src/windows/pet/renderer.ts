@@ -35,12 +35,13 @@ import {
   getActiveSupabase,
   getSelfAuthId,
   startPetApp,
+  stopPetApp,
   switchRoom,
   exitCurrentRoom,
 } from "./roomManager.js";
 import type { PetStatus, WindowPoint } from "../../types";
 
-export { startPetApp, switchRoom, getCurrentRoomId, exitCurrentRoom };
+export { startPetApp, stopPetApp, switchRoom, getCurrentRoomId, exitCurrentRoom };
 
 // 右键菜单「退出房间」：发 "exit-room" 给本窗口（selfMain 统一处理：退出 → 隐藏 →
 // 通知会客厅刷新），与会客厅退出按钮走完全相同的链路，避免行为分叉。

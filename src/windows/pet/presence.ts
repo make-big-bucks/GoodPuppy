@@ -1,3 +1,4 @@
+import { subscribeChannel } from "../../shared/realtimeSubscription.js";
 import type { RealtimeChannel, RealtimePresenceState, SupabaseClient } from "@supabase/supabase-js";
 import type { PetStatus, PresenceUser } from "../../types";
 
@@ -90,10 +91,9 @@ export async function joinRoom(
     skin: skin || localPayload.skin || "default",
   };
 
-  if (presenceChannel) {
-    await presenceChannel.unsubscribe();
-    presenceChannel = null;
-  }
+  const previous = presenceChannel;
+  presenceChannel = null;
+  if (previous) await previous.unsubscribe();
 
   knownUsers.clear();
   emitPresence();
@@ -102,17 +102,17 @@ export async function joinRoom(
     config: { presence: { key: nextSelfId } },
   });
 
-  presenceChannel
-    .on("presence", { event: "sync" }, syncOnlineState)
-    .subscribe(async (subscribeStatus) => {
-      if (subscribeStatus === "SUBSCRIBED") {
-        await presenceChannel?.track({
-          user_id: nextSelfId,
-          online_at: new Date().toISOString(),
-          ...localPayload,
-        });
-      }
+  const joinedChannel = presenceChannel;
+  joinedChannel.on("presence", { event: "sync" }, () => {
+    if (presenceChannel === joinedChannel) syncOnlineState();
+  });
+  await subscribeChannel(joinedChannel, async () => {
+    if (presenceChannel !== joinedChannel) return;
+    const result = await joinedChannel.track({
+      user_id: nextSelfId, online_at: new Date().toISOString(), ...localPayload,
     });
+    if (result !== "ok") throw new Error(`在线状态同步失败：${result}`);
+  });
 }
 
 export async function updateLocalPresence({ status, petId, skin }: LocalPresencePatch = {}) {
@@ -129,10 +129,9 @@ export async function updateLocalPresence({ status, petId, skin }: LocalPresence
 }
 
 export async function leaveRoom() {
-  if (presenceChannel) {
-    await presenceChannel.unsubscribe();
-    presenceChannel = null;
-  }
+  const previous = presenceChannel;
+  presenceChannel = null;
+  if (previous) await previous.unsubscribe();
   knownUsers.clear();
   emitPresence();
 }

@@ -2,7 +2,7 @@
 // 退出握手等控制事件接到 renderer（自己 pet 呈现 + 房间协调者）。
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { exitCurrentRoom, getCurrentRoomId, startPetApp, switchRoom, setOnRoomReadyCallback, setSelfSkin, prepareSelfForRoom } from "./renderer.js";
+import { exitCurrentRoom, getCurrentRoomId, startPetApp, stopPetApp, switchRoom, setOnRoomReadyCallback, setSelfSkin, prepareSelfForRoom } from "./renderer.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 import { createRoomVisibilityController } from "./roomVisibility.js";
 
@@ -10,10 +10,11 @@ const inTauri = "__TAURI_INTERNALS__" in window;
 const supabase = createAppSupabaseClient();
 
 async function startFromStoredSession() {
-  const { data } = await supabase.auth.getSession();
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
 
   if (data.session) {
-    startPetApp({ supabase, session: data.session });
+    await startPetApp({ supabase, session: data.session });
   }
 }
 
@@ -28,7 +29,14 @@ if (inTauri) {
     void visibility.sync().catch(console.error);
   });
 
-  listen("pet-init", startFromStoredSession);
+  listen("pet-init", () => void startFromStoredSession().catch(console.error));
+  listen("auth-cleared", () => void stopPetApp().catch(console.error));
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === "SIGNED_OUT") void stopPetApp().catch(console.error);
+    else if (event === "SIGNED_IN" && session) {
+      void startPetApp({ supabase, session }).catch(console.error);
+    }
+  });
 
   startFromStoredSession().catch((error) => {
     console.error(error);
@@ -57,7 +65,7 @@ if (inTauri) {
   // 退出前清理 presence，完成后通知 Rust 可以 exit（握手）。
   // 崩溃/强杀场景由 lounge 的 last_seen 时间阈值兜底。
   listen("app-before-quit", async () => {
-    await exitCurrentRoom().catch(console.error);
+    await exitCurrentRoom({ rememberRoom: true }).catch(console.error);
     emit("app-quit-ready", null);
   });
 }
