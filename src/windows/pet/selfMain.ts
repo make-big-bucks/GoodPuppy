@@ -6,6 +6,7 @@ import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 import { createRoomVisibilityController } from "./roomVisibility.js";
 import { createResumeMonitor } from "../../shared/resumeMonitor.js";
 import { recoverRoomAfterResume } from "./roomManager.js";
+import { recordLifecycle } from "../../shared/diagnostics.js";
 
 import { ROOM_COMMAND, ROOM_CANCEL, ROOM_RESULT, executeRoomCommand, isRoomCommand } from "../../shared/roomProtocol.js";
 
@@ -58,6 +59,9 @@ if (inTauri) {
   window.goodPuppy.onAppEvent(ROOM_COMMAND, (payload) => {
     if (!isRoomCommand(payload)) return;
     latestRequest = payload.requestId;
+    const diagnostic = { operation: payload.action === "enter" ? "room-enter" as const : "room-exit" as const,
+      requestId: payload.requestId, roomId: payload.roomId };
+    recordLifecycle({ ...diagnostic, phase: "start", sessionVersion: getRoomRevision() });
     void executeRoomCommand(payload, {
       enter: async (roomId) => { await startFromStoredSession(); await switchRoom(roomId); },
       exit: exitCurrentRoom,
@@ -65,6 +69,7 @@ if (inTauri) {
       getRoomId: getCurrentRoomId,
       getRevision: getRoomRevision,
     }).then(async (result) => {
+      recordLifecycle({ ...diagnostic, phase: result.ok ? "ok" : "failed", sessionVersion: getRoomRevision() });
       if (latestRequest === payload.requestId) latestRequest = null;
       await window.goodPuppy.emitToWindow(payload.replyTo, ROOM_RESULT, result);
     }).catch(console.error);

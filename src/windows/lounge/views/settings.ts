@@ -102,6 +102,12 @@ function buildMarkup() {
         </div>
       </section>
 
+      <section class="settings-group">
+        <h2 class="settings-group-title">诊断</h2>
+        <div class="settings-row"><div class="settings-row-text"><div class="settings-row-label">复制诊断记录</div>
+          <div class="settings-row-desc">最近的窗口与房间操作记录，不包含口令或消息正文。</div></div>
+          <button class="small-btn settings-diagnostics-btn" type="button">复制诊断</button></div>
+      </section>
       <section class="settings-group settings-account-group">
         <h2 class="settings-group-title">账号</h2>
         <div class="settings-row settings-account-row"></div>
@@ -202,6 +208,21 @@ export function openSettings(cb: SettingsCallbacks) {
   wirePetPrefs(root);
   void wireAutostart(root);
 
+  const diagnostics = root.querySelector<HTMLButtonElement>(".settings-diagnostics-btn");
+  if (diagnostics) {
+    diagnostics.disabled = !("__TAURI_INTERNALS__" in window);
+    diagnostics.onclick = async () => {
+      diagnostics.disabled = true;
+      try {
+        const report = await window.goodPuppy.getDiagnosticReport();
+        if (!diagnostics.isConnected) return;
+        await navigator.clipboard.writeText(report);
+        if (diagnostics.isConnected) diagnostics.textContent = "已复制";
+      } catch {
+        if (diagnostics.isConnected) diagnostics.textContent = "复制失败，请重试";
+      } finally { if (diagnostics.isConnected) diagnostics.disabled = false; }
+    };
+  }
   root.querySelector<HTMLButtonElement>(".settings-back")?.addEventListener("click", () => cb.onClose());
   root.querySelector<HTMLButtonElement>(".settings-logout-btn")?.addEventListener("click", () => cb.onLogout());
 

@@ -1,6 +1,7 @@
 import * as presence from "./presence.js";
 import { compareMessagePosition } from "../../shared/messageOrder.js";
 import { retryTask } from "../../shared/retryTask.js";
+import { recordLifecycle } from "../../shared/diagnostics.js";
 import { joinInteractions, leaveInteractions } from "./interactions.js";
 import {
   fetchRoomMessages,
@@ -188,11 +189,16 @@ async function activateRoom(session: SessionContext, roomId: string, version: nu
 
 async function enter(session: SessionContext, roomId: string, version: number) {
   assertCurrent(version);
+  const started = performance.now();
+  const event = { operation: "room-enter" as const, roomId, sessionVersion: version };
+  recordLifecycle({ ...event, phase: "start" });
   try {
     await releaseChannels(session.client);
     assertCurrent(version);
     await activateRoom(session, roomId, version);
+    recordLifecycle({ ...event, phase: "ok", durationMs: Math.round(performance.now() - started) });
   } catch (error) {
+    recordLifecycle({ ...event, phase: error instanceof DOMException && error.name === "AbortError" ? "canceled" : "failed" });
     // 旧操作也要释放已创建的通道，但不触碰更新版本的本地状态。
     await Promise.allSettled([releaseChannels(session.client), writeOffline(session)]);
     if (version === revision) {
@@ -222,6 +228,7 @@ export function recoverRoomAfterResume(): Promise<void> {
   const roomId = currentRoomId;
   if (!session || !roomId) return Promise.resolve();
   const version = invalidate();
+  recordLifecycle({ operation: "room-resume", phase: "start", roomId, sessionVersion: version });
   callbacks?.onRoomReady();
   const abort = new AbortController();
   const result = retryTask(() => enqueue(async () => {
@@ -249,20 +256,27 @@ export function recoverRoomAfterResume(): Promise<void> {
   }), abort.signal, (error) => console.error("房间恢复失败，将重试：", error));
   const recovery = { abort, result };
   resumeRecovery = recovery;
+  void result.then(() => recordLifecycle({ operation: "room-resume", phase: "ok", roomId, sessionVersion: version }),
+    () => recordLifecycle({ operation: "room-resume", phase: abort.signal.aborted ? "canceled" : "failed", roomId, sessionVersion: version }));
   void result.finally(() => { if (resumeRecovery === recovery) resumeRecovery = null; }).catch(() => {});
   return result;
 }
 
 export function exitCurrentRoom({ rememberRoom = false }: { rememberRoom?: boolean } = {}): Promise<void> {
   const session = context;
-  invalidate();
+  const roomId = currentRoomId ?? undefined;
+  const version = invalidate();
+  const event = { operation: "room-exit" as const, action: rememberRoom ? "quit" as const : "leave" as const, roomId, sessionVersion: version };
+  recordLifecycle({ ...event, phase: "start" });
   callbacks?.onRoomReady();
-  if (!session) return Promise.resolve();
-  return enqueue(async () => {
+  if (!session) { recordLifecycle({ ...event, phase: "ok" }); return Promise.resolve(); }
+  const result = enqueue(async () => {
     const results = await Promise.allSettled([releaseChannels(session.client), writeOffline(session, rememberRoom)]);
     const failure = results.find((result) => result.status === "rejected");
     if (failure?.status === "rejected") throw failure.reason;
   });
+  void result.then(() => recordLifecycle({ ...event, phase: "ok" }), () => recordLifecycle({ ...event, phase: "failed" }));
+  return result;
 }
 
 /** 注销与用户切换独立于退出房间：立即清身份，使旧任务失效。 */
@@ -270,6 +284,7 @@ export function stopPetApp(): Promise<void> {
   const result = exitCurrentRoom();
   context = null;
   initialization = null;
+  recordLifecycle({ operation: "session-changed", phase: "ok", sessionVersion: revision });
   callbacks?.onSessionChanged?.();
   return result;
 }
@@ -282,6 +297,7 @@ export function startPetApp({ supabase, session }: StartPetAppOptions = {}): Pro
   const next: SessionContext = { client: supabase, userId: session.user.id };
   const version = invalidate();
   context = next;
+  recordLifecycle({ operation: "session-changed", phase: "ok", sessionVersion: version });
   const result = enqueue(async () => {
     if (previous) await Promise.allSettled([releaseChannels(previous.client), writeOffline(previous)]);
     assertCurrent(version);

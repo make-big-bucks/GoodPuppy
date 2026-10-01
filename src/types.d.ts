@@ -1,4 +1,5 @@
 import type { EventSubscription } from "./shared/eventSubscription.js";
+import type { DiagnosticEvent } from "./shared/diagnostics.js";
 // 全仓库的数据契约类型定义（TypeScript 迁移后的共享契约入口）。
 //
 // 用途：给跨窗口 / 跨网络 / 前端 ↔ Rust 的「契约型」数据上类型，
@@ -37,6 +38,8 @@ export interface PetHitShape {
 
 /** bridge.ts 暴露的桥接 API，挂在 window.goodPuppy。 */
 export interface GoodPuppyBridge {
+  recordDiagnostic(event: DiagnosticEvent): Promise<void>;
+  getDiagnosticReport(): Promise<string>;
   getWindowPosition(): Promise<WindowPoint>;
   /** 当前窗口外尺寸（逻辑像素）。 */
   getWindowSize(): Promise<WindowSize>;

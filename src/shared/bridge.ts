@@ -1,5 +1,6 @@
 import { createEventSubscription } from "./eventSubscription.js";
 import { monitorRect, workAreaAtPoint } from "./monitorGeometry.js";
+import { recordLifecycle } from "./diagnostics.js";
 import {
   getCurrentWindow,
   currentMonitor,
@@ -20,13 +21,27 @@ const appWindow = inTauri ? getCurrentWindow() : null;
 const windowInstance = (window as Window & { __GOODPUPPY_INSTANCE__?: string }).__GOODPUPPY_INSTANCE__ ?? crypto.randomUUID();
 
 function windowCommand<T>(command: string, args: Record<string, unknown>): Promise<T> {
+  const tracked = /^(spawn_|close_).+_window$/.test(command) || command === "set_self_visible";
+  const started = performance.now();
+  const fields = {
+    operation: "native-window" as const,
+    action: command === "set_self_visible" ? (args.visible ? "show" as const : "hide" as const)
+      : command.startsWith("spawn_") ? "spawn" as const : "close" as const,
+    targetWindow: typeof args.label === "string" ? args.label : "main",
+    instanceId: typeof args.instanceId === "string" ? args.instanceId : windowInstance,
+  };
+  if (tracked) recordLifecycle({ ...fields, phase: "start" });
   const result = invoke<T>(command, args);
+  if (tracked) void result.then(() => recordLifecycle({ ...fields, phase: "ok", durationMs: Math.round(performance.now() - started) }),
+    () => recordLifecycle({ ...fields, phase: "failed", durationMs: Math.round(performance.now() - started) }));
   // 日志观察者不改变原 Promise；await 调用者仍收到失败，不能误设 ready 标记。
   void result.catch((error) => console.error(`${command} failed:`, error));
   return result;
 }
 
 const goodPuppy: GoodPuppyBridge = {
+  recordDiagnostic(event) { return inTauri ? invoke<void>("record_diagnostic", { event }) : Promise.resolve(); },
+  getDiagnosticReport() { return inTauri ? invoke<string>("get_diagnostic_report") : Promise.resolve(""); },
   async getWindowPosition() {
     if (!appWindow) return { x: 0, y: 0 };
     const scale = await appWindow.scaleFactor();

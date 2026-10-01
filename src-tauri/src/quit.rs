@@ -34,6 +34,7 @@ pub(crate) fn request<R: Runtime>(app: &AppHandle<R>, exit_code: i32) {
     if !app.state::<QuitState>().begin() {
         return;
     }
+    crate::diagnostics::native(app, "app-quit", "start");
     let app = app.clone();
     std::thread::spawn(move || {
         let request = QuitRequest {
@@ -59,6 +60,15 @@ pub(crate) fn request<R: Runtime>(app: &AppHandle<R>, exit_code: i32) {
                 acknowledged = rx.recv_timeout(Duration::from_secs(3)).is_ok();
             }
         }
+        crate::diagnostics::native(
+            &app,
+            "app-quit",
+            if acknowledged {
+                "acknowledged"
+            } else {
+                "timeout"
+            },
+        );
         app.unlisten(listener);
         app.state::<QuitState>().complete();
         #[cfg(debug_assertions)]

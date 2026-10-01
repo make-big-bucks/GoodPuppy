@@ -1,6 +1,7 @@
 mod bubbles;
 mod commands;
 mod cursor;
+mod diagnostics;
 mod hit_test;
 #[cfg(debug_assertions)]
 mod native_smoke;
@@ -62,6 +63,7 @@ pub fn run() {
     let monitor_hit_shapes = hit_shapes.clone();
     let bubbles: Bubbles = Arc::new(std::sync::Mutex::new(BubbleRegistry::default()));
     tauri::Builder::default()
+        .plugin(diagnostics::plugin())
         // 开机自启动（会客厅设置页「通用 → 开机自启动」开关控制）。
         // macOS 走 LaunchAgent，Windows 走注册表，由插件按平台封装。
         .plugin(tauri_plugin_autostart::init(
@@ -83,9 +85,12 @@ pub fn run() {
             close_bubble_window,
             spawn_toast_window,
             close_toast_window,
-            set_pet_hit_shape
+            set_pet_hit_shape,
+            diagnostics::record_diagnostic,
+            diagnostics::get_diagnostic_report
         ])
         .setup(move |app| {
+            diagnostics::native(app.handle(), "app-start", "ok");
             configure_macos_app_activation_policy(app);
             // `main` 不再承载记号棒 textarea（已搬进自己的气泡窗口 bubble-self），
             // 因此无需提升为 key-capable 的 NSPanel：走普通浮动覆盖层即可。这让 `main`

@@ -78,6 +78,10 @@ npm run tauri build
 
 Output is in `src-tauri/target/release/bundle/`.
 
+## 诊断
+
+设置页“复制诊断”按需复制本机窗口、房间与退出记录，带请求 ID、实例、会话版本和结果，不记录口令、密钥或消息正文。日志按体积轮转：单文件 256 KiB、最多三份归档；复制上限为 1 MiB。记录保存在系统应用日志目录，不自动上传，复制后由用户决定是否分享。
+
 ## 后端环境
 
 未配置时使用已发布的生产项目并保留已有登录态。开发时复制 `.env.example` 为 `.env.development.local`，填写独立开发项目的 URL 与 publishable key，再启动 Vite；环境可选 `production`、`development`、`test`，覆盖 URL/key 必须完整且显式指定环境。开发/测试不能指向内置生产项目，各环境使用独立登录存储；生产构建默认不读取 `.env.development.local`。`VITE_` 值会进入客户端，不能放 secret/service-role key，配置错误会在打包前失败。

@@ -9,6 +9,16 @@ use tauri::{AppHandle, Emitter, Listener, Manager};
 pub(crate) fn start(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let result = run(&app).await;
+        let result = result.and_then(|_| {
+            let main = app.get_webview_window("main").ok_or("main unavailable")?;
+            if crate::diagnostics::get_diagnostic_report(app.clone(), main).is_ok() {
+                return Err("diagnostic export role guard missing".into());
+            }
+            let lounge = app.get_webview_window("lounge").ok_or("lounge unavailable")?;
+            let report = crate::diagnostics::get_diagnostic_report(app.clone(), lounge)?;
+            if !report.contains("app-start") { return Err("persistent startup diagnostic missing".into()); }
+            Ok(())
+        });
         match &result {
             Ok(()) => eprintln!(
                 "[native-smoke] PASS: ready snapshots, hidden-focus guard, stale-close guard, same-label recreation and toast delivery"
