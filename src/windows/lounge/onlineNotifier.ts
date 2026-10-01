@@ -151,14 +151,21 @@ async function allocate(slot: number, payload: OnlineNotifyPayload): Promise<voi
   slots[slot] = label;
   pendingByLabel.set(label, payload);
 
-  const workArea = await window.goodPuppy.getCursorMonitorWorkArea();
-  const pos = computeToastPosition({
-    workArea,
-    platform: platform(),
-    index: slot,
-    card: { width: TOAST_W, height: TOAST_H },
-  });
-  await window.goodPuppy.spawnToastWindow({ label, x: pos.x, y: pos.y, width: TOAST_W, height: TOAST_H });
+  try {
+    const workArea = await window.goodPuppy.getCursorMonitorWorkArea();
+    if (slots[slot] !== label || !pendingByLabel.has(label)) return;
+    const pos = computeToastPosition({
+      workArea,
+      platform: platform(),
+      index: slot,
+      card: { width: TOAST_W, height: TOAST_H },
+    });
+    await window.goodPuppy.spawnToastWindow({ label, x: pos.x, y: pos.y, width: TOAST_W, height: TOAST_H });
+    if (slots[slot] !== label || !pendingByLabel.has(label)) await window.goodPuppy.closeToastWindow(label);
+  } catch (error) {
+    console.error("online notification failed:", error);
+    if (slots[slot] === label) freeSlot(label);
+  }
 }
 
 function freeSlot(label: string): void {

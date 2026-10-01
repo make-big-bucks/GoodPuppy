@@ -40,6 +40,7 @@ let pending = Promise.resolve();
 let initialization: Promise<void> | null = null;
 
 export function initRoomManager(cbs: RoomCallbacks) { callbacks = cbs; }
+export function getRoomRevision() { return revision; }
 export function getCurrentRoomId() { return currentRoomId; }
 export function getActiveSupabase() { return context?.client ?? null; }
 export function getSelfAuthId() { return context?.userId ?? null; }

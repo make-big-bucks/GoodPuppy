@@ -9,7 +9,7 @@
 import "../../shared/bridge.js";
 import "../../shared/styles.css";
 import { initBubbleStacks, mountStack, setMessagesForArea, addMessageToArea, showArea } from "./messageBubble.js";
-import { initComposeStick, openComposeStick } from "./composeStick.js";
+import { initComposeStick, openComposeStick, closeComposeStick } from "./composeStick.js";
 import {
   BUBBLE_SELF_LABEL,
   COORDINATOR_LABEL,
@@ -26,6 +26,9 @@ import {
   type BubblePlacementPayload,
   type SelfComposeResultPayload,
 } from "./petWindowEvents.js";
+
+import { requestWindow } from "../../shared/windowRequest.js";
+import { emit } from "@tauri-apps/api/event";
 
 const bridge = window.goodPuppy;
 const isSelf = bridge.getWindowLabel() === BUBBLE_SELF_LABEL;
@@ -56,14 +59,27 @@ function publishHitShape() {
 
 // 写消息提交：把文本交给 main（协调者独占 Supabase），等它回报结果再收尾。
 // composeStick 期望一个会在失败时抛错的 Promise，于是把 result 事件转成 resolve/reject。
-function submitViaCoordinator(text: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const unlisten = bridge.onAppEvent<SelfComposeResultPayload>(SELF_COMPOSE_RESULT, (res) => {
-      unlisten();
-      if (res.ok) resolve();
-      else reject(new Error(res.error || "发送失败"));
-    });
-    void bridge.emitToWindow(COORDINATOR_LABEL, SELF_COMPOSE_SUBMIT, { text });
+let currentRoomId: string | null = null;
+let messageRequests = new AbortController();
+const roomState = bridge.onAppEvent<{ roomId?: string | null }>("active-room-changed", (payload) => {
+  const roomId = payload?.roomId ?? null;
+  if (roomId !== currentRoomId) {
+    messageRequests.abort();
+    messageRequests = new AbortController();
+    closeComposeStick();
+    currentRoomId = roomId;
+  }
+});
+void roomState.ready.then(() => emit("request-active-room")).catch(console.error);
+
+async function submitViaCoordinator(text: string): Promise<void> {
+  if (!currentRoomId) throw new Error("请先进入房间");
+  await requestWindow<SelfComposeResultPayload>({
+    listen: (event, handler) => bridge.onAppEvent(event, handler),
+    send: (target, event, payload) => bridge.emitToWindow(target, event, payload),
+  }, {
+    target: COORDINATOR_LABEL, requestEvent: SELF_COMPOSE_SUBMIT, responseEvent: SELF_COMPOSE_RESULT,
+    payload: { text, roomId: currentRoomId }, signal: messageRequests.signal,
   });
 }
 

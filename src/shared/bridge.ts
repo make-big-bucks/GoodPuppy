@@ -1,3 +1,4 @@
+import { createEventSubscription } from "./eventSubscription.js";
 import {
   getCurrentWindow,
   currentMonitor,
@@ -15,6 +16,13 @@ import type { GoodPuppyBridge, PetHitShape, WindowPoint, WindowSize } from "../t
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 const appWindow = inTauri ? getCurrentWindow() : null;
+
+function windowCommand<T>(command: string, args: Record<string, unknown>): Promise<T> {
+  const result = invoke<T>(command, args);
+  // 日志观察者不改变原 Promise；await 调用者仍收到失败，不能误设 ready 标记。
+  void result.catch((error) => console.error(`${command} failed:`, error));
+  return result;
+}
 
 const goodPuppy: GoodPuppyBridge = {
   async getWindowPosition() {
@@ -169,21 +177,17 @@ const goodPuppy: GoodPuppyBridge = {
   },
   spawnPetWindow(opts: { label: string; x: number; y: number; width: number; height: number }) {
     if (!inTauri) return Promise.resolve();
-    return invoke<void>("spawn_pet_window", {
+    return windowCommand<void>("spawn_pet_window", {
       label: opts.label,
       x: Math.round(opts.x),
       y: Math.round(opts.y),
       width: Math.round(opts.width),
       height: Math.round(opts.height),
-    }).catch((error) => {
-      console.error("spawn_pet_window failed:", error);
     });
   },
   closePetWindow(label: string) {
     if (!inTauri) return Promise.resolve();
-    return invoke<void>("close_pet_window", { label }).catch((error) => {
-      console.error("close_pet_window failed:", error);
-    });
+    return windowCommand<void>("close_pet_window", { label });
   },
   spawnBubbleWindow(opts: {
     label: string;
@@ -195,7 +199,7 @@ const goodPuppy: GoodPuppyBridge = {
     height: number;
   }) {
     if (!inTauri) return Promise.resolve();
-    return invoke<void>("spawn_bubble_window", {
+    return windowCommand<void>("spawn_bubble_window", {
       label: opts.label,
       parentLabel: opts.parentLabel,
       isSelf: opts.isSelf,
@@ -203,59 +207,44 @@ const goodPuppy: GoodPuppyBridge = {
       y: Math.round(opts.y),
       width: Math.round(opts.width),
       height: Math.round(opts.height),
-    }).catch((error) => {
-      console.error("spawn_bubble_window failed:", error);
     });
   },
   closeBubbleWindow(label: string) {
     if (!inTauri) return Promise.resolve();
-    return invoke<void>("close_bubble_window", { label }).catch((error) => {
-      console.error("close_bubble_window failed:", error);
-    });
+    return windowCommand<void>("close_bubble_window", { label });
   },
   spawnToastWindow(opts: { label: string; x: number; y: number; width: number; height: number }) {
     if (!inTauri) return Promise.resolve();
-    return invoke<void>("spawn_toast_window", {
+    return windowCommand<void>("spawn_toast_window", {
       label: opts.label,
       x: Math.round(opts.x),
       y: Math.round(opts.y),
       width: Math.round(opts.width),
       height: Math.round(opts.height),
-    }).catch((error) => {
-      console.error("spawn_toast_window failed:", error);
     });
   },
   closeToastWindow(label: string) {
     if (!inTauri) return Promise.resolve();
-    return invoke<void>("close_toast_window", { label }).catch((error) => {
-      console.error("close_toast_window failed:", error);
-    });
+    return windowCommand<void>("close_toast_window", { label });
   },
   emitToWindow(label: string, event: string, payload?: unknown) {
     if (!inTauri) return Promise.resolve();
-    return emitTo(label, event, payload).catch((error) => {
-      console.error(`emitTo(${label}, ${event}) failed:`, error);
-    });
+    const result = emitTo(label, event, payload);
+    void result.catch((error) => console.error(`emitTo(${label}, ${event}) failed:`, error));
+    return result;
   },
   // 监听当前窗口作用域的事件（而非全局 listen）：协调者用 emitTo(label, …) 定向投递，
   // 全局 listen 不按目标窗口过滤，会让同代码的多个窗口（尤其两个气泡窗口）互相收到对方
   // 的事件（placement / 消息 / 记号棒串扰）。appWindow.listen 只收发给本窗口的定向事件，
   // 广播 emit 仍能收到。见官方 multiwindow 示例。
   onAppEvent<T = unknown>(event: string, callback: (payload: T) => void) {
-    if (!inTauri || !appWindow) return () => {};
-    let unlisten = () => {};
-    appWindow.listen<T>(event, (e) => callback(e.payload)).then((fn) => {
-      unlisten = fn;
-    });
-    return () => unlisten();
+    return createEventSubscription<T>(async (handler) => {
+      if (!appWindow) return () => {};
+      return appWindow.listen<T>(event, (e) => handler(e.payload));
+    }, callback);
   },
   onDragEnded(callback: () => void) {
-    if (!inTauri || !appWindow) return () => {};
-    let unlisten = () => {};
-    appWindow.listen("pet-drag-ended", () => callback()).then((fn) => {
-      unlisten = fn;
-    });
-    return () => unlisten();
+    return this.onAppEvent("pet-drag-ended", callback);
   },
   async isAutostartEnabled() {
     if (!inTauri) return false;

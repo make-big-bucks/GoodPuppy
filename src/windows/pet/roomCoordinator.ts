@@ -226,27 +226,35 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
         const petSize = getPetWindowSize();
         entry = { info, pos, leaving: false, removeTimer: null, leaveDurationMs: LEAVE_FALLBACK_MS };
         remotes.set(userId, entry);
-        await bridge.spawnPetWindow({
-          label: petWindowLabel(userId),
-          x: pos.x,
-          y: pos.y,
-          width: petSize.width,
-          height: petSize.height,
-        });
-        // 气泡子窗口：按可用区算上/下避让初始摆位，之后由 OS 跟随 pet 移动。
-        const b = await computeBubble(pos, getPetWindowSize());
-        await bridge.spawnBubbleWindow({
-          label: bubbleWindowLabel(userId),
-          parentLabel: petWindowLabel(userId),
-          isSelf: false,
-          x: b.x,
-          y: b.y,
-          width: b.width,
-          height: b.height,
-        });
+        try {
+          await bridge.spawnPetWindow({
+            label: petWindowLabel(userId),
+            x: pos.x,
+            y: pos.y,
+            width: petSize.width,
+            height: petSize.height,
+          });
+          // 气泡子窗口：按可用区算上/下避让初始摆位，之后由 OS 跟随 pet 移动。
+          const b = await computeBubble(pos, getPetWindowSize());
+          await bridge.spawnBubbleWindow({
+            label: bubbleWindowLabel(userId),
+            parentLabel: petWindowLabel(userId),
+            isSelf: false,
+            x: b.x,
+            y: b.y,
+            width: b.width,
+            height: b.height,
+          });
+        } catch (error) {
+          if (remotes.get(userId) === entry) remotes.delete(userId);
+          await Promise.allSettled([
+            bridge.closeBubbleWindow(bubbleWindowLabel(userId)), bridge.closePetWindow(petWindowLabel(userId)),
+          ]);
+          throw error;
+        }
         void resolveLeaveDuration(userId, info.petId);
         // Forward identity/state + history once the window has booted its listeners.
-        void pushStateAndHistory(userId, info);
+        void pushStateAndHistory(userId, info).catch(console.error);
       } else {
         if (entry.leaving) {
           entry.leaving = false;
@@ -433,7 +441,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
   }
 
   return {
-    onPresenceChange: (users: PresenceUser[]) => void applyPresence(users),
+    onPresenceChange: (users: PresenceUser[]) => void applyPresence(users).catch(console.error),
     onInteraction: applyInteraction,
     onMessagesLoaded: loadRoomMessages,
     onNewMessage: routeMessage,

@@ -32,6 +32,7 @@ import { showSelfContextMenu } from "./contextMenu.js";
 import {
   initRoomManager,
   getCurrentRoomId,
+  getRoomRevision,
   getActiveSupabase,
   getSelfAuthId,
   startPetApp,
@@ -41,7 +42,7 @@ import {
 } from "./roomManager.js";
 import type { PetStatus, WindowPoint } from "../../types";
 
-export { startPetApp, stopPetApp, switchRoom, getCurrentRoomId, exitCurrentRoom };
+export { startPetApp, stopPetApp, switchRoom, getCurrentRoomId, getRoomRevision, exitCurrentRoom };
 
 // 右键菜单「退出房间」：发 "exit-room" 给本窗口（selfMain 统一处理：退出 → 隐藏 →
 // 通知会客厅刷新），与会客厅退出按钮走完全相同的链路，避免行为分叉。
@@ -143,25 +144,29 @@ async function resizeSelfWindow() {
 
 // ── 写消息链路（记号棒在 bubble-self，跨窗口回环）─────────────────────────
 // 自己的气泡窗口提交文本 → 这里走 Supabase 插入 → 回报结果给气泡窗口收尾。
-window.goodPuppy.onAppEvent<SelfComposeSubmitPayload>(SELF_COMPOSE_SUBMIT, async ({ text }) => {
+window.goodPuppy.onAppEvent<SelfComposeSubmitPayload>(SELF_COMPOSE_SUBMIT, async ({ text, requestId, roomId: requestedRoomId }) => {
+  if (!requestId || typeof text !== "string") return;
+  const version = getRoomRevision();
   try {
     const supabase = getActiveSupabase();
     const authId = getSelfAuthId();
     const roomId = getCurrentRoomId();
-    if (!supabase || !authId || !roomId) throw new Error("请先登录");
+    if (!supabase || !authId || !roomId) throw new Error("请先登录并进入房间");
+    if (roomId !== requestedRoomId) throw new Error("房间已改变，请重新发送");
     const { data, error } = await supabase
       .from("messages")
       .insert({ room_id: roomId, sender_id: authId, kind: "text", content: text })
       .select("id, created_at")
       .single();
     if (error) throw error;
+    if (version !== getRoomRevision()) throw new Error("消息已发送到原房间，当前房间已改变");
     selfAnimator.playTransient("message");
     // 用数据库返回的真实 ID 立即路由（投到 bubble-self），realtime 抵达时按 ID 去重。
     coordinator.onNewMessage({ id: data.id, info: text, from: authId, created_at: data.created_at });
-    void window.goodPuppy.emitToWindow(BUBBLE_SELF_LABEL, SELF_COMPOSE_RESULT, { ok: true });
+    void window.goodPuppy.emitToWindow(BUBBLE_SELF_LABEL, SELF_COMPOSE_RESULT, { requestId, ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    void window.goodPuppy.emitToWindow(BUBBLE_SELF_LABEL, SELF_COMPOSE_RESULT, { ok: false, error: message });
+    void window.goodPuppy.emitToWindow(BUBBLE_SELF_LABEL, SELF_COMPOSE_RESULT, { requestId, ok: false, error: message });
   }
 });
 

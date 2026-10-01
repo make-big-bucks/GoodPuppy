@@ -2,9 +2,11 @@
 // 退出握手等控制事件接到 renderer（自己 pet 呈现 + 房间协调者）。
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { exitCurrentRoom, getCurrentRoomId, startPetApp, stopPetApp, switchRoom, setOnRoomReadyCallback, setSelfSkin, prepareSelfForRoom } from "./renderer.js";
+import { exitCurrentRoom, getCurrentRoomId, getRoomRevision, startPetApp, stopPetApp, switchRoom, setOnRoomReadyCallback, setSelfSkin, prepareSelfForRoom } from "./renderer.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 import { createRoomVisibilityController } from "./roomVisibility.js";
+
+import { ROOM_COMMAND, ROOM_CANCEL, ROOM_RESULT, executeRoomCommand, isRoomCommand } from "../../shared/roomProtocol.js";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 const supabase = createAppSupabaseClient();
@@ -46,15 +48,31 @@ if (inTauri) {
     emit("active-room-changed", { roomId: getCurrentRoomId() });
   });
 
-  listen<{ roomId?: string | null }>("switch-room", async (event) => {
-    if (!event.payload.roomId) return;
-    await switchRoom(event.payload.roomId);
-    await visibility.sync();
+  let latestRequest: string | null = null;
+  window.goodPuppy.onAppEvent(ROOM_COMMAND, (payload) => {
+    if (!isRoomCommand(payload)) return;
+    latestRequest = payload.requestId;
+    void executeRoomCommand(payload, {
+      enter: async (roomId) => { await startFromStoredSession(); await switchRoom(roomId); },
+      exit: exitCurrentRoom,
+      sync: () => visibility.sync(),
+      getRoomId: getCurrentRoomId,
+      getRevision: getRoomRevision,
+    }).then(async (result) => {
+      if (latestRequest === payload.requestId) latestRequest = null;
+      await window.goodPuppy.emitToWindow(payload.replyTo, ROOM_RESULT, result);
+    }).catch(console.error);
   });
 
-  listen("exit-room", async () => {
-    await exitCurrentRoom();
-    await visibility.sync();
+  window.goodPuppy.onAppEvent<{ requestId?: string }>(ROOM_CANCEL, (payload) => {
+    if (payload?.requestId !== latestRequest) return;
+    latestRequest = null;
+    void exitCurrentRoom().finally(() => visibility.sync()).catch(console.error);
+  });
+
+  // 自己的右键菜单只有退出操作，不参与会客厅请求回执。
+  listen("exit-room", () => {
+    void exitCurrentRoom().finally(() => visibility.sync()).catch(console.error);
   });
 
   // 会客厅资料卡换肤面板「保存」后广播：应用到自己 pet（动画 + presence 通道 A）。

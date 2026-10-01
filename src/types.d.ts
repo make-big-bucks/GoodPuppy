@@ -1,3 +1,4 @@
+import type { EventSubscription } from "./shared/eventSubscription.js";
 // 全仓库的数据契约类型定义（TypeScript 迁移后的共享契约入口）。
 //
 // 用途：给跨窗口 / 跨网络 / 前端 ↔ Rust 的「契约型」数据上类型，
@@ -95,12 +96,12 @@ export interface GoodPuppyBridge {
   /** 向指定窗口定向发送一个跨窗口事件（协调者 → 呈现者，或呈现者 → 协调者）。 */
   emitToWindow(label: string, event: string, payload?: unknown): Promise<void>;
   /** 订阅本窗口收到的跨窗口事件（含定向到本窗口的事件）；返回取消订阅函数。 */
-  onAppEvent<T = unknown>(event: string, callback: (payload: T) => void): () => void;
+  onAppEvent<T = unknown>(event: string, callback: (payload: T) => void): EventSubscription;
   /**
    * 订阅原生「鼠标左键松开」信号；返回取消订阅函数。
    * Windows 原生拖拽会吞掉 webview 的 pointerup，需要靠它判定拖拽结束。
    */
-  onDragEnded(callback: () => void): () => void;
+  onDragEnded(callback: () => void): EventSubscription;
   getAppConfig(): AppConfig;
 }
 

@@ -113,6 +113,9 @@ function initResizeHandle() {
   });
 }
 
+import { ROOM_COMMAND, ROOM_CANCEL, ROOM_RESULT, type RoomResult } from "../../shared/roomProtocol.js";
+import { requestWindow } from "../../shared/windowRequest.js";
+
 const supabase = createAppSupabaseClient();
 let activeRoomId: string | null = null;
 
@@ -120,9 +123,24 @@ function sessionIsAnonymous(session: Awaited<ReturnType<typeof supabase.auth.get
   return Boolean(session?.user?.is_anonymous);
 }
 
-// Deferred resolvers for room transition promises
-let pendingEnterResolve: (() => void) | null = null;
-let pendingExitResolve: (() => void) | null = null;
+let requests = new AbortController();
+async function changeRoom(action: "enter" | "exit", roomId?: string) {
+  const result = await requestWindow<RoomResult>({
+    listen: (event, handler) => window.goodPuppy.onAppEvent(event, handler),
+    send: (target, event, payload) => window.goodPuppy.emitToWindow(target, event, payload),
+  }, {
+    target: "main", requestEvent: ROOM_COMMAND, responseEvent: ROOM_RESULT,
+    payload: { action, roomId, replyTo: "lounge" }, signal: requests.signal, cancelEvent: ROOM_CANCEL,
+  });
+  if (result.action !== action || result.requestedRoomId !== roomId
+    || result.roomId !== (action === "enter" ? roomId : null)) throw new Error("房间回复与请求不一致");
+  activeRoomId = result.roomId;
+  refreshLoungePanelActiveRoom();
+  if (action === "enter") {
+    await getCurrentWindow().hide();
+    await emit("lounge-hidden");
+  }
+}
 
 async function init() {
   // 冷启动先铺骨架屏，避免在 await getSession()（多窗口共享 auth 锁时可能较慢）期间
@@ -138,22 +156,14 @@ async function init() {
     isAnonymous: sessionIsAnonymous(data.session),
     email: data.session?.user?.email ?? null,
     getActiveRoomId: () => activeRoomId,
-    onEnterRoom: (roomId: string) => {
-      void emit("switch-room", { roomId });
-      return new Promise<void>((resolve) => {
-        pendingEnterResolve = resolve;
-      });
-    },
-    onExitRoom: () => {
-      void emit("exit-room");
-      return new Promise<void>((resolve) => {
-        pendingExitResolve = resolve;
-      });
-    },
+    onEnterRoom: (roomId: string) => changeRoom("enter", roomId),
+    onExitRoom: () => changeRoom("exit"),
     onLoginSuccess: () => {
       void emit("auth-ready");
     },
     onLogout: () => {
+      requests.abort();
+      requests = new AbortController();
       void emit("auth-cleared");
       activeRoomId = null;
     },
@@ -162,9 +172,17 @@ async function init() {
     },
   });
 
+  let authenticatedUserId = selfAuthId;
   // 认证状态变化时同步更新会客厅（跳过初次 INITIAL_SESSION，已由 getSession 处理）
   supabase.auth.onAuthStateChange((event, session) => {
     if (event === "INITIAL_SESSION") return;
+    const nextUserId = session?.user.id ?? null;
+    if (nextUserId !== authenticatedUserId) {
+      requests.abort();
+      requests = new AbortController();
+      activeRoomId = null;
+      authenticatedUserId = nextUserId;
+    }
     updateLoungePanelAuth({
       supabase,
       selfAuthId: session?.user?.id || null,
@@ -188,24 +206,7 @@ async function init() {
   listen<{ roomId?: string | null }>("active-room-changed", (event) => {
     activeRoomId = event.payload?.roomId || null;
 
-    if (activeRoomId && pendingEnterResolve) {
-      // Room entry confirmed: resolve promise, then hide lounge
-      const resolve = pendingEnterResolve;
-      pendingEnterResolve = null;
-      resolve();
-      void emit("lounge-hidden");
-      void getCurrentWindow().hide();
-      // lounge.ts handleRoomTransition will call renderAll after resolve
-    } else if (!activeRoomId && pendingExitResolve) {
-      // Room exit confirmed: resolve promise
-      const resolve = pendingExitResolve;
-      pendingExitResolve = null;
-      resolve();
-      // lounge.ts handleRoomTransition will call renderAll after resolve
-    } else {
-      // No pending transition — refresh normally (e.g. request-active-room response)
-      refreshLoungePanelActiveRoom();
-    }
+    refreshLoungePanelActiveRoom();
   });
 
   openLoungePanel();

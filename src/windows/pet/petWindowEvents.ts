@@ -59,8 +59,8 @@ export const SELF_COMPOSE_SUBMIT = "self-compose-submit";
 /** main →（插入完成）→ bubble-self：回报结果，成功则收起记号棒，失败则显错。 */
 export const SELF_COMPOSE_RESULT = "self-compose-result";
 
-export type SelfComposeSubmitPayload = { text: string };
-export type SelfComposeResultPayload = { ok: boolean; error?: string };
+export type SelfComposeSubmitPayload = { requestId: string; text: string; roomId: string };
+export type SelfComposeResultPayload = { requestId: string; ok: boolean; error?: string };
 
 // 会客厅设置页 → 协调者（main）：远程遥控桌宠偏好，main 是唯一执行 + 落盘点。
 /** 设置页改了「朋友摆放模式」。 */

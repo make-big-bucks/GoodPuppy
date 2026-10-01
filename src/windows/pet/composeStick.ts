@@ -8,6 +8,8 @@ type ComposeCallbacks = {
   onVisibilityChange: () => void;
 };
 
+let submitting = false;
+let editorVersion = 0;
 let stickEl: HTMLElement | null = null;
 let cbs: ComposeCallbacks = {
   onSubmitMessage: async () => {},
@@ -38,6 +40,8 @@ export function initComposeStick(el: HTMLElement, callbacks: ComposeCallbacks) {
   getForm()?.addEventListener("submit", async (event: Event) => {
     event.preventDefault();
     event.stopPropagation();
+    if (submitting) return;
+    const version = editorVersion;
     const input = getInput();
     const info = input?.value.trim();
     if (!info) {
@@ -45,15 +49,20 @@ export function initComposeStick(el: HTMLElement, callbacks: ComposeCallbacks) {
       input?.focus();
       return;
     }
+    submitting = true;
+    getForm()?.querySelectorAll<HTMLButtonElement>('button[type="submit"]').forEach((button) => { button.disabled = true; });
     setStatus("正在发送...");
     try {
       await cbs.onSubmitMessage(info);
-      setStatus("");
-      closeComposeStick();
+      if (version === editorVersion) closeComposeStick();
     } catch (error: unknown) {
+      if (version !== editorVersion) return;
       const message = error instanceof Error ? error.message : String(error);
       setStatus(message || "发送失败");
       getInput()?.focus();
+    } finally {
+      submitting = false;
+      getForm()?.querySelectorAll<HTMLButtonElement>('button[type="submit"]').forEach((button) => { button.disabled = false; });
     }
   });
 
@@ -66,6 +75,7 @@ export function initComposeStick(el: HTMLElement, callbacks: ComposeCallbacks) {
 export function openComposeStick() {
   if (!stickEl) return;
   const input = getInput();
+  editorVersion += 1;
   stickEl.hidden = false;
   setStatus("");
   // 置顶面板默认不抢焦点；显式取得 key 状态，否则 textarea 收不到键盘输入。
@@ -80,6 +90,7 @@ export function openComposeStick() {
 
 export function closeComposeStick() {
   if (!stickEl || stickEl.hidden) return;
+  editorVersion += 1;
   stickEl.hidden = true;
   setStatus("");
   const input = getInput();
