@@ -14,8 +14,9 @@ use std::time::Duration;
 
 use bubbles::{BubbleRegistry, Bubbles};
 use commands::{
-    close_bubble_window, close_pet_window, close_toast_window, focus_pet_panel, set_pet_hit_shape,
-    set_self_visible, set_window_bounds, spawn_bubble_window, spawn_pet_window, spawn_toast_window,
+    close_bubble_window, close_pet_window, close_toast_window, focus_pet_panel,
+    get_managed_window_instance, set_pet_hit_shape, set_self_visible, set_window_bounds,
+    spawn_bubble_window, spawn_pet_window, spawn_toast_window,
 };
 use cursor::spawn_cursor_monitor;
 use hit_test::HitShapes;
@@ -70,9 +71,11 @@ pub fn run() {
         ))
         .manage(hit_shapes)
         .manage(bubbles)
+        .manage(window_tasks::WindowInstances::default())
         .invoke_handler(tauri::generate_handler![
             set_window_bounds,
             set_self_visible,
+            get_managed_window_instance,
             focus_pet_panel,
             spawn_pet_window,
             close_pet_window,

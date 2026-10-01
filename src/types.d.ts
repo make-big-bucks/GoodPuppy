@@ -69,17 +69,20 @@ export interface GoodPuppyBridge {
   publishHitShape(shape: PetHitShape): void;
   /** 当前 webview 窗口的 label（"main" = 自己/协调者，"pet-<userId>" = 远程呈现者）。 */
   getWindowLabel(): string;
+  getWindowInstance(): string;
+  getManagedWindowInstance(label: string): Promise<string | null>;
   /** 开机自启动当前是否开启（非 Tauri / 不支持时恒为 false）。 */
   isAutostartEnabled(): Promise<boolean>;
   /** 设置开机自启动，返回设置后最终状态；非 Tauri / 不支持时为 no-op 返回 false。 */
   setAutostart(enabled: boolean): Promise<boolean>;
   /** 协调者请求 Rust 动态创建一只远程成员的 pet 窗口（label `pet-<userId>`）。 */
-  spawnPetWindow(opts: { label: string; x: number; y: number; width: number; height: number }): Promise<void>;
+  spawnPetWindow(opts: { instanceId?: string; label: string; x: number; y: number; width: number; height: number }): Promise<void>;
   /** 协调者请求销毁某只远程 pet 窗口。 */
-  closePetWindow(label: string): Promise<void>;
+  closePetWindow(label: string, instanceId?: string): Promise<void>;
   /** 协调者请求创建一只 pet 的气泡子窗口（label `bubble-self` / `bubble-<userId>`），
    * 作为 parentLabel（pet 窗口）的原生子窗口跟随移动；isSelf 时提升为可输入 panel。 */
   spawnBubbleWindow(opts: {
+    instanceId?: string;
     label: string;
     parentLabel: string;
     isSelf: boolean;
@@ -89,9 +92,9 @@ export interface GoodPuppyBridge {
     height: number;
   }): Promise<void>;
   /** 协调者请求销毁某只远程气泡窗口（自己的气泡窗口整会话只隐藏不销毁）。 */
-  closeBubbleWindow(label: string): Promise<void>;
+  closeBubbleWindow(label: string, instanceId?: string): Promise<void>;
   /** 创建一只上线提醒 toast 窗口（label `toast-<seq>`），不透明圆角卡片置顶不抢焦点。 */
-  spawnToastWindow(opts: { label: string; x: number; y: number; width: number; height: number }): Promise<void>;
+  spawnToastWindow(opts: { instanceId?: string; label: string; x: number; y: number; width: number; height: number }): Promise<void>;
   /** 销毁某只 toast 窗口（自动消失 / 手动关闭 / 点击进入后）。 */
   closeToastWindow(label: string): Promise<void>;
   /** 向指定窗口定向发送一个跨窗口事件（协调者 → 呈现者，或呈现者 → 协调者）。 */

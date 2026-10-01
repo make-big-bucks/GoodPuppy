@@ -79,11 +79,12 @@ export function openComposeStick() {
   stickEl.hidden = false;
   setStatus("");
   // 置顶面板默认不抢焦点；显式取得 key 状态，否则 textarea 收不到键盘输入。
-  window.goodPuppy.setFocus("openComposeStick");
-  if (input) {
-    input.value = "";
-    input.focus();
-  }
+  const version = editorVersion;
+  if (input) input.value = "";
+  void window.goodPuppy.setFocus("openComposeStick").then((focused) => {
+    if (editorVersion === version && stickEl && !stickEl.hidden
+      && (focused || !("__TAURI_INTERNALS__" in window))) input?.focus();
+  });
   cbs.onVisibilityChange();
   cbs.onRefreshPassthrough();
 }

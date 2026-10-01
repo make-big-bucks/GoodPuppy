@@ -4,14 +4,14 @@ use crate::{
     commands,
     hit_test::{HitShapes, PetHitShape},
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Listener, Manager};
 
 pub(crate) fn start(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let result = run(&app).await;
         match &result {
             Ok(()) => eprintln!(
-                "[native-smoke] PASS: create, hide/show, destroy and same-label recreation"
+                "[native-smoke] PASS: ready snapshots, hidden-focus guard, stale-close guard and same-label recreation"
             ),
             Err(error) => eprintln!("[native-smoke] FAIL: {error}"),
         }
@@ -21,13 +21,15 @@ pub(crate) fn start(app: AppHandle) {
 
 async fn run(app: &AppHandle) -> Result<(), String> {
     let main = app.get_webview_window("main").ok_or("main unavailable")?;
-    for _ in 0..2 {
+    for cycle in 0..2 {
+        let instance = format!("native-smoke-{cycle}");
         commands::spawn_pet_window(
             app.clone(),
             main.clone(),
             app.state::<HitShapes>(),
             app.state::<Bubbles>(),
             "pet-smoke".into(),
+            Some(instance.clone()),
             200.0,
             200.0,
             150.0,
@@ -40,12 +42,29 @@ async fn run(app: &AppHandle) -> Result<(), String> {
             app.state::<HitShapes>(),
             app.state::<Bubbles>(),
             "bubble-smoke".into(),
+            Some(instance.clone()),
             "pet-smoke".into(),
             false,
             200.0,
             120.0,
             200.0,
             80.0,
+        )
+        .await?;
+        exercise_presenter(
+            app,
+            "pet-smoke",
+            &instance,
+            "pet-state",
+            serde_json::json!({"petId":"default","skin":"default","status":null}),
+        )
+        .await?;
+        exercise_presenter(
+            app,
+            "bubble-smoke",
+            &instance,
+            "pet-history",
+            serde_json::json!({"messages":[]}),
         )
         .await?;
         if !app
@@ -64,8 +83,32 @@ async fn run(app: &AppHandle) -> Result<(), String> {
                 .insert("pet-smoke".into(), PetHitShape::default());
             registry.ignore.insert("pet-smoke".into(), true);
         }
-        commands::close_bubble_window(app.clone(), main.clone(), "bubble-smoke".into()).await?;
-        commands::close_pet_window(app.clone(), main.clone(), "pet-smoke".into()).await?;
+        if cycle == 1 {
+            commands::close_pet_window(
+                app.clone(),
+                main.clone(),
+                "pet-smoke".into(),
+                Some("native-smoke-0".into()),
+            )
+            .await?;
+            if app.get_webview_window("pet-smoke").is_none() {
+                return Err("stale close destroyed a new instance".into());
+            }
+        }
+        commands::close_bubble_window(
+            app.clone(),
+            main.clone(),
+            "bubble-smoke".into(),
+            Some(instance.clone()),
+        )
+        .await?;
+        commands::close_pet_window(
+            app.clone(),
+            main.clone(),
+            "pet-smoke".into(),
+            Some(instance.clone()),
+        )
+        .await?;
         if app.get_webview_window("pet-smoke").is_some()
             || app.get_webview_window("bubble-smoke").is_some()
         {
@@ -83,6 +126,7 @@ async fn run(app: &AppHandle) -> Result<(), String> {
         app.state::<HitShapes>(),
         app.state::<Bubbles>(),
         "bubble-self".into(),
+        None,
         "main".into(),
         true,
         200.0,
@@ -99,10 +143,81 @@ async fn run(app: &AppHandle) -> Result<(), String> {
                 .ok_or("self overlay missing")?
                 .is_visible()
                 .map_err(|error| error.to_string())?;
+            if !visible && label == "bubble-self" {
+                let bubble = app.get_webview_window(label).ok_or("bubble missing")?;
+                let identity =
+                    commands::get_managed_window_instance(app.clone(), main.clone(), label.into())?;
+                if commands::focus_pet_panel(bubble, identity).await? {
+                    return Err("hidden bubble gained focus".into());
+                }
+            }
             if actual != visible {
                 return Err(format!("{label} visibility differs from {visible}"));
             }
         }
     }
     Ok(())
+}
+
+async fn exercise_presenter(
+    app: &AppHandle,
+    label: &str,
+    instance: &str,
+    event: &str,
+    payload: serde_json::Value,
+) -> Result<(), String> {
+    let label_owned = label.to_string();
+    let instance_owned = instance.to_string();
+    let app_reply = app.clone();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let listener = app.listen_any("presenter-ready", move |event| {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(event.payload()) else {
+            return;
+        };
+        if value["label"] == label_owned && value["instanceId"] == instance_owned {
+            if value["controllerId"] == "native-probe" {
+                let _ = ready_tx.send(());
+            } else {
+                let _ = app_reply.emit_to(
+                    label_owned.as_str(),
+                    "presenter-ready-request",
+                    serde_json::json!({"instanceId":instance_owned,"controllerId":"native-probe"}),
+                );
+            }
+        }
+    });
+    app.emit_to(
+        label,
+        "presenter-ready-request",
+        serde_json::json!({"instanceId":instance,"controllerId":"native-probe"}),
+    )
+    .map_err(|error| error.to_string())?;
+    let ready = tauri::async_runtime::spawn_blocking(move || {
+        ready_rx.recv_timeout(std::time::Duration::from_secs(10))
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    app.unlisten(listener);
+    ready.map_err(|error| format!("presenter readiness failed: {error}"))?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let expected = (label.to_string(), instance.to_string(), event.to_string());
+    let listener = app.listen_any("presenter-applied", move |event| {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(event.payload()) else {
+            return;
+        };
+        if value["label"] == expected.0
+            && value["instanceId"] == expected.1
+            && value["event"] == expected.2
+        {
+            let _ = tx.send(());
+        }
+    });
+    app.emit_to(label, event, serde_json::json!({"instanceId":instance,"controllerId":"native-probe","sequence":1,"payload":payload})).map_err(|error| error.to_string())?;
+    let applied = tauri::async_runtime::spawn_blocking(move || {
+        rx.recv_timeout(std::time::Duration::from_secs(10))
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    app.unlisten(listener);
+    applied.map_err(|error| format!("presenter snapshot not applied: {error}"))
 }

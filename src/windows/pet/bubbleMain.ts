@@ -1,3 +1,4 @@
+import { createPresenterEndpoint } from "./windowReadiness.js";
 // 独立气泡窗口入口（label `bubble-self` / `bubble-<userId>`，多窗口 Phase A）。
 //
 // 气泡窗口是某只 pet 窗口的原生子窗口，由 OS 跟随 pet 移动（见 lib.rs add_child_window）。
@@ -9,7 +10,7 @@
 import "../../shared/bridge.js";
 import "../../shared/styles.css";
 import { initBubbleStacks, mountStack, setMessagesForArea, addMessageToArea, showArea } from "./messageBubble.js";
-import { initComposeStick, openComposeStick, closeComposeStick } from "./composeStick.js";
+import { initComposeStick, openComposeStick, closeComposeStick, isComposeOpen } from "./composeStick.js";
 import {
   BUBBLE_SELF_LABEL,
   COORDINATOR_LABEL,
@@ -31,6 +32,10 @@ import { requestWindow } from "../../shared/windowRequest.js";
 import { emit } from "@tauri-apps/api/event";
 
 const bridge = window.goodPuppy;
+const endpoint = createPresenterEndpoint({ label: bridge.getWindowLabel(), instanceId: bridge.getWindowInstance(),
+  listen: (event, handler) => bridge.onAppEvent(event, handler),
+  send: (label, event, payload) => bridge.emitToWindow(label, event, payload),
+});
 const isSelf = bridge.getWindowLabel() === BUBBLE_SELF_LABEL;
 
 const root = document.querySelector<HTMLElement>(".bubble-window");
@@ -61,7 +66,7 @@ function publishHitShape() {
 // composeStick 期望一个会在失败时抛错的 Promise，于是把 result 事件转成 resolve/reject。
 let currentRoomId: string | null = null;
 let messageRequests = new AbortController();
-const roomState = bridge.onAppEvent<{ roomId?: string | null }>("active-room-changed", (payload) => {
+const roomState = isSelf ? bridge.onAppEvent<{ roomId?: string | null }>("active-room-changed", (payload) => {
   const roomId = payload?.roomId ?? null;
   if (roomId !== currentRoomId) {
     messageRequests.abort();
@@ -69,8 +74,8 @@ const roomState = bridge.onAppEvent<{ roomId?: string | null }>("active-room-cha
     closeComposeStick();
     currentRoomId = roomId;
   }
-});
-void roomState.ready.then(() => emit("request-active-room")).catch(console.error);
+}) : null;
+void roomState?.ready.then(() => emit("request-active-room")).catch(console.error);
 
 async function submitViaCoordinator(text: string): Promise<void> {
   if (!currentRoomId) throw new Error("请先进入房间");
@@ -102,16 +107,16 @@ if (root && area) {
   mountStack(area, bridge.getWindowLabel());
 
   // 光标落在气泡命中区时浮现关闭按钮（由原生监视器驱动，不依赖窗口聚焦）。
-  bridge.onAppEvent<boolean>(OVERLAY_HOVER, (interactive) => {
+  const hover = bridge.onAppEvent<boolean>(OVERLAY_HOVER, (interactive) => {
     area.classList.toggle("bubble-hovered", interactive);
   });
 
-  bridge.onAppEvent<PetHistoryPayload>(PET_HISTORY, (payload) => setMessagesForArea(area, payload.messages));
-  bridge.onAppEvent<PetMessagePayload>(PET_MESSAGE, (payload) => addMessageToArea(area, payload.message));
+  endpoint.listen<PetHistoryPayload>(PET_HISTORY, (payload) => setMessagesForArea(area, payload.messages));
+  endpoint.listen<PetMessagePayload>(PET_MESSAGE, (payload) => addMessageToArea(area, payload.message));
   // 「查看对话/状态」：协调者/对端右键触发，撤销已关闭状态重新展开堆叠。
-  bridge.onAppEvent<void>(BUBBLE_SHOW, () => showArea(area));
+  endpoint.listen<void>(BUBBLE_SHOW, () => showArea(area));
   // 几何 + 朝向：气泡窗口重设自身位置/尺寸（窗口只能改自己），并切堆叠锚点 + 小尾巴方向。
-  bridge.onAppEvent<BubblePlacementPayload>(BUBBLE_PLACEMENT, (payload) => {
+  endpoint.listen<BubblePlacementPayload>(BUBBLE_PLACEMENT, (payload) => {
     root.dataset.placement = payload.placement;
     bridge.setWindowBounds({ x: payload.x, y: payload.y, width: payload.width, height: payload.height });
     refreshHitShape();
@@ -124,12 +129,16 @@ if (root && area) {
       onVisibilityChange: refreshHitShape,
       onSubmitMessage: submitViaCoordinator,
     });
-    bridge.onAppEvent<void>(SELF_OPEN_COMPOSE, () => {
+    endpoint.listen<{ roomId: string }>(SELF_OPEN_COMPOSE, (payload) => {
+      if (!currentRoomId || payload?.roomId !== currentRoomId) return;
+      const room = currentRoomId;
       openComposeStick();
       // 主窗右键菜单收起可能晚于此事件，重试一次取 key + 聚焦，确保 textarea 收键。
       setTimeout(() => {
-        void bridge.setFocus("post-menu");
-        composeStick.querySelector<HTMLTextAreaElement>(".compose-input")?.focus();
+        if (room !== currentRoomId || !isComposeOpen()) return;
+        void bridge.setFocus("post-menu").then((focused) => {
+          if (focused && room === currentRoomId && isComposeOpen()) composeStick.querySelector<HTMLTextAreaElement>(".compose-input")?.focus();
+        });
       }, 60);
     });
   }
@@ -138,4 +147,7 @@ if (root && area) {
   window.addEventListener("resize", refreshHitShape);
   window.addEventListener("load", refreshHitShape);
   refreshHitShape();
+  void endpoint.ready().catch(console.error);
+  window.addEventListener("beforeunload", () => { endpoint.dispose(); hover(); roomState?.(); messageRequests.abort(); });
+
 }

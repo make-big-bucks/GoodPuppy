@@ -1,3 +1,4 @@
+import { createPresenterEndpoint } from "./windowReadiness.js";
 // 远程 pet 窗口（label "pet-<userId>"）的入口：纯「哑呈现者」。
 //
 // 不碰 Supabase。只渲染一只远程成员的 pet，听协调者（"main" 窗口）的定向事件播动画/气泡，
@@ -20,7 +21,7 @@ import {
   PET_ARRANGE,
   PET_MOVED,
   PET_INTERACT_REQUEST,
-  BUBBLE_SHOW,
+  PET_BUBBLE_SHOW_REQUEST,
   type PetStatePayload,
   type PetInteractionPayload,
   type PetModePayload,
@@ -28,6 +29,11 @@ import {
 } from "./petWindowEvents.js";
 
 const bridge = window.goodPuppy;
+const instanceId = bridge.getWindowInstance();
+const endpoint = createPresenterEndpoint({ label: bridge.getWindowLabel(), instanceId,
+  listen: (event, handler) => bridge.onAppEvent(event, handler),
+  send: (label, event, payload) => bridge.emitToWindow(label, event, payload),
+});
 const userId = userIdFromLabel(bridge.getWindowLabel()) ?? "";
 
 const petStage = document.querySelector<HTMLElement>(".pet-stage");
@@ -45,11 +51,11 @@ if (petStage && area && petImage) {
   area.style.setProperty("--pet-index", "0");
 
   let draggable = false;
-  let currentPetId = "default";
+  let currentPetId: string | null = null;
 
-  const animator = new PetAnimator({ petId: currentPetId, skin: "default" });
+  const animator = new PetAnimator({ petId: currentPetId ?? "default", skin: "default" });
 
-  createPetPresenter({
+  const presenter = createPetPresenter({
     stage: petStage,
     petImage,
     animator,
@@ -58,20 +64,21 @@ if (petStage && area && petImage) {
       showRemoteContextMenu({
         targetId: userId,
         // 气泡在独立气泡窗口里：「查看状态」改为通知该气泡窗口重新展开堆叠。
-        onShowRemoteStatus: () => void bridge.emitToWindow(bubbleWindowLabel(userId), BUBBLE_SHOW),
+        onShowRemoteStatus: () => void bridge.emitToWindow(COORDINATOR_LABEL, PET_BUBBLE_SHOW_REQUEST, { userId, instanceId }),
         onInteract: (action, targetId) =>
-          void bridge.emitToWindow(COORDINATOR_LABEL, PET_INTERACT_REQUEST, { action, targetId }),
+          void bridge.emitToWindow(COORDINATOR_LABEL, PET_INTERACT_REQUEST, { action, targetId, instanceId }),
       }),
-    onDragEnded: (pos) => void bridge.emitToWindow(COORDINATOR_LABEL, PET_MOVED, { userId, ...pos }),
+    onDragEnded: (pos) => void bridge.emitToWindow(COORDINATOR_LABEL, PET_MOVED, { userId, instanceId, ...pos }),
   });
 
-  petStage.classList.remove("is-initializing");
-
-  bridge.onAppEvent<PetStatePayload>(PET_STATE, (payload) => {
+  endpoint.listen<PetStatePayload>(PET_STATE, (payload) => {
+    petStage.classList.remove("is-initializing");
+    presenter.refreshPassthrough();
     if (payload.petId && payload.petId !== currentPetId) {
       currentPetId = payload.petId;
       animator.setPetId(payload.petId);
       loadPetManifest(payload.petId).then((manifest) => {
+        if (payload.petId !== currentPetId) return;
         animator.setManifest(manifest);
         animator.playTransient("enter");
       });
@@ -82,16 +89,19 @@ if (petStage && area && petImage) {
 
   // 消息渲染搬到气泡窗口（bubble-<userId>）。pet 窗口只在新消息时弹跳一下：
   // 协调者用 PET_INTERACTION{state:"message"} 通知，复用下方互动动画通道。
-  bridge.onAppEvent<PetInteractionPayload>(PET_INTERACTION, (payload) =>
+  endpoint.listen<PetInteractionPayload>(PET_INTERACTION, (payload) =>
     animator.playTransient(payload.state, { durationMs: payload.durationMs, mirrored: payload.mirrored }),
   );
-  bridge.onAppEvent<void>(PET_LEAVE, () => animator.playTransient("leave"));
-  bridge.onAppEvent<PetModePayload>(PET_MODE, (payload) => {
+  endpoint.listen<void>(PET_LEAVE, () => animator.playTransient("leave"));
+  endpoint.listen<PetModePayload>(PET_MODE, (payload) => {
     draggable = payload.draggable;
   });
-  bridge.onAppEvent<PetArrangePayload>(PET_ARRANGE, (pos) => {
+  endpoint.listen<PetArrangePayload>(PET_ARRANGE, (pos) => {
     const size = getPetWindowSize(1);
     // 只重设 pet 窗口位置/尺寸；气泡子窗口由 OS 跟随（macOS）/Moved 重定位（Windows）。
-    bridge.setWindowBounds({ x: pos.x, y: pos.y, width: size.width, height: size.height });
+    void bridge.setWindowBounds({ x: pos.x, y: pos.y, width: size.width, height: size.height });
   });
+  void endpoint.ready().catch(console.error);
+  window.addEventListener("beforeunload", () => { endpoint.dispose(); animator.destroy(); });
+
 }

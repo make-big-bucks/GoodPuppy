@@ -1,3 +1,6 @@
+import type { EventSubscription } from "../../shared/eventSubscription.js";
+import { createWindowReadiness } from "./windowReadiness.js";
+import { createRemoteWindowQueue } from "./remoteWindowQueue.js";
 // 房间协调者（运行在自己窗口 label "main"）。
 //
 // 独占 Supabase 订阅（presence / messages / interactions，由 roomManager 喂进来），
@@ -30,6 +33,7 @@ import {
   PET_ARRANGE,
   PET_MOVED,
   PET_INTERACT_REQUEST,
+  PET_BUBBLE_SHOW_REQUEST,
   BUBBLE_PLACEMENT,
   type PetMovedPayload,
   type PetInteractRequestPayload,
@@ -44,6 +48,11 @@ const LEAVE_FALLBACK_MS = 600;
 type InteractionDef = { actorState: string; targetState: string; mirror?: string; holdMs?: number };
 
 type RemoteEntry = {
+  instanceId: string;
+  roomId: string;
+  signal: AbortSignal;
+  cancelCreation: AbortController;
+  ready: boolean;
   info: PresenceUser;
   pos: WindowPoint;
   leaving: boolean;
@@ -63,20 +72,50 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
   let roomMessageCache: LocalMessage[] = [];
   let mode: PetMode = readStoredMode();
 
+  let disposed = false;
+  const subscriptions: EventSubscription[] = [];
   const bridge = window.goodPuppy;
+  function listen<T>(event: string, callback: (payload: T) => void) {
+    const subscription = bridge.onAppEvent(event, callback);
+    subscriptions.push(subscription);
+    return subscription;
+  }
+  const controllerId = bridge.getWindowInstance();
+  const lifecycle = createRemoteWindowQueue();
+  let arrangementRevision = 0;
+  let presenceRevision = 0;
+  let desiredUsers = new Map<string, PresenceUser>();
+  const readiness = createWindowReadiness({ controllerId,
+    listen: (event, handler) => bridge.onAppEvent(event, handler),
+    send: (label, event, payload) => bridge.emitToWindow(label, event, payload),
+  });
+  let sequence = 0;
+  const deliveries = new Map<string, Promise<void>>();
+  function deliver(label: string, instanceId: string, event: string, payload?: unknown) {
+    const key = `${label}|${instanceId}`;
+    const envelope = { instanceId, controllerId, sequence: ++sequence, payload };
+    const result = (deliveries.get(key) ?? Promise.resolve()).catch(() => {}).then(() =>
+      bridge.emitToWindow(label, event, envelope));
+    deliveries.set(key, result);
+    const clean = () => { if (deliveries.get(key) === result) deliveries.delete(key); };
+    void result.then(clean, clean);
+    return result;
+  }
 
   function emitTo(userId: string, event: string, payload?: unknown) {
-    return bridge.emitToWindow(petWindowLabel(userId), event, payload);
+    const entry = remotes.get(userId);
+    return entry && !entry.signal.aborted && entry.roomId === deps.getCurrentRoomId() ? deliver(petWindowLabel(userId), entry.instanceId, event, payload) : Promise.resolve();
   }
 
   /** 定向到某成员的气泡子窗口（label bubble-<userId>）。消息渲染住在气泡窗口里。 */
   function emitToBubble(userId: string, event: string, payload?: unknown) {
-    return bridge.emitToWindow(bubbleWindowLabel(userId), event, payload);
+    const entry = remotes.get(userId);
+    return entry && !entry.signal.aborted && entry.roomId === deps.getCurrentRoomId() ? deliver(bubbleWindowLabel(userId), entry.instanceId, event, payload) : Promise.resolve();
   }
 
   /** 定向到自己的气泡子窗口（bubble-self，整会话只隐藏不销毁）。 */
   function emitToSelfBubble(event: string, payload?: unknown) {
-    return bridge.emitToWindow(BUBBLE_SELF_LABEL, event, payload);
+    return selfBubbleInstance ? deliver(BUBBLE_SELF_LABEL, selfBubbleInstance, event, payload) : Promise.resolve();
   }
 
   // ── Bubble placement（独立气泡窗口的上/下避让，纯函数驱动）─────────────────
@@ -96,53 +135,53 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
 
   /** 重新摆放某成员的气泡窗口（pet 移动/重排后）。气泡窗口收到后自行 setWindowBounds。 */
   async function placeRemoteBubble(userId: string, petPos: WindowPoint) {
-    if (!remotes.has(userId)) return;
+    const entry = remotes.get(userId);
+    if (!entry) return;
     const b = await computeBubble(petPos, getPetWindowSize());
+    if (remotes.get(userId) !== entry || entry.signal.aborted) return;
     void emitToBubble(userId, BUBBLE_PLACEMENT, b);
   }
 
   /** 重新摆放自己的气泡窗口（self 移动/缩放后）。 */
   async function placeSelfBubble(petPos: WindowPoint) {
+    const signal = lifecycle.signal;
     const b = await computeBubble(petPos, getPetWindowSize(deps.getScale()));
+    if (signal.aborted) return;
     void emitToSelfBubble(BUBBLE_PLACEMENT, b);
   }
 
   /** 自己的气泡子窗口：main 的子窗口，整会话只隐藏不销毁（panel，承载记号棒）。
    * 首次进房间时按需创建一次；之后随 main 显隐跟随，位置由 OS 维护。 */
-  let selfBubbleSpawned = false;
+  let selfBubbleInstance: string | null = null;
   async function ensureSelfBubble() {
-    if (selfBubbleSpawned || !deps.getCurrentRoomId()) return;
-    // 用与 restoreSelfPosition 相同的锚点（存档优先），保证气泡子窗口的初始偏移
-    // 是相对 main 的最终位置算出来的，避免子窗口跟随时整体错位。
+    if (!deps.getCurrentRoomId()) return;
+    const signal = lifecycle.signal;
+    await readiness.ready;
+    selfBubbleInstance ??= await bridge.getManagedWindowInstance(BUBBLE_SELF_LABEL) ?? crypto.randomUUID();
     const base = readSelfPos() ?? (await selfBounds()).pos;
     const b = await computeBubble(base, getPetWindowSize(deps.getScale()));
-    if (!deps.getCurrentRoomId()) return;
-    await bridge.spawnBubbleWindow({
-      label: BUBBLE_SELF_LABEL,
-      parentLabel: COORDINATOR_LABEL,
-      isSelf: true,
-      x: b.x,
-      y: b.y,
-      width: b.width,
-      height: b.height,
-    });
-    selfBubbleSpawned = true;
-    // bubble-self 在 onRoomReady 才创建，而房间历史在更早的 onMessagesLoaded 已投递过
-    // （那时窗口还不存在，首帧丢失）。窗口就绪后补投自己的缓存历史，否则重启/进房后
-    // 自己头顶的历史消息不显示（远程气泡有 pushStateAndHistory 重试兜底，自己原本没有）。
-    const selfId = deps.getSelfAuthId();
-    const selfHistory = selfId ? roomMessageCache.filter((m) => m.from === selfId) : [];
-    // 气泡窗口 boot 后再补几何 + 朝向 + 历史（重试几次防丢首帧）。
-    for (let attempt = 0; attempt < 5; attempt++) {
+    if (signal.aborted || !deps.getCurrentRoomId()) return;
+    const instanceId = selfBubbleInstance;
+    const cancel = new AbortController();
+    const abort = () => cancel.abort();
+    signal.addEventListener("abort", abort, { once: true });
+    const ready = readiness.wait(BUBBLE_SELF_LABEL, instanceId, cancel.signal);
+    void ready.catch(() => {});
+    try {
+      await bridge.spawnBubbleWindow({ instanceId, label: BUBBLE_SELF_LABEL, parentLabel: COORDINATOR_LABEL,
+        isSelf: true, x: b.x, y: b.y, width: b.width, height: b.height });
+      await readiness.ping(BUBBLE_SELF_LABEL, instanceId);
+      await ready;
+      if (signal.aborted) return;
       await emitToSelfBubble(BUBBLE_PLACEMENT, b);
-      await emitToSelfBubble(PET_HISTORY, { messages: selfHistory });
-      await new Promise((r) => setTimeout(r, 120));
-    }
+      const selfId = deps.getSelfAuthId();
+      await emitToSelfBubble(PET_HISTORY, { messages: roomMessageCache.filter((m) => m.from === selfId) });
+    } finally { signal.removeEventListener("abort", abort); cancel.abort(); }
   }
 
   /** self 窗口缩放后重排自己的气泡窗口（renderer 缩放路径调用）。 */
   async function refreshSelfBubble() {
-    if (!selfBubbleSpawned) return;
+    if (!selfBubbleInstance) return;
     await placeSelfBubble((await selfBounds()).pos);
   }
 
@@ -189,114 +228,123 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
     return result;
   }
 
+  async function stableLayout(roomId: string, ids: () => string[], signal: AbortSignal) {
+    while (!signal.aborted && roomId === deps.getCurrentRoomId()) {
+      const version = arrangementRevision;
+      const orderedIds = ids();
+      const layout = await desiredLayout(roomId, orderedIds);
+      if (version === arrangementRevision) return { orderedIds, layout };
+    }
+    return null;
+  }
+
   function isDraggableForRemote() {
     return mode === "free";
   }
 
   // ── Presence diff → spawn / close ─────────────────────────────────────────
-  async function applyPresence(users: PresenceUser[]) {
-    const roomId = deps.getCurrentRoomId();
-    if (!roomId) return;
-    const byId = new Map(users.map((u) => [u.userId, u]));
-    const onlineSet = new Set(byId.keys());
+  async function closeEntry(userId: string, entry: RemoteEntry) {
+    if (entry.removeTimer != null) clearTimeout(entry.removeTimer);
+    // 子窗先销毁，完成回执后才移除父窗并允许同名重建。
+    const failures: unknown[] = [];
+    await bridge.closeBubbleWindow(bubbleWindowLabel(userId), entry.instanceId).catch((error) => failures.push(error));
+    await bridge.closePetWindow(petWindowLabel(userId), entry.instanceId).catch((error) => failures.push(error));
+    if (failures.length) throw new AggregateError(failures, "远程窗口清理失败");
+    if (remotes.get(userId) === entry) remotes.delete(userId);
+  }
 
-    // Leavers: play leave in-window, then close after the leave animation.
+  async function applyPresence(signal: AbortSignal, roomId: string) {
+    if (signal.aborted || roomId !== deps.getCurrentRoomId()) return;
     for (const [userId, entry] of remotes) {
-      if (onlineSet.has(userId) || entry.leaving) continue;
+      if (desiredUsers.has(userId) || entry.leaving) continue;
       entry.leaving = true;
       void emitTo(userId, PET_LEAVE, {});
       entry.removeTimer = setTimeout(() => {
-        // 气泡窗口是 pet 窗口的子窗口；随成员退场一起销毁（普通窗口，安全）。
-        void bridge.closeBubbleWindow(bubbleWindowLabel(userId));
-        void bridge.closePetWindow(petWindowLabel(userId));
-        remotes.delete(userId);
+        void lifecycle.run(async () => {
+          if (remotes.get(userId) === entry && !desiredUsers.has(userId)) await closeEntry(userId, entry);
+        }).catch(console.error);
       }, entry.leaveDurationMs || LEAVE_FALLBACK_MS);
     }
-
-    const orderedIds = orderRemotePetIds([...onlineSet]);
-    const layout = await desiredLayout(roomId, orderedIds);
-
-    for (const userId of orderedIds) {
-      const info = byId.get(userId);
-      if (!info) continue;
+    const result = await stableLayout(roomId, () => orderRemotePetIds([...desiredUsers.keys()]), signal);
+    if (!result || signal.aborted || roomId !== deps.getCurrentRoomId()) return;
+    const { orderedIds: ids, layout } = result;
+    for (const userId of ids) {
+      const info = desiredUsers.get(userId);
+      if (!info || signal.aborted) continue;
       const pos = layout.get(userId) ?? (await selfBounds()).pos;
+      if (signal.aborted || !desiredUsers.has(userId)) continue;
+      let created = false;
       let entry = remotes.get(userId);
-
+      if (entry && (entry.signal !== signal || !entry.ready)) { await closeEntry(userId, entry); entry = undefined; }
       if (!entry) {
-        const petSize = getPetWindowSize();
-        entry = { info, pos, leaving: false, removeTimer: null, leaveDurationMs: LEAVE_FALLBACK_MS };
+        await readiness.ready;
+        const oldPet = await bridge.getManagedWindowInstance(petWindowLabel(userId));
+        const oldBubble = await bridge.getManagedWindowInstance(bubbleWindowLabel(userId));
+        if (oldBubble) await bridge.closeBubbleWindow(bubbleWindowLabel(userId), oldBubble);
+        if (oldPet) await bridge.closePetWindow(petWindowLabel(userId), oldPet);
+        if (signal.aborted || !desiredUsers.has(userId)) continue;
+        created = true;
+        entry = { instanceId: crypto.randomUUID(), roomId, signal, cancelCreation: new AbortController(), ready: false, info, pos, leaving: false,
+          removeTimer: null, leaveDurationMs: LEAVE_FALLBACK_MS };
         remotes.set(userId, entry);
+        if (signal.aborted) { await closeEntry(userId, entry); continue; }
+        const cancel = entry.cancelCreation;
+        const abort = () => cancel.abort();
+        signal.addEventListener("abort", abort, { once: true });
+        const readyPet = readiness.wait(petWindowLabel(userId), entry.instanceId, cancel.signal);
+        const readyBubble = readiness.wait(bubbleWindowLabel(userId), entry.instanceId, cancel.signal);
+        void readyPet.catch(() => {}); void readyBubble.catch(() => {});
         try {
-          await bridge.spawnPetWindow({
-            label: petWindowLabel(userId),
-            x: pos.x,
-            y: pos.y,
-            width: petSize.width,
-            height: petSize.height,
-          });
-          // 气泡子窗口：按可用区算上/下避让初始摆位，之后由 OS 跟随 pet 移动。
-          const b = await computeBubble(pos, getPetWindowSize());
-          await bridge.spawnBubbleWindow({
-            label: bubbleWindowLabel(userId),
-            parentLabel: petWindowLabel(userId),
-            isSelf: false,
-            x: b.x,
-            y: b.y,
-            width: b.width,
-            height: b.height,
-          });
+          const petSize = getPetWindowSize();
+          await bridge.spawnPetWindow({ instanceId: entry.instanceId, label: petWindowLabel(userId), ...pos, ...petSize });
+          if (signal.aborted || !desiredUsers.has(userId)) { await closeEntry(userId, entry); continue; }
+          const b = await computeBubble(pos, petSize);
+          if (signal.aborted || !desiredUsers.has(userId)) { await closeEntry(userId, entry); continue; }
+          await bridge.spawnBubbleWindow({ instanceId: entry.instanceId, label: bubbleWindowLabel(userId),
+            parentLabel: petWindowLabel(userId), isSelf: false, x: b.x, y: b.y, width: b.width, height: b.height });
+          await Promise.all([readiness.ping(petWindowLabel(userId), entry.instanceId), readiness.ping(bubbleWindowLabel(userId), entry.instanceId)]);
+          await Promise.all([readyPet, readyBubble]);
+          if (signal.aborted || !desiredUsers.has(userId)) { await closeEntry(userId, entry); continue; }
+          entry.ready = true;
+          void resolveLeaveDuration(userId, info.petId, entry);
         } catch (error) {
-          if (remotes.get(userId) === entry) remotes.delete(userId);
-          await Promise.allSettled([
-            bridge.closeBubbleWindow(bubbleWindowLabel(userId)), bridge.closePetWindow(petWindowLabel(userId)),
-          ]);
+          await closeEntry(userId, entry).catch(console.error);
           throw error;
-        }
-        void resolveLeaveDuration(userId, info.petId);
-        // Forward identity/state + history once the window has booted its listeners.
-        void pushStateAndHistory(userId, info).catch(console.error);
-      } else {
-        if (entry.leaving) {
-          entry.leaving = false;
-          if (entry.removeTimer != null) {
-            clearTimeout(entry.removeTimer);
-            entry.removeTimer = null;
-          }
-        }
-        entry.info = info;
-        void emitTo(userId, PET_STATE, { petId: info.petId, skin: info.skin, status: info.status });
-        // Re-arrange existing windows in semi-free mode (and keep free-mode stored spots).
-        if (mode === "semi" && (entry.pos.x !== pos.x || entry.pos.y !== pos.y)) {
-          entry.pos = pos;
-          void emitTo(userId, PET_ARRANGE, pos);
-          void placeRemoteBubble(userId, pos);
-        }
+        } finally { signal.removeEventListener("abort", abort); cancel.abort(); }
+      }
+      const latest = desiredUsers.get(userId);
+      if (!latest || signal.aborted) continue;
+      if (entry.removeTimer != null) { clearTimeout(entry.removeTimer); entry.removeTimer = null; }
+      const returning = entry.leaving;
+      const changed = entry.info.petId !== latest.petId || entry.info.skin !== latest.skin || entry.info.status !== latest.status;
+      entry.leaving = false;
+      entry.info = latest;
+      if (mode === "semi") entry.pos = pos;
+      if (created) await pushStateAndHistory(userId, entry);
+      else {
+        if (changed) await emitTo(userId, PET_STATE, { petId: latest.petId, skin: latest.skin, status: latest.status });
+        if (returning) await emitTo(userId, PET_INTERACTION, { state: "enter", mirrored: false });
+        if (mode === "semi") { await emitTo(userId, PET_ARRANGE, entry.pos); await placeRemoteBubble(userId, entry.pos); }
       }
     }
   }
 
-  /** New window may not have its listeners ready instantly; retry the initial
-   * state + history a few times so the first frame and backlog aren't dropped. */
-  async function pushStateAndHistory(userId: string, info: PresenceUser) {
-    const history = roomMessageCache.filter((m) => m.from === userId);
-    for (let attempt = 0; attempt < 5; attempt++) {
-      await emitTo(userId, PET_STATE, { petId: info.petId, skin: info.skin, status: info.status });
-      await emitTo(userId, PET_MODE, { draggable: isDraggableForRemote() });
-      // 历史消息 + 气泡朝向投到气泡窗口（消息渲染 + 上/下避让住在那里）。
-      if (history.length) await emitToBubble(userId, PET_HISTORY, { messages: history });
-      const entry = remotes.get(userId);
-      if (entry) await placeRemoteBubble(userId, entry.pos);
-      await new Promise((r) => setTimeout(r, 120));
-      if (!remotes.has(userId)) return;
-    }
+  async function pushStateAndHistory(userId: string, entry: RemoteEntry) {
+    if (!entry.ready || remotes.get(userId) !== entry) return;
+    const info = entry.info;
+    await emitTo(userId, PET_STATE, { petId: info.petId, skin: info.skin, status: info.status });
+    await emitTo(userId, PET_MODE, { draggable: isDraggableForRemote() });
+    await emitTo(userId, PET_ARRANGE, entry.pos);
+    await emitToBubble(userId, PET_HISTORY, { messages: roomMessageCache.filter((m) => m.from === userId) });
+    await placeRemoteBubble(userId, entry.pos);
   }
 
-  async function resolveLeaveDuration(userId: string, petId: string) {
+  async function resolveLeaveDuration(userId: string, petId: string, expected: RemoteEntry) {
     try {
       const manifest = await loadPetManifest(petId);
       const ms = durationFromManifest(manifest?.states?.["leave"]);
       const entry = remotes.get(userId);
-      if (entry) entry.leaveDurationMs = ms || LEAVE_FALLBACK_MS;
+      if (entry === expected) entry.leaveDurationMs = ms || LEAVE_FALLBACK_MS;
     } catch {
       // 用兜底时长即可。
     }
@@ -348,11 +396,13 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
 
   async function playRole(def: InteractionDef, state: string, userId: string, partnerId: string) {
     if (!state) return;
+    const signal = lifecycle.signal;
     let mirrored = false;
     if (def.mirror === "facing") {
       const [own, partner] = await Promise.all([xForUser(userId), xForUser(partnerId)]);
       mirrored = partner < own;
     }
+    if (signal.aborted) return;
     if (userId === deps.getSelfAuthId()) {
       deps.selfPresenter.animator.playTransient(state, { durationMs: def.holdMs, mirrored });
     } else if (remotes.has(userId)) {
@@ -363,67 +413,83 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
   function applyInteraction({ action, actorId, targetId }: InteractionPayload) {
     const def = (INTERACTIONS as Record<string, InteractionDef>)[action];
     if (!def) return;
-    void playRole(def, def.actorState, actorId, targetId);
-    void playRole(def, def.targetState, targetId, actorId);
+    void playRole(def, def.actorState, actorId, targetId).catch(console.error);
+    void playRole(def, def.targetState, targetId, actorId).catch(console.error);
   }
 
   /** 由远程窗口的右键「戳」或自己菜单触发：协调者补全 actor=自己，统一经 Supabase 广播 + 本地立即播放。 */
   function triggerInteraction(action: string, targetId: string) {
     const selfId = deps.getSelfAuthId();
-    if (!(action in INTERACTIONS) || !selfId) return;
+    if (!Object.prototype.hasOwnProperty.call(INTERACTIONS, action) || !selfId || !desiredUsers.has(targetId)) return;
     const payload: InteractionPayload = { action, actorId: selfId, targetId };
     // 服务端广播包含真实 actorId，自己与远程成员共用这一条播放路径。
     void sendInteraction(payload).catch(console.error);
   }
 
   // ── Mode switching ────────────────────────────────────────────────────────
-  async function relayoutAll() {
+  async function relayoutAll(signal: AbortSignal) {
     const roomId = deps.getCurrentRoomId();
-    if (!roomId) return;
-    const orderedIds = orderRemotePetIds([...remotes.keys()].filter((id) => !remotes.get(id)?.leaving));
-    const layout = await desiredLayout(roomId, orderedIds);
-    for (const userId of orderedIds) {
-      const pos = layout.get(userId);
+    if (!roomId || signal.aborted) return;
+    const result = await stableLayout(roomId,
+      () => orderRemotePetIds([...remotes.keys()].filter((id) => !remotes.get(id)?.leaving)), signal);
+    if (!result || signal.aborted) return;
+    for (const userId of result.orderedIds) {
+      const pos = result.layout.get(userId);
       const entry = remotes.get(userId);
-      if (!pos || !entry) continue;
+      if (!pos || !entry || entry.signal.aborted) continue;
       entry.pos = pos;
-      void emitTo(userId, PET_ARRANGE, pos);
-      void emitTo(userId, PET_MODE, { draggable: isDraggableForRemote() });
-      void placeRemoteBubble(userId, pos);
+      await emitTo(userId, PET_ARRANGE, pos);
+      await emitTo(userId, PET_MODE, { draggable: isDraggableForRemote() });
+      await placeRemoteBubble(userId, pos);
     }
+  }
+  function requestArrangement() {
+    const version = ++arrangementRevision;
+    const signal = lifecycle.signal;
+    void lifecycle.run(async () => { if (version === arrangementRevision) await relayoutAll(signal); }).catch(console.error);
   }
 
   function setMode(next: PetMode) {
     if (next === mode) return;
     mode = next;
     writeStoredMode(mode);
-    void relayoutAll();
+    requestArrangement();
   }
 
   function clearRemotes() {
-    for (const [userId, entry] of remotes) {
-      if (entry.removeTimer != null) clearTimeout(entry.removeTimer);
-      void bridge.closeBubbleWindow(bubbleWindowLabel(userId));
-      void bridge.closePetWindow(petWindowLabel(userId));
-    }
-    remotes.clear();
+    lifecycle.invalidate();
+    desiredUsers.clear();
+    const oldEntries = [...remotes.entries()];
+    for (const [, entry] of oldEntries) if (entry.removeTimer != null) clearTimeout(entry.removeTimer);
+    void lifecycle.run(async () => {
+      const results = await Promise.allSettled(oldEntries.filter(([id, entry]) => remotes.get(id) === entry).map(([id, entry]) => closeEntry(id, entry)));
+      for (const result of results) if (result.status === "rejected") console.error(result.reason);
+    }).catch(console.error);
     roomMessageCache = [];
-    // bubble-self 不销毁（panel），但要清空残留的自己消息。
     void emitToSelfBubble(PET_HISTORY, { messages: [] });
   }
 
   // ── Inbound events from presenters ────────────────────────────────────────
-  bridge.onAppEvent<PetMovedPayload>(PET_MOVED, (payload) => {
+  listen<PetMovedPayload>(PET_MOVED, (payload) => {
+    if (!payload || typeof payload.userId !== "string") return;
     const roomId = deps.getCurrentRoomId();
     const entry = remotes.get(payload.userId);
+    if (!entry || entry.signal.aborted || entry.instanceId !== payload.instanceId || !Number.isFinite(payload.x) || !Number.isFinite(payload.y)) return;
     if (entry) entry.pos = { x: payload.x, y: payload.y };
     if (roomId && mode === "free") writeRemotePos(roomId, payload.userId, { x: payload.x, y: payload.y });
     // 拖动跨阈值可能让气泡需上↔下翻面；macOS 子窗口已跟手平移，这里只在翻面时纠正。
     void placeRemoteBubble(payload.userId, { x: payload.x, y: payload.y });
   });
 
-  bridge.onAppEvent<PetInteractRequestPayload>(PET_INTERACT_REQUEST, (payload) => {
-    triggerInteraction(payload.action, payload.targetId);
+  listen<PetInteractRequestPayload>(PET_INTERACT_REQUEST, (payload) => {
+    if (!payload || typeof payload.targetId !== "string" || typeof payload.action !== "string") return;
+    const entry = remotes.get(payload.targetId);
+    if (entry && !entry.signal.aborted && entry.instanceId === payload.instanceId) triggerInteraction(payload.action, payload.targetId);
+  });
+
+  listen<{ userId: string; instanceId: string }>(PET_BUBBLE_SHOW_REQUEST, (payload) => {
+    const entry = remotes.get(payload?.userId);
+    if (entry && !entry.signal.aborted && entry.instanceId === payload.instanceId) void emitToBubble(payload.userId, "bubble-show");
   });
 
   // Self window position memory (global). Moving self in semi-free mode also
@@ -432,16 +498,27 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
   function handleSelfMoved(pos: WindowPoint) {
     writeSelfPos(pos);
     void placeSelfBubble(pos);
-    if (mode === "semi") void relayoutAll();
+    if (mode === "semi") requestArrangement();
   }
 
   /** Scale / other changes that move the self window's footprint: keep the row aligned. */
   function refreshArrangement() {
-    if (mode === "semi") void relayoutAll();
+    if (mode === "semi") requestArrangement();
   }
 
   return {
-    onPresenceChange: (users: PresenceUser[]) => void applyPresence(users).catch(console.error),
+    onPresenceChange: (users: PresenceUser[]) => {
+      if (disposed) return;
+      const version = ++presenceRevision;
+      arrangementRevision += 1;
+      desiredUsers = new Map(users.map((user) => [user.userId, user]));
+      for (const [id, entry] of remotes) if (!entry.ready && !desiredUsers.has(id)) entry.cancelCreation.abort();
+      const roomId = deps.getCurrentRoomId();
+      const signal = lifecycle.signal;
+      if (roomId) void lifecycle.run(async () => { if (version === presenceRevision) await applyPresence(signal, roomId); }).catch((error) => { if (!(error instanceof DOMException && error.name === "AbortError")) console.error(error); });
+    },
+    whenIdle: () => lifecycle.idle(),
+    dispose: () => { disposed = true; subscriptions.forEach((subscription) => subscription()); clearRemotes(); readiness.dispose(); },
     onInteraction: applyInteraction,
     onMessagesLoaded: loadRoomMessages,
     onNewMessage: routeMessage,
@@ -453,6 +530,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
     refreshArrangement,
     ensureSelfBubble,
     refreshSelfBubble,
+    openSelfCompose: () => deps.getCurrentRoomId() ? emitToSelfBubble("self-open-compose", { roomId: deps.getCurrentRoomId() }) : Promise.resolve(),
     selfHasMessages,
     storedSelfPos: storedSelf,
   };

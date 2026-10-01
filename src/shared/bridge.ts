@@ -16,6 +16,7 @@ import type { GoodPuppyBridge, PetHitShape, WindowPoint, WindowSize } from "../t
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 const appWindow = inTauri ? getCurrentWindow() : null;
+const windowInstance = (window as Window & { __GOODPUPPY_INSTANCE__?: string }).__GOODPUPPY_INSTANCE__ ?? crypto.randomUUID();
 
 function windowCommand<T>(command: string, args: Record<string, unknown>): Promise<T> {
   const result = invoke<T>(command, args);
@@ -139,6 +140,7 @@ const goodPuppy: GoodPuppyBridge = {
       return Promise.resolve();
     // 原子化 resize + reposition（单次 IPC，避免增高/翻转时窗口闪烁跳动）。
     return windowCommand<void>("set_window_bounds", {
+      instanceId: windowInstance,
       x: Math.round(bounds.x),
       y: Math.round(bounds.y),
       width: Math.round(bounds.width),
@@ -150,7 +152,7 @@ const goodPuppy: GoodPuppyBridge = {
     // 走原生 makeKeyAndOrderFront：面板是 NonactivatingPanel，取得 key 状态但不激活
     // 整个 App。返回是否真的成为 key window（诊断用）。
     if (!appWindow) return Promise.resolve(false);
-    return invoke<boolean>("focus_pet_panel")
+    return invoke<boolean>("focus_pet_panel", { instanceId: windowInstance })
       .then((isKey) => {
         console.log(`[compose] focus_pet_panel(${reason}) → isKey:`, isKey);
         return isKey;
@@ -172,28 +174,35 @@ const goodPuppy: GoodPuppyBridge = {
   },
   publishHitShape(shape: PetHitShape) {
     if (!inTauri) return;
-    invoke("set_pet_hit_shape", { shape }).catch((error) =>
+    invoke("set_pet_hit_shape", { shape, instanceId: windowInstance }).catch((error) =>
       console.error("set_pet_hit_shape failed:", error),
     );
+  },
+  getWindowInstance() { return windowInstance; },
+  getManagedWindowInstance(label: string) {
+    if (!inTauri) return Promise.resolve(null);
+    return windowCommand<string | null>("get_managed_window_instance", { label });
   },
   getWindowLabel() {
     return appWindow?.label ?? "main";
   },
-  spawnPetWindow(opts: { label: string; x: number; y: number; width: number; height: number }) {
+  spawnPetWindow(opts: { instanceId?: string; label: string; x: number; y: number; width: number; height: number }) {
     if (!inTauri) return Promise.resolve();
     return windowCommand<void>("spawn_pet_window", {
       label: opts.label,
+      instanceId: opts.instanceId,
       x: Math.round(opts.x),
       y: Math.round(opts.y),
       width: Math.round(opts.width),
       height: Math.round(opts.height),
     });
   },
-  closePetWindow(label: string) {
+  closePetWindow(label: string, instanceId?: string) {
     if (!inTauri) return Promise.resolve();
-    return windowCommand<void>("close_pet_window", { label });
+    return windowCommand<void>("close_pet_window", { label, instanceId });
   },
   spawnBubbleWindow(opts: {
+    instanceId?: string;
     label: string;
     parentLabel: string;
     isSelf: boolean;
@@ -205,6 +214,7 @@ const goodPuppy: GoodPuppyBridge = {
     if (!inTauri) return Promise.resolve();
     return windowCommand<void>("spawn_bubble_window", {
       label: opts.label,
+      instanceId: opts.instanceId,
       parentLabel: opts.parentLabel,
       isSelf: opts.isSelf,
       x: Math.round(opts.x),
@@ -213,14 +223,15 @@ const goodPuppy: GoodPuppyBridge = {
       height: Math.round(opts.height),
     });
   },
-  closeBubbleWindow(label: string) {
+  closeBubbleWindow(label: string, instanceId?: string) {
     if (!inTauri) return Promise.resolve();
-    return windowCommand<void>("close_bubble_window", { label });
+    return windowCommand<void>("close_bubble_window", { label, instanceId });
   },
-  spawnToastWindow(opts: { label: string; x: number; y: number; width: number; height: number }) {
+  spawnToastWindow(opts: { instanceId?: string; label: string; x: number; y: number; width: number; height: number }) {
     if (!inTauri) return Promise.resolve();
     return windowCommand<void>("spawn_toast_window", {
       label: opts.label,
+      instanceId: opts.instanceId,
       x: Math.round(opts.x),
       y: Math.round(opts.y),
       width: Math.round(opts.width),

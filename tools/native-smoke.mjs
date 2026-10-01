@@ -18,12 +18,24 @@ try {
   }
   const child = spawn(process.execPath, ['node_modules/@tauri-apps/cli/tauri.js', 'dev', '--no-watch', '--config',
     JSON.stringify({ identifier: 'com.goodpuppy.desktop.native-smoke', build: { beforeDevCommand: null } })], {
-    cwd: root, stdio: 'inherit', env: { ...process.env, GOODPUPPY_NATIVE_SMOKE: '1' },
+    cwd: root, stdio: ['inherit', 'pipe', 'pipe'], env: { ...process.env, GOODPUPPY_NATIVE_SMOKE: '1' },
   });
-  process.exitCode = await new Promise((resolve, reject) => {
+  let passed = false;
+  let failed = false;
+  let output = '';
+  for (const [stream, destination] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
+    stream.on('data', chunk => {
+      destination.write(chunk);
+      output = (output + chunk.toString()).slice(-50_000);
+      passed ||= output.includes('[native-smoke] PASS:');
+      failed ||= output.includes('[native-smoke] FAIL:');
+    });
+  }
+  const exit = await new Promise((resolve, reject) => {
     child.once('error', reject);
-    child.once('exit', code => resolve(code ?? 1));
+    child.once('close', code => resolve(code ?? 1));
   });
+  process.exitCode = exit === 0 && passed && !failed ? 0 : 1;
 } catch (error) {
   console.error(error);
   process.exitCode = 1;

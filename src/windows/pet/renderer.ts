@@ -185,7 +185,7 @@ async function showPetContextMenu(event: MouseEvent) {
   await showSelfContextMenu({
     inRoom: Boolean(getCurrentRoomId()),
     // 「写消息」通知自己的气泡窗口展开记号棒（聚焦逻辑亦在那边处理）。
-    onWriteMessage: () => void window.goodPuppy.emitToWindow(BUBBLE_SELF_LABEL, SELF_OPEN_COMPOSE),
+    onWriteMessage: () => void coordinator.openSelfCompose(),
     onSetStatus: setSelfStatus,
     onLeaveRoom: () => void leaveCurrentRoomFromMenu(),
   });
@@ -240,3 +240,5 @@ export async function prepareSelfForRoom() {
   await coordinator.ensureSelfBubble();
   presenter.refreshPassthrough();
 }
+
+window.addEventListener("beforeunload", () => { coordinator.dispose(); selfAnimator.destroy(); });

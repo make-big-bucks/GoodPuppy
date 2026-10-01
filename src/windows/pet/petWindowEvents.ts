@@ -73,6 +73,7 @@ export type PetPrefScalePayload = { scale: number };
 
 // 呈现者 → 协调者
 export const PET_MOVED = "pet-moved";
+export const PET_BUBBLE_SHOW_REQUEST = "pet-bubble-show-request";
 export const PET_INTERACT_REQUEST = "pet-interact-request";
 
 export type PetStatePayload = { petId: string; skin: string; status: string | null };
@@ -81,5 +82,5 @@ export type PetMessagePayload = { message: LocalMessage };
 export type PetInteractionPayload = { state: string; mirrored: boolean; durationMs?: number };
 export type PetModePayload = { draggable: boolean };
 export type PetArrangePayload = WindowPoint;
-export type PetMovedPayload = { userId: string } & WindowPoint;
-export type PetInteractRequestPayload = { action: string; targetId: string };
+export type PetMovedPayload = { userId: string; instanceId: string } & WindowPoint;
+export type PetInteractRequestPayload = { action: string; targetId: string; instanceId: string };

@@ -12,7 +12,7 @@ use crate::hit_test::{HitShapes, PetHitShape};
 use crate::platform::{
     add_child_window, configure_floating_overlay, configure_self_panel, position_overlay_window,
 };
-use crate::window_tasks::{destroy_window, on_main_thread};
+use crate::window_tasks::{destroy_window, on_main_thread, WindowInstances};
 
 #[cfg(target_os = "macos")]
 use objc2_app_kit::NSWindow;
@@ -24,7 +24,14 @@ pub(crate) fn set_pet_hit_shape(
     window: WebviewWindow,
     shapes: tauri::State<'_, HitShapes>,
     shape: PetHitShape,
+    instance_id: Option<String>,
 ) {
+    if window.label() != "main"
+        && (instance_id.is_none()
+            || !matches_instance(window.app_handle(), window.label(), instance_id.as_deref()))
+    {
+        return;
+    }
     if let Ok(mut map) = shapes.lock() {
         map.shapes.insert(window.label().to_string(), shape);
     }
@@ -34,11 +41,18 @@ pub(crate) fn set_pet_hit_shape(
 pub(crate) async fn set_window_bounds(
     window: WebviewWindow,
     bubbles: tauri::State<'_, Bubbles>,
+    instance_id: Option<String>,
     x: f64,
     y: f64,
     width: f64,
     height: f64,
 ) -> Result<(), String> {
+    if window.label() != "main"
+        && (instance_id.is_none()
+            || !matches_instance(window.app_handle(), window.label(), instance_id.as_deref()))
+    {
+        return Err("stale window geometry request".into());
+    }
     // A bubble being repositioned (e.g. flipped above↔below the pet) changes its
     // offset from the parent; refresh it so the Windows `Moved` follow stays exact.
     // macOS auto-follow re-derives the offset from the child's own frame, so this
@@ -46,7 +60,13 @@ pub(crate) async fn set_window_bounds(
     refresh_bubble_offset(&window, &bubbles, x, y);
     let win = window.clone();
     let app = window.app_handle().clone();
+    let app_check = app.clone();
     on_main_thread(&app, move || {
+        if win.label() != "main"
+            && !matches_instance(&app_check, win.label(), instance_id.as_deref())
+        {
+            return Err("stale window geometry request".into());
+        }
         position_overlay_window(&win, x, y, width, height)
     })
     .await
@@ -63,6 +83,7 @@ pub(crate) async fn spawn_pet_window(
     shapes: tauri::State<'_, HitShapes>,
     bubbles: tauri::State<'_, Bubbles>,
     label: String,
+    instance_id: Option<String>,
     x: f64,
     y: f64,
     width: f64,
@@ -70,12 +91,20 @@ pub(crate) async fn spawn_pet_window(
 ) -> Result<(), String> {
     require_role(caller.label(), "main")?;
     require_remote_label(&label, "pet-")?;
+    let instance_id = instance_id.unwrap_or_else(new_instance_id);
     if app.get_webview_window(&label).is_some() {
-        return Ok(());
+        if matches_instance(&app, &label, Some(&instance_id)) {
+            return Ok(());
+        }
+        return Err("window label is occupied by another instance".into());
     }
 
     let window =
         WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("windows/pet.html".into()))
+            .initialization_script(format!(
+                "window.__GOODPUPPY_INSTANCE__ = {};",
+                serde_json::to_string(&instance_id).map_err(|error| error.to_string())?
+            ))
             .title("GoodPuppy")
             // macOS: 普通窗口默认不接受 first mouse —— 失焦后第一次左键只用于激活窗口、
             // 不会派发到 webview，导致需要点两次才能拖动。静态 main/lounge 已在
@@ -94,7 +123,12 @@ pub(crate) async fn spawn_pet_window(
             .build()
             .map_err(|e| e.to_string())?;
 
-    watch_resources(&window, shapes.inner().clone(), bubbles.inner().clone());
+    watch_resources(
+        &window,
+        shapes.inner().clone(),
+        bubbles.inner().clone(),
+        instance_id.clone(),
+    );
     let win = window.clone();
     on_main_thread(&app, move || {
         configure_floating_overlay(&win);
@@ -118,11 +152,18 @@ pub(crate) async fn close_pet_window(
     app: AppHandle,
     caller: WebviewWindow,
     label: String,
+    instance_id: Option<String>,
 ) -> Result<(), String> {
     require_role(caller.label(), "main")?;
     require_remote_label(&label, "pet-")?;
+    if instance_id.is_none() {
+        return Err("window instance identity is required".into());
+    }
+    if !matches_instance(&app, &label, instance_id.as_deref()) {
+        return Ok(());
+    }
     if let Some(window) = app.get_webview_window(&label) {
-        destroy_window(window).await?;
+        destroy_window(window, instance_id.clone()).await?;
     }
     Ok(())
 }
@@ -141,6 +182,7 @@ pub(crate) async fn spawn_bubble_window(
     shapes: tauri::State<'_, HitShapes>,
     bubbles: tauri::State<'_, Bubbles>,
     label: String,
+    instance_id: Option<String>,
     parent_label: String,
     is_self: bool,
     x: f64,
@@ -150,18 +192,26 @@ pub(crate) async fn spawn_bubble_window(
 ) -> Result<(), String> {
     require_role(caller.label(), "main")?;
     validate_bubble_pair(&label, &parent_label, is_self)?;
+    let instance_id = instance_id.unwrap_or_else(new_instance_id);
     if app.get_webview_window(&label).is_some() {
-        return Ok(());
+        if matches_instance(&app, &label, Some(&instance_id)) {
+            return Ok(());
+        }
+        return Err("window label is occupied by another instance".into());
     }
-    let Some(parent) = app.get_webview_window(&parent_label) else {
-        return Err(format!("parent window {parent_label} not found"));
-    };
 
+    let parent = app
+        .get_webview_window(&parent_label)
+        .ok_or_else(|| format!("parent window {parent_label} not found"))?;
     let builder =
         WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("windows/bubble.html".into()));
     #[cfg(target_os = "windows")]
     let builder = builder.owner(&parent).map_err(|error| error.to_string())?;
     let window = builder
+        .initialization_script(format!(
+            "window.__GOODPUPPY_INSTANCE__ = {};",
+            serde_json::to_string(&instance_id).map_err(|error| error.to_string())?
+        ))
         .title("GoodPuppy")
         .accept_first_mouse(true)
         .inner_size(width, height)
@@ -190,7 +240,12 @@ pub(crate) async fn spawn_bubble_window(
         .unwrap_or((x, y));
     register_bubble(&bubbles, &label, &parent_label, x, y, parent_origin);
 
-    watch_resources(&window, shapes.inner().clone(), bubbles.inner().clone());
+    watch_resources(
+        &window,
+        shapes.inner().clone(),
+        bubbles.inner().clone(),
+        instance_id.clone(),
+    );
     let win = window.clone();
     let parent_for_main = parent.clone();
     on_main_thread(&app, move || {
@@ -217,11 +272,18 @@ pub(crate) async fn close_bubble_window(
     app: AppHandle,
     caller: WebviewWindow,
     label: String,
+    instance_id: Option<String>,
 ) -> Result<(), String> {
     require_role(caller.label(), "main")?;
     require_remote_label(&label, "bubble-")?;
+    if instance_id.is_none() {
+        return Err("window instance identity is required".into());
+    }
+    if !matches_instance(&app, &label, instance_id.as_deref()) {
+        return Ok(());
+    }
     if let Some(window) = app.get_webview_window(&label) {
-        destroy_window(window).await?;
+        destroy_window(window, instance_id.clone()).await?;
     }
     Ok(())
 }
@@ -238,6 +300,7 @@ pub(crate) async fn spawn_toast_window(
     app: AppHandle,
     caller: WebviewWindow,
     label: String,
+    instance_id: Option<String>,
     x: f64,
     y: f64,
     width: f64,
@@ -245,12 +308,20 @@ pub(crate) async fn spawn_toast_window(
 ) -> Result<(), String> {
     require_role(caller.label(), "lounge")?;
     require_remote_label(&label, "toast-")?;
+    let instance_id = instance_id.unwrap_or_else(new_instance_id);
     if app.get_webview_window(&label).is_some() {
-        return Ok(());
+        if matches_instance(&app, &label, Some(&instance_id)) {
+            return Ok(());
+        }
+        return Err("window label is occupied by another instance".into());
     }
 
     let window =
         WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("windows/toast.html".into()))
+            .initialization_script(format!(
+                "window.__GOODPUPPY_INSTANCE__ = {};",
+                serde_json::to_string(&instance_id).map_err(|error| error.to_string())?
+            ))
             .title("GoodPuppy")
             .accept_first_mouse(true)
             .inner_size(width, height)
@@ -266,6 +337,12 @@ pub(crate) async fn spawn_toast_window(
             .build()
             .map_err(|e| e.to_string())?;
 
+    watch_resources(
+        &window,
+        app.state::<HitShapes>().inner().clone(),
+        app.state::<Bubbles>().inner().clone(),
+        instance_id,
+    );
     let win = window.clone();
     on_main_thread(&app, move || {
         configure_floating_overlay(&win);
@@ -287,7 +364,7 @@ pub(crate) async fn close_toast_window(
     require_role(caller.label(), "lounge")?;
     require_remote_label(&label, "toast-")?;
     if let Some(window) = app.get_webview_window(&label) {
-        destroy_window(window).await?;
+        destroy_window(window, None).await?;
     }
     Ok(())
 }
@@ -299,23 +376,34 @@ pub(crate) async fn close_toast_window(
 /// input focus and as a diagnostic. Must run AFTER any native menu has fully
 /// dismissed, otherwise the menu teardown resigns key again.
 #[tauri::command]
-pub(crate) fn focus_pet_panel(window: WebviewWindow) -> bool {
-    if window.label() != "bubble-self" {
-        return false;
-    }
-    #[cfg(target_os = "macos")]
+pub(crate) async fn focus_pet_panel(
+    window: WebviewWindow,
+    instance_id: Option<String>,
+) -> Result<bool, String> {
+    if window.label() != "bubble-self"
+        || !matches_instance(window.app_handle(), window.label(), instance_id.as_deref())
     {
-        let Ok(ns_window_ptr) = window.ns_window() else {
-            return false;
-        };
-        let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
-        ns_window.makeKeyAndOrderFront(None);
-        ns_window.isKeyWindow()
+        return Ok(false);
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        window.set_focus().is_ok()
-    }
+    let app = window.app_handle().clone();
+    on_main_thread(&app, move || {
+        if !window.is_visible().map_err(|error| error.to_string())? {
+            return Ok(false);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let ptr = window.ns_window().map_err(|error| error.to_string())?;
+            let native: &NSWindow = unsafe { &*ptr.cast() };
+            native.makeKeyAndOrderFront(None);
+            Ok(native.isKeyWindow())
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            window.set_focus().map_err(|error| error.to_string())?;
+            Ok(true)
+        }
+    })
+    .await
 }
 
 fn require_role(actual: &str, expected: &str) -> Result<(), String> {
@@ -351,10 +439,30 @@ fn validate_bubble_pair(label: &str, parent: &str, is_self: bool) -> Result<(), 
     }
     Ok(())
 }
-fn watch_resources(window: &WebviewWindow, shapes: HitShapes, bubbles: Bubbles) {
+fn watch_resources(
+    window: &WebviewWindow,
+    shapes: HitShapes,
+    bubbles: Bubbles,
+    instance_id: String,
+) {
+    let instances = window
+        .app_handle()
+        .state::<WindowInstances>()
+        .inner()
+        .clone();
+    instances
+        .lock()
+        .unwrap()
+        .insert(window.label().to_string(), instance_id.clone());
     let label = window.label().to_string();
     window.on_window_event(move |event| {
         if matches!(event, tauri::WindowEvent::Destroyed) {
+            let mut registry = instances.lock().unwrap();
+            if registry.get(&label) != Some(&instance_id) {
+                return;
+            }
+            registry.remove(&label);
+            drop(registry);
             shapes.lock().unwrap().remove_window(&label);
             unregister_bubble(&bubbles, &label);
             unregister_parent(&bubbles, &label);
@@ -405,4 +513,36 @@ mod tests {
         assert!(require_remote_label("pet-", "pet-").is_err());
         assert!(require_role("pet-a", "main").is_err());
     }
+}
+
+fn new_instance_id() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+        .to_string()
+}
+fn matches_instance(app: &AppHandle, label: &str, expected: Option<&str>) -> bool {
+    expected.map_or(true, |expected| {
+        app.state::<WindowInstances>()
+            .lock()
+            .unwrap()
+            .get(label)
+            .is_some_and(|actual| actual == expected)
+    })
+}
+
+#[tauri::command]
+pub(crate) fn get_managed_window_instance(
+    app: AppHandle,
+    caller: WebviewWindow,
+    label: String,
+) -> Result<Option<String>, String> {
+    require_role(caller.label(), "main")?;
+    Ok(app
+        .state::<WindowInstances>()
+        .lock()
+        .unwrap()
+        .get(&label)
+        .cloned())
 }

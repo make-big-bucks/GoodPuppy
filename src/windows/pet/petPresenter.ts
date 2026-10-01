@@ -85,7 +85,7 @@ export function createPetPresenter(opts: PetPresenterOptions): PetPresenter {
   // ── Native passthrough via published hit shape ──────────────────────────
   // pet 窗口只剩 pet 剪影一个可交互区域（气泡在独立窗口自管命中），故无额外矩形。
   function publishHitShape() {
-    const maskData = buildAlphaMask(petImage, petImage, hitContext, hitCanvas, {
+    const maskData = stage.classList.contains("is-initializing") ? null : buildAlphaMask(petImage, petImage, hitContext, hitCanvas, {
       respectObjectFit: true,
       alphaThreshold: ALPHA_HIT_THRESHOLD,
     });

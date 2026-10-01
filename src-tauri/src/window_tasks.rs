@@ -1,4 +1,8 @@
-//! 原生操作必须返回实际执行结果；销毁还要等待 Destroyed 事件。
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+pub(crate) type WindowInstances = Arc<Mutex<HashMap<String, String>>>;
+
+// 原生操作必须返回实际执行结果；销毁还要等待 Destroyed 事件。
 use std::time::Duration;
 use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 
@@ -21,7 +25,10 @@ pub(crate) async fn on_main_thread<R: Runtime, T: Send + 'static>(
         .ok_or_else(|| "window operation did not complete".to_string())?
 }
 
-pub(crate) async fn destroy_window<R: Runtime>(window: WebviewWindow<R>) -> Result<(), String> {
+pub(crate) async fn destroy_window<R: Runtime>(
+    window: WebviewWindow<R>,
+    expected_instance: Option<String>,
+) -> Result<(), String> {
     let (tx, rx) = std::sync::mpsc::channel();
     window.on_window_event(move |event| {
         if matches!(event, tauri::WindowEvent::Destroyed) {
@@ -29,10 +36,20 @@ pub(crate) async fn destroy_window<R: Runtime>(window: WebviewWindow<R>) -> Resu
         }
     });
     let app = window.app_handle().clone();
-    on_main_thread(&app, move || {
-        window.destroy().map_err(|error| error.to_string())
+    let instances = app.state::<WindowInstances>().inner().clone();
+    let requested = on_main_thread(&app, move || {
+        if let Some(expected) = expected_instance {
+            if instances.lock().unwrap().get(window.label()) != Some(&expected) {
+                return Ok(false);
+            }
+        }
+        window.destroy().map_err(|error| error.to_string())?;
+        Ok(true)
     })
     .await?;
+    if !requested {
+        return Ok(());
+    }
     tauri::async_runtime::spawn_blocking(move || rx.recv_timeout(Duration::from_secs(10)))
         .await
         .map_err(|error| error.to_string())?
