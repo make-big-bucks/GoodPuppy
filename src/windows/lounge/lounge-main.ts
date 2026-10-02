@@ -1,3 +1,4 @@
+import { createRoomCommandClient } from "./roomCommandClient.js";
 import { createResourceLifetime } from "../../shared/resourceLifetime.js";
 import { createRoomStateSync } from "./roomStateSync.js";
 import { requestRoomState, type RoomState } from "../../shared/roomState.js";
@@ -6,7 +7,7 @@ import "../../shared/bridge.js";
 import "../../shared/styles.css";
 import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { LogicalSize } from "@tauri-apps/api/dpi";
+import { initLoungeChrome } from "./loungeChrome.js";
 import { initLoungePanel, openActiveRoomHistory, openLoungePanel, refreshLoungePanelActiveRoom, updateLoungePanelAuth } from "./lounge.js";
 import { createAppSupabaseClient } from "../../shared/supabaseClient.js";
 import appConfig from "../../shared/appConfig.js";
@@ -23,109 +24,6 @@ function hasPersistedSession(): boolean {
     /* localStorage 不可用时按未登录处理 */
   }
   return false;
-}
-
-async function initWinTitlebar() {
-  if (page.signal.aborted || !navigator.platform.startsWith('Win')) return;
-
-  document.body.classList.add('platform-windows');
-
-  // Attach the title bar controls FIRST, synchronously, so they are wired up
-  // regardless of how the sizing/show IPC below resolves. (Previously these were
-  // attached after the awaits, so a rejected/deferred resize left the title bar
-  // visible but undraggable.)
-  const dragArea = document.querySelector('.win-titlebar-drag') as HTMLElement | null;
-  const minBtn = document.querySelector('.win-minimize-btn') as HTMLButtonElement | null;
-  const maxBtn = document.querySelector('.win-maximize-btn') as HTMLButtonElement | null;
-  const closeBtn = document.querySelector('.win-close-btn') as HTMLButtonElement | null;
-
-  dragArea?.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    void window.goodPuppy.startWindowDrag().catch(console.error);
-  });
-
-  minBtn?.addEventListener('click', () => {
-    void getCurrentWindow().minimize();
-  });
-
-  maxBtn?.addEventListener('click', () => {
-    void getCurrentWindow().toggleMaximize();
-  });
-
-  closeBtn?.addEventListener('click', () => {
-    void getCurrentWindow().hide();
-  });
-
-  // Rust stripped decorations while the window was hidden. Now resize to compensate
-  // for the 28px custom title bar so the app content area matches macOS (720px),
-  // then show the window — no flash since it was never visible before this point.
-  // Done last (and defensively) so a sizing failure can never block the controls
-  // above or leave the window stuck hidden.
-  const appWindow = getCurrentWindow();
-  try {
-    await appWindow.setSize(new LogicalSize(1120, 748));
-    if (page.signal.aborted) return;
-    await appWindow.setMinSize(new LogicalSize(1040, 708));
-  } catch (error) {
-    console.warn('Failed to resize lounge window for custom title bar.', error);
-  }
-  if (!page.signal.aborted) await appWindow.show();
-}
-
-function initDragRegion() {
-  const dragRegion = document.querySelector(".sidebar-drag-region") as HTMLElement | null;
-  if (!dragRegion) return;
-  dragRegion.addEventListener("mousedown", (e) => {
-    if (e.button !== 0) return;
-    void window.goodPuppy.startWindowDrag().catch(console.error);
-  });
-}
-
-function initResizeHandle() {
-  const handle = document.querySelector(".resize-handle") as HTMLElement | null;
-  const appWindow = document.querySelector(".app-window") as HTMLElement | null;
-  if (!handle || !appWindow) return;
-
-  const MIN_W = 240;
-  const MAX_W = 480;
-
-  let stopResize: (() => void) | null = null;
-  window.addEventListener("beforeunload", () => stopResize?.(), { once: true });
-
-  handle.addEventListener("mousedown", (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    stopResize?.();
-    const events = new AbortController();
-
-    const startX = e.clientX;
-    const startW = (document.querySelector(".sidebar") as HTMLElement).offsetWidth;
-    handle.classList.add("is-resizing");
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-
-    const onMove = (ev: MouseEvent) => {
-      const newW = Math.max(MIN_W, Math.min(MAX_W, startW + ev.clientX - startX));
-      appWindow.style.setProperty("--sidebar-w", `${newW}px`);
-    };
-
-    const onUp = () => {
-      handle.classList.remove("is-resizing");
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      events.abort();
-      stopResize = null;
-    };
-
-    stopResize = onUp;
-    window.addEventListener("mousemove", onMove, { signal: events.signal });
-    window.addEventListener("mouseup", onUp, { signal: events.signal });
-    // 切应用/隐藏窗口可能收不到 mouseup，必须释放拖动样式和监听。
-    window.addEventListener("blur", onUp, { signal: events.signal });
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState !== "visible") onUp();
-    }, { signal: events.signal });
-  });
 }
 
 import { ROOM_COMMAND, ROOM_CANCEL, ROOM_RESULT, type RoomResult } from "../../shared/roomProtocol.js";
@@ -160,27 +58,17 @@ function reportStateError(error: unknown) {
   showToast(error instanceof Error ? error.message : "读取房间状态失败", "error");
 }
 
-async function changeRoom(action: "enter" | "exit", roomId?: string) {
-  const signal = requests.signal; const userId = authenticatedUserId;
-  const assertCurrent = () => { if (signal.aborted || userId !== authenticatedUserId) throw new DOMException("账号已改变", "AbortError"); };
-  const result = await requestWindow<RoomResult>({
+const roomCommands = createRoomCommandClient({
+  context: () => ({ userId: authenticatedUserId, signal: requests.signal }),
+  request: (action, roomId, signal) => requestWindow<RoomResult>({
     listen: (event, handler) => window.goodPuppy.onAppEvent(event, handler),
     send: (target, event, payload) => window.goodPuppy.emitToWindow(target, event, payload),
-  }, {
-    target: "main", requestEvent: ROOM_COMMAND, responseEvent: ROOM_RESULT,
-    payload: { action, roomId, replyTo: "lounge" }, signal, cancelEvent: ROOM_CANCEL,
-  });
-  if (result.action !== action || result.requestedRoomId !== roomId
-    || result.roomId !== (action === "enter" ? roomId : null)) throw new Error("房间回复与请求不一致");
-  assertCurrent();
-  await synchronizeActiveRoom();
-  assertCurrent();
-  if (roomStateSync.roomId !== result.roomId) throw new Error("房间状态已发生变化，请重试");
-  if (action === "enter") {
-    await getCurrentWindow().hide();
-    await emit("lounge-hidden");
-  }
-}
+  }, { target: "main", requestEvent: ROOM_COMMAND, responseEvent: ROOM_RESULT,
+    payload: { action, roomId, replyTo: "lounge" }, signal, cancelEvent: ROOM_CANCEL }),
+  synchronize: synchronizeActiveRoom,
+  currentRoom: () => roomStateSync.roomId,
+  entered: async () => { await getCurrentWindow().hide(); await emit("lounge-hidden"); },
+});
 
 async function init() {
   // 冷启动先铺骨架屏，避免在 await getSession()（多窗口共享 auth 锁时可能较慢）期间
@@ -197,8 +85,8 @@ async function init() {
     isAnonymous: sessionIsAnonymous(data.session),
     email: data.session?.user?.email ?? null,
     getActiveRoomId: () => roomStateSync.roomId,
-    onEnterRoom: (roomId: string) => changeRoom("enter", roomId),
-    onExitRoom: () => changeRoom("exit"),
+    onEnterRoom: (roomId: string) => roomCommands.change("enter", roomId),
+    onExitRoom: () => roomCommands.change("exit"),
     onLoginSuccess: () => {
       void emit("auth-ready");
     },
@@ -259,10 +147,7 @@ async function init() {
     void synchronizeActiveRoom().catch(reportStateError);
   }
 
-  await initWinTitlebar();
-  if (page.signal.aborted) return;
-  initDragRegion();
-  initResizeHandle();
+  await initLoungeChrome(page);
 }
 
 init().catch(console.error);
