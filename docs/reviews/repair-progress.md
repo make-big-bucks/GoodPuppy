@@ -11,9 +11,9 @@
 | 显示器与位置 | 实际父窗口选屏与可用区；布局选择纯计算，房间/版本有效才清理屏外存档；单次主线程快照统一外框、比例和工作区，气泡使用实际父窗口几何；父子跟随采用平台一致单位；存档标记旧单位版本。宠物/气泡/提醒、布局和存档已迁移平台桌面协议，实机多屏边界仍待验收，见 [坐标契约](coordinate-contract.md)。 |
 | 工程与资产 | 共享依赖方向门禁、统一资源注册/验收、显式后端与认证隔离、隔离原生测试、固定字段有界本机日志、双平台 CI 配置及当前架构索引。 |
 
-当前验证：`verify` 通过，含 366 项前端、21 项 Rust、8 项资源测试及类型检查/生产构建；macOS `test:native` 通过，覆盖就绪/快照、父窗移动及子窗重定位后的跟随偏移、实例隔离、工作区/几何查询、无效尺寸拒绝、隐藏聚焦保护、房间状态定向回执/错误账号拒绝、提醒投递、创建失败回滚/同名重试与退出回执。主窗口监听修复批次的原生回归首次呈现器就绪超时，完整检查结束后单独复测通过，超时原因尚未确定。macOS arm64 `build:mac` 已完成 release 链接与 app/DMG 打包，Info.plist 与 DMG 校验通过；仅 ad-hoc 签名，未做分发签名/公证或安装后运行验收。[CI（`2a98ab8`）](https://github.com/make-big-bucks/GoodPuppy/actions/runs/36966789922) 的 macOS/Windows verify 与 native、PostgreSQL 17 隔离测试全部通过；Windows 包含 366 项前端、20 项 Rust、8 项资源测试及实际 debug 链接/运行，release 链接及 MSI/NSIS 打包也已通过，安装后人工验收仍待完成；数据库迁移与并发授权已在隔离本地库验证。
+当前验证：`verify` 通过，含 366 项前端、21 项 Rust、8 项资源测试及类型检查/生产构建；macOS `test:native` 通过，覆盖就绪/快照、父窗移动及子窗重定位后的跟随偏移、实例隔离、工作区/几何查询、无效尺寸拒绝、隐藏聚焦保护、房间状态定向回执/错误账号拒绝、提醒投递、创建失败回滚/同名重试与退出回执。主窗口监听修复批次的原生回归首次呈现器就绪超时，完整检查结束后单独复测通过，超时原因尚未确定。macOS arm64 `build:mac` 已完成 release 链接与 app/DMG 打包，Info.plist 与 DMG 校验通过；仅 ad-hoc 签名，未做分发签名/公证或安装后运行验收。[CI（`d98b063`）](https://github.com/make-big-bucks/GoodPuppy/actions/runs/36968985914) 的 macOS/Windows verify 与 native、PostgreSQL 17 隔离测试全部通过；Windows 包含 366 项前端、20 项 Rust、8 项资源测试及实际 debug 链接/运行，release 链接及 MSI/NSIS 打包也已通过，安装后人工验收仍待完成；数据库迁移与并发授权已在隔离本地库验证。
 
-新增跟随偏移断言已在 macOS 本地原生回归与 Windows 全目标编译检查通过，Windows CI 运行结果待核验。
+父窗移动与子窗重定位后跟随偏移断言已在 macOS/Windows CI 通过；人工拖动、焦点、混合 DPI 与实际休眠仍待验收。
 
 剩余门禁及执行场景见 [运行验收](runtime-acceptance.md)：坐标平台/多屏边界验收、远端迁移/真实 Realtime/双客户端授权、远端 CI、Windows 实机与双平台混合 DPI/系统休眠验收。2026-10-02 已发布修复分支 `codex/diagnosis-repairs-20261002` 并触发质量 CI，双平台与数据库 CI、Windows 发布打包已通过；远端 main 未合并。
 

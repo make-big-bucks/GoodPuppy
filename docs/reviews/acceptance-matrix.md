@@ -25,7 +25,7 @@
 | [19](2026-10-01-project-diagnosis.md#item-19) | 通知资源调度 | 本地通过 | notificationScheduler 取消/上限/TTL，真实 toast 投递与销毁回归。 |
 | [20](2026-10-01-project-diagnosis.md#item-20) | 显示器坐标与可用区 | 部分 | 实际父窗口选屏、工作区与实例校验已通过单元/原生回归，避免逻辑矩形重叠误选屏，布局使用单次主线程几何快照；平台桌面单位已贯通创建/布局/跟随/存档，Windows CI debug/release 链接、原生运行及 MSI/NSIS 打包通过，安装后实机与真实多屏边界证据仍缺，见 [坐标契约](coordinate-contract.md)。 |
 | [21](2026-10-01-project-diagnosis.md#item-21) | 原生命令实际完成 | 本地通过 | window_tasks 等待实际主线程结果和 Destroyed，实例防过期回归；创建配置失败等待真实销毁并保留错误，原生回归确认同名重试；气泡跟随偏移在实际定位成功后于主线程提交。 |
-| [22](2026-10-01-project-diagnosis.md#item-22) | Windows 父子窗口 | 待平台 | owner 与跟随代码已补；父窗移动及子窗重定位后的实际偏移断言已加入原生回归，macOS 通过，Windows CI 结果待核验；人工实机验收仍缺。 |
+| [22](2026-10-01-project-diagnosis.md#item-22) | Windows 父子窗口 | 部分 | owner 与跟随代码已补；父窗移动及子窗重定位后的实际偏移断言在 macOS/Windows CI 通过；安装后人工拖动、焦点与跨屏验收仍缺。 |
 | [23](2026-10-01-project-diagnosis.md#item-23) | Windows 窗口权限 | 本地通过 | capability 与 AST 调用权限回归；真实 Windows 运行归入平台门禁。 |
 | [24](2026-10-01-project-diagnosis.md#item-24) | 光标与拖动负载 | 本地通过 | 原生单次采样、成功缓存；共享点击/穿透掩模、失败重试与拖动态释放。 |
 | [25](2026-10-01-project-diagnosis.md#item-25) | 原子建房 | 待远端 | create_room RPC 与本地事务测试通过；远端迁移待批准。 |
@@ -37,7 +37,7 @@
 | [31](2026-10-01-project-diagnosis.md#item-31) | 资源注册与缓存 | 本地通过 | 构建/验收共用实际注册器，保留别名、缺失文件、失败重试及图片回退回归。 |
 | [32](2026-10-01-project-diagnosis.md#item-32) | 持久关联诊断 | 本地通过 | 固定字段本机日志、体积轮转、按需有界复制；原生落盘/读取与保留测试。 |
 | [33](2026-10-01-project-diagnosis.md#item-33) | 模块与状态所有者 | 本地通过 | 窗口入口装配 SDK/事件与显式控制器，面板独占界面投影和弹层 DOM；认证、数据、订阅、房间命令/快照、窗口外观、缓存、投递及布局分别有所有者。纯逻辑与入口交错回归、账号/客户端切换释放弹层、依赖方向门禁通过；所有者索引见 architecture.md。 |
-| [34](2026-10-01-project-diagnosis.md#item-34) | 生命周期与平台门禁 | 待平台 | 受控时序、verify、原生回归和双平台 CI 已配置；修复分支 `2a98ab8` 的 macOS/Windows verify/native、PostgreSQL 17 与 Windows MSI/NSIS 打包全通过；安装后人工实机证据仍缺。 |
+| [34](2026-10-01-project-diagnosis.md#item-34) | 生命周期与平台门禁 | 待平台 | 受控时序、verify、原生回归和双平台 CI 已配置；修复分支 `d98b063` 的 macOS/Windows verify/native、PostgreSQL 17 与 Windows MSI/NSIS 打包全通过；安装后人工实机证据仍缺。 |
 | [35](2026-10-01-project-diagnosis.md#item-35) | 遗留入口与文档 | 本地通过 | 删除独立 login 与假布局接口；更新 AGENTS、ADR 索引、当前架构和资源契约。 |
 | [36](2026-10-01-project-diagnosis.md#item-36) | 窗口角色与契约 | 本地通过 | 原生命令按角色限制、实例校验、请求/结果与皮肤归属 DTO；诊断导出仅会客厅；创建/定位统一校验几何，原生回归确认无效尺寸不会创建窗口。 |
 | [37](2026-10-01-project-diagnosis.md#item-37) | 弹层焦点与归属 | 本地通过 | 通用/聊天/换肤焦点管理、关闭失效、失败保留选择与账号切换释放。 |
