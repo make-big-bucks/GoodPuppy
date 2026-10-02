@@ -15,6 +15,7 @@
 
 ## 关键边界
 
+- 主窗口与会客厅入口使用 `resourceLifetime.ts` 统一释放事件、认证订阅和恢复监测；主窗口卸载后丢弃迟到的登录恢复与操作回复。
 - 房间与身份由 `roomManager.ts` 管理，操作串行并带版本；退出立即使旧回调失效。`roomVisibility.ts` 按实际房间决定自己窗口显隐。
 - `roomCoordinator.ts` 管理远程窗口，`windowReadiness.ts` 绑定实例与顺序消息；`windowRequest.ts` 管理请求 ID、取消与回执；`roomState.ts` 定义账号/控制器/版本快照，`roomStateSync.ts` 独占会客厅快照、版本和交错查询；打开记录前等待主窗口状态并刷新可访问房间。
 - `petPresenter.ts` 管理 DOM、拖动、动画暂停与监听释放，`petState.ts` 管理动画分层。`hitTesting.ts` 生成掩模，Rust `cursor.rs` / `hit_test.rs` 独占鼠标穿透。
