@@ -1,6 +1,6 @@
 import { desktopScaleAtPoint, desktopSizeAtPoint } from "../../shared/monitorGeometry.js";
 import type { EventSubscription } from "../../shared/eventSubscription.js";
-import { compareMessagePosition } from "../../shared/messageOrder.js";
+import { createRoomMessageCache } from "./roomMessageCache.js";
 import { createWindowReadiness } from "./windowReadiness.js";
 import { createRemoteWindowQueue } from "./remoteWindowQueue.js";
 // 房间协调者（运行在自己窗口 label "main"）。
@@ -44,7 +44,6 @@ import {
 import type { PetPresenter } from "./petPresenter.js";
 import type { InteractionPayload, LocalMessage, PresenceUser, WindowPoint } from "../../types";
 
-const ROOM_CACHE_LIMIT = 200;
 const LEAVE_FALLBACK_MS = 600;
 
 type InteractionDef = { actorState: string; targetState: string; mirror?: string; holdMs?: number };
@@ -70,7 +69,7 @@ export type RoomCoordinatorDeps = {
 
 export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
   const remotes = new Map<string, RemoteEntry>();
-  let roomMessageCache: LocalMessage[] = [];
+  const messageCache = createRoomMessageCache();
   let mode: PetMode = readStoredMode();
 
   let disposed = false;
@@ -176,7 +175,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
       if (signal.aborted) return;
       await emitToSelfBubble(BUBBLE_PLACEMENT, b);
       const selfId = deps.getSelfAuthId();
-      await emitToSelfBubble(PET_HISTORY, { messages: roomMessageCache.filter((m) => m.from === selfId), scope: selfId ? messageScope(selfId) : null });
+      await emitToSelfBubble(PET_HISTORY, { messages: messageCache.forSender(selfId ?? ""), scope: selfId ? messageScope(selfId) : null });
     } finally { signal.removeEventListener("abort", abort); cancel.abort(); }
   }
 
@@ -190,7 +189,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
    * 用协调者缓存判断即可，避免跨窗口查询）。 */
   function selfHasMessages() {
     const selfId = deps.getSelfAuthId();
-    return roomMessageCache.some((m) => m.from === selfId);
+    return messageCache.forSender(selfId ?? "").length > 0;
   }
 
   // ── Positioning ──────────────────────────────────────────────────────────
@@ -337,7 +336,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
     await emitTo(userId, PET_STATE, { petId: info.petId, skin: info.skin, status: info.status });
     await emitTo(userId, PET_MODE, { draggable: isDraggableForRemote() });
     await emitTo(userId, PET_ARRANGE, entry.pos);
-    await emitToBubble(userId, PET_HISTORY, { messages: roomMessageCache.filter((m) => m.from === userId), scope: messageScope(userId) });
+    await emitToBubble(userId, PET_HISTORY, { messages: messageCache.forSender(userId), scope: messageScope(userId) });
     await placeRemoteBubble(userId);
   }
 
@@ -358,18 +357,8 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
   }
 
   // ── Messages ──────────────────────────────────────────────────────────────
-  function cacheMessage(msg: LocalMessage) {
-    if (roomMessageCache.some((m) => m.id === msg.id)) return;
-    roomMessageCache.push(msg);
-    roomMessageCache.sort((a, b) => compareMessagePosition({ id: a.id, createdAt: a.created_at }, { id: b.id, createdAt: b.created_at }));
-    if (roomMessageCache.length > ROOM_CACHE_LIMIT) {
-      roomMessageCache = roomMessageCache.slice(roomMessageCache.length - ROOM_CACHE_LIMIT);
-    }
-  }
-
   function routeMessage(msg: LocalMessage) {
-    if (roomMessageCache.some((cached) => cached.id === msg.id)) return;
-    cacheMessage(msg);
+    if (!messageCache.append(msg)) return;
     if (msg.from === deps.getSelfAuthId()) {
       // 自己消息渲染在自己的气泡窗口 bubble-self（记号棒亦在那里）。
       void emitToSelfBubble(PET_MESSAGE, { message: msg, scope: messageScope(msg.from) });
@@ -380,20 +369,14 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
     }
   }
 
-  function loadRoomMessages(messages: LocalMessage[]) {
-    roomMessageCache = messages.slice(-ROOM_CACHE_LIMIT);
+  function loadRoomMessages(snapshot: LocalMessage[]) {
+    messageCache.replace(snapshot);
     const selfId = deps.getSelfAuthId();
-    const bySender = new Map<string, LocalMessage[]>();
-    for (const m of messages) {
-      const list = bySender.get(m.from) ?? [];
-      list.push(m);
-      bySender.set(m.from, list);
-    }
     // 没有自己消息时也要清空 bubble-self（切房间残留）。
-    void emitToSelfBubble(PET_HISTORY, { messages: bySender.get(selfId ?? "") ?? [], scope: selfId ? messageScope(selfId) : null });
-    for (const [sender, list] of bySender) {
+    void emitToSelfBubble(PET_HISTORY, { messages: messageCache.forSender(selfId ?? ""), scope: selfId ? messageScope(selfId) : null });
+    for (const sender of messageCache.senders) {
       if (sender === selfId) continue;
-      if (remotes.has(sender)) void emitToBubble(sender, PET_HISTORY, { messages: list, scope: messageScope(sender) });
+      if (remotes.has(sender)) void emitToBubble(sender, PET_HISTORY, { messages: messageCache.forSender(sender), scope: messageScope(sender) });
     }
   }
 
@@ -474,7 +457,7 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
       const results = await Promise.allSettled(oldEntries.filter(([id, entry]) => remotes.get(id) === entry).map(([id, entry]) => closeEntry(id, entry)));
       for (const result of results) if (result.status === "rejected") console.error(result.reason);
     }).catch(console.error);
-    roomMessageCache = [];
+    messageCache.clear();
     void emitToSelfBubble(PET_HISTORY, { messages: [], scope: null });
   }
 

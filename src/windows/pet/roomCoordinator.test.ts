@@ -69,6 +69,17 @@ describe("remote window lifecycle schedules", () => {
     expect(f.send).not.toHaveBeenCalled();
     f.setRoom(null); f.coordinator.onClearRemotePets(); await f.coordinator.whenIdle();
   });
+  it("sends the same bounded ordered history used for later window initialization", async () => {
+    const f = fixture(); f.coordinator.onPresenceChange([member]); await f.coordinator.whenIdle();
+    f.send.mockClear();
+    const snapshot = Array.from({ length: 205 }, (_, index) => ({ id: String(index).padStart(3, "0"), from: "a", info: "history", created_at: "2026-10-01T00:00:00Z" })).reverse();
+    f.coordinator.onMessagesLoaded(snapshot);
+    await vi.waitFor(() => expect(f.send).toHaveBeenCalledWith("bubble-a", "pet-history", expect.objectContaining({ payload: expect.objectContaining({ messages: expect.any(Array) }) })));
+    const delivered = f.send.mock.calls.find(([label, event]) => label === "bubble-a" && event === "pet-history")![2].payload.messages;
+    expect(delivered).toHaveLength(200);
+    expect(delivered[0].id).toBe("005"); expect(delivered.at(-1).id).toBe("204");
+    f.setRoom(null); f.coordinator.onClearRemotePets(); await f.coordinator.whenIdle();
+  });
   it("cleans a late pet creation after exit without creating its bubble", async () => {
     const f = fixture(); const started = deferred(); const finish = deferred();
     f.bridge.spawnPetWindow.mockImplementationOnce(async (options) => { started.resolve(); await finish.promise; f.managed.set(options.label, options.instanceId); });
