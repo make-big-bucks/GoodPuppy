@@ -7,7 +7,7 @@
 - 真实服务测试使用独立 Supabase 测试项目和两个测试账号，迁移与客户端版本一致；生产变更须先取得具体授权。当前生产缺失的 SQL 为 `supabase/migrations/20261001051950_reconcile_room_authorization.sql`、`supabase/migrations/20261002073000_authenticated_presence_leases.sql`，迁移历史对齐另行批准。
 - Windows 主机安装 README 的工具链，执行 `npm ci`、`npm run verify`、`npm run test:native` 和 `npm run build:windows`，保存完整退出结果；macOS 对应执行 `build:mac`。交叉类型检查不能替代链接/安装/运行。
 - 双平台各需两块不同缩放的显示器；先画出桌面坐标布局，包含左右/上下布局与负坐标。普通单屏结果不能用于关闭多屏门禁。
-- 当前 GitHub 默认分支尚无 `quality.yml`；发布工作流后记录测试提交对应的 macOS、Windows、数据库任务链接及结果，不能引用其它提交的绿色运行。
+- 修复分支已发布质量工作流；记录测试提交对应的 macOS、Windows、数据库任务链接及结果，不能引用其它提交的绿色运行。
 
 当前产物证据（2026-10-02，源码提交 `ee4e5fb`）：macOS arm64 `build:mac` 成功，`.app` 的 Info.plist 检查与 DMG 完整性校验通过；仅 ad-hoc 签名，未安装验收或公证。构建产物位于 `src-tauri/target/release/bundle/`，不提交到 Git。
 
