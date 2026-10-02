@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { POSITION_SPACE } from "./petPositionStore.js";
 import { createEventSubscription } from "../../shared/eventSubscription.js";
 import { createRoomCoordinator } from "./roomCoordinator.js";
 import { WINDOW_READY, WINDOW_READY_REQUEST } from "./windowReadiness.js";
@@ -94,7 +95,7 @@ describe("remote window lifecycle schedules", () => {
   });
   it("does not delete saved positions from a cancelled monitor snapshot", async () => {
     const removeItem = vi.fn();
-    vi.stubGlobal("localStorage", { getItem: (key: string) => key === "pet-pos:room-a:a" ? JSON.stringify({ x: 4000, y: 100 }) : null,
+    vi.stubGlobal("localStorage", { getItem: (key: string) => key === "pet-pos:room-a:a" ? JSON.stringify({ space: POSITION_SPACE, x: 4000, y: 100 }) : null,
       setItem: vi.fn(), removeItem });
     const f = fixture(); const started = deferred();
     const monitors = deferred<Array<{ x: number; y: number; width: number; height: number }>>();
