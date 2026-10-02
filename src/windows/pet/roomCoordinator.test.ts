@@ -80,6 +80,18 @@ describe("remote window lifecycle schedules", () => {
     expect(delivered[0].id).toBe("005"); expect(delivered.at(-1).id).toBe("204");
     f.setRoom(null); f.coordinator.onClearRemotePets(); await f.coordinator.whenIdle();
   });
+  it("drops queued self messages after exit while still delivering the history reset", async () => {
+    const f = fixture(); await f.coordinator.ensureSelfBubble(); f.send.mockClear();
+    const blocked = deferred();
+    f.send.mockImplementationOnce(async () => { await blocked.promise; });
+    f.coordinator.onNewMessage({ id: "first", from: "self", info: "first", created_at: "2026-10-01T00:00:00Z" });
+    await vi.waitFor(() => expect(f.send).toHaveBeenCalledOnce());
+    f.coordinator.onNewMessage({ id: "stale", from: "self", info: "stale", created_at: "2026-10-01T00:00:01Z" });
+    f.setRoom(null); f.coordinator.onClearRemotePets(); blocked.resolve();
+    await vi.waitFor(() => expect(f.send).toHaveBeenCalledWith("bubble-self", "pet-history", expect.objectContaining({ payload: { messages: [], scope: null } })));
+    expect(f.send.mock.calls.some(([, event, value]) => event === "pet-message" && value.payload.message.id === "stale")).toBe(false);
+    f.coordinator.dispose(); await f.coordinator.whenIdle();
+  });
   it("cleans a late pet creation after exit without creating its bubble", async () => {
     const f = fixture(); const started = deferred(); const finish = deferred();
     f.bridge.spawnPetWindow.mockImplementationOnce(async (options) => { started.resolve(); await finish.promise; f.managed.set(options.label, options.instanceId); });

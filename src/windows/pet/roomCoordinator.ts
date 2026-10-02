@@ -1,5 +1,6 @@
 import { desktopScaleAtPoint, desktopSizeAtPoint } from "../../shared/monitorGeometry.js";
 import type { EventSubscription } from "../../shared/eventSubscription.js";
+import { createPresenterDelivery } from "./presenterDelivery.js";
 import { createRoomMessageCache } from "./roomMessageCache.js";
 import { createWindowReadiness } from "./windowReadiness.js";
 import { createRemoteWindowQueue } from "./remoteWindowQueue.js";
@@ -89,33 +90,27 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
     listen: (event, handler) => bridge.onAppEvent(event, handler),
     send: (label, event, payload) => bridge.emitToWindow(label, event, payload),
   });
-  let sequence = 0;
-  const deliveries = new Map<string, Promise<void>>();
-  function deliver(label: string, instanceId: string, event: string, payload?: unknown) {
-    const key = `${label}|${instanceId}`;
-    const envelope = { instanceId, controllerId, sequence: ++sequence, payload };
-    const result = (deliveries.get(key) ?? Promise.resolve()).catch(() => {}).then(() =>
-      bridge.emitToWindow(label, event, envelope));
-    deliveries.set(key, result);
-    const clean = () => { if (deliveries.get(key) === result) deliveries.delete(key); };
-    void result.then(clean, clean);
-    return result;
-  }
+  const delivery = createPresenterDelivery({ controllerId, send: (label, event, payload) => bridge.emitToWindow(label, event, payload) });
 
   function emitTo(userId: string, event: string, payload?: unknown) {
     const entry = remotes.get(userId);
-    return entry && !entry.signal.aborted && entry.roomId === deps.getCurrentRoomId() ? deliver(petWindowLabel(userId), entry.instanceId, event, payload) : Promise.resolve();
+    return entry && !entry.signal.aborted && entry.roomId === deps.getCurrentRoomId() ? delivery.deliver(petWindowLabel(userId), entry.instanceId, event, payload,
+      () => !disposed && remotes.get(userId) === entry && !entry.signal.aborted && entry.roomId === deps.getCurrentRoomId()) : Promise.resolve();
   }
 
   /** 定向到某成员的气泡子窗口（label bubble-<userId>）。消息渲染住在气泡窗口里。 */
   function emitToBubble(userId: string, event: string, payload?: unknown) {
     const entry = remotes.get(userId);
-    return entry && !entry.signal.aborted && entry.roomId === deps.getCurrentRoomId() ? deliver(bubbleWindowLabel(userId), entry.instanceId, event, payload) : Promise.resolve();
+    return entry && !entry.signal.aborted && entry.roomId === deps.getCurrentRoomId() ? delivery.deliver(bubbleWindowLabel(userId), entry.instanceId, event, payload,
+      () => !disposed && remotes.get(userId) === entry && !entry.signal.aborted && entry.roomId === deps.getCurrentRoomId()) : Promise.resolve();
   }
 
   /** 定向到自己的气泡子窗口（bubble-self，整会话只隐藏不销毁）。 */
   function emitToSelfBubble(event: string, payload?: unknown) {
-    return selfBubbleInstance ? deliver(BUBBLE_SELF_LABEL, selfBubbleInstance, event, payload) : Promise.resolve();
+    const instanceId = selfBubbleInstance;
+    const signal = lifecycle.signal;
+    return instanceId ? delivery.deliver(BUBBLE_SELF_LABEL, instanceId, event, payload,
+      () => !disposed && !signal.aborted && instanceId === selfBubbleInstance) : Promise.resolve();
   }
 
   // ── Bubble placement（独立气泡窗口的上/下避让，纯函数驱动）─────────────────
