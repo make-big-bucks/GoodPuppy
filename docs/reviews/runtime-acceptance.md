@@ -9,6 +9,8 @@
 - 双平台各需两块不同缩放的显示器；先画出桌面坐标布局，包含左右/上下布局与负坐标。普通单屏结果不能用于关闭多屏门禁。
 - 修复分支已发布质量工作流；记录测试提交对应的 macOS、Windows、数据库任务链接及结果，不能引用其它提交的绿色运行。
 
+当前 CI 证据：[`e192e2a`](https://github.com/make-big-bucks/GoodPuppy/actions/runs/36966083044) 的 macOS/Windows verify/native 与 PostgreSQL 17 全通过，含 Windows 真实进程锁竞争；发布安装包另增 Windows CI 检查，尚待结果。
+
 当前产物证据（2026-10-02，源码提交 `ee4e5fb`）：macOS arm64 `build:mac` 成功，`.app` 的 Info.plist 检查与 DMG 完整性校验通过；仅 ad-hoc 签名，未安装验收或公证。构建产物位于 `src-tauri/target/release/bundle/`，不提交到 Git。
 
 ## 场景与预期
