@@ -106,7 +106,7 @@ python3 -m unittest discover -s skills/hatch-puppy-pet/tests -v
 
 ## 完整验证
 
-安装 `skills/hatch-puppy-pet/requirements-test.txt` 中的 Python 测试依赖后，运行 `npm run verify`，覆盖依赖方向门禁、类型检查、生产构建、前端/Rust 和资产流水线测试。原生窗口与隔离数据库分别运行 `test:native`、`test:db`；CI 在 macOS/Windows 和 PostgreSQL 17 中执行对应检查。安装包按平台使用 `build:mac` 或 `build:windows`，生产数据库迁移单独审查与应用。
+资产任务清单更新通过同目录 `.lock` 文件加进程锁，macOS/Linux 与 Windows 均支持，并发更新会重新读取清单；保留锁文件，不在任务运行期间删除它。安装 `skills/hatch-puppy-pet/requirements-test.txt` 中的 Python 测试依赖后，运行 `npm run verify`，覆盖依赖方向门禁、类型检查、生产构建、前端/Rust 和资产流水线测试。原生窗口与隔离数据库分别运行 `test:native`、`test:db`；CI 在 macOS/Windows 和 PostgreSQL 17 中执行对应检查。安装包按平台使用 `build:mac` 或 `build:windows`，生产数据库迁移单独审查与应用。
 
 macOS 上可补 Windows Rust 交叉检查：安装相应 Rust 目标并将 `llvm-rc` 所在目录加入 PATH，运行 `cargo check --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc --all-targets --locked`；这不替代 Windows 实际链接、运行和窗口验收。
 
