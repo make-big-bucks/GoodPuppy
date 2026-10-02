@@ -1084,16 +1084,6 @@ function bindEvents() {
     }
   });
 
-  p.addEventListener("pointerdown", (event) => {
-    const target = targetElement(event.target);
-    if (
-      target?.closest(".sidebar-drag-region, .main-drag-region, .settings-header") &&
-      !target?.closest(".settings-back")
-    ) {
-      void window.goodPuppy.startWindowDrag().catch(console.error);
-    }
-  });
-
   p.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     const target = targetElement(event.target);

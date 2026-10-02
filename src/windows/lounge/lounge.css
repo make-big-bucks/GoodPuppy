@@ -1642,7 +1642,7 @@ textarea.lounge-input {
   padding-top: 20px;
   height: 84px;
   border-bottom: 1px solid var(--line);
-  /* 拖拽由 lounge.ts 的 pointerdown → startWindowDrag() 接管（同 .main-drag-region）。 */
+  /* 拖拽由 loungeChrome.ts 统一处理 pointerdown（同 .main-drag-region）。 */
 }
 
 /* Windows 自绘标题栏已独占顶部，无需再为系统按钮预留空间。 */

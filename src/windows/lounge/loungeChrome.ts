@@ -3,9 +3,9 @@ import { LogicalSize } from "@tauri-apps/api/dpi";
 type PageResources = { signal: AbortSignal; own: (release: () => void) => void };
 
 export async function initLoungeChrome(page: PageResources) {
-  await initWinTitlebar(page);
   if (page.signal.aborted) return;
   initDragRegion(page); initResizeHandle(page);
+  await initWinTitlebar(page);
 }
 
 async function initWinTitlebar(page: PageResources) {
@@ -17,15 +17,9 @@ async function initWinTitlebar(page: PageResources) {
   // regardless of how the sizing/show IPC below resolves. (Previously these were
   // attached after the awaits, so a rejected/deferred resize left the title bar
   // visible but undraggable.)
-  const dragArea = document.querySelector('.win-titlebar-drag') as HTMLElement | null;
   const minBtn = document.querySelector('.win-minimize-btn') as HTMLButtonElement | null;
   const maxBtn = document.querySelector('.win-maximize-btn') as HTMLButtonElement | null;
   const closeBtn = document.querySelector('.win-close-btn') as HTMLButtonElement | null;
-
-  dragArea?.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    void window.goodPuppy.startWindowDrag().catch(console.error);
-  }, { signal: page.signal });
 
   minBtn?.addEventListener('click', () => {
     void getCurrentWindow().minimize();
@@ -56,11 +50,13 @@ async function initWinTitlebar(page: PageResources) {
 }
 
 function initDragRegion(page: PageResources) {
-  const dragRegion = document.querySelector(".sidebar-drag-region") as HTMLElement | null;
-  if (!dragRegion) return;
-  dragRegion.addEventListener("mousedown", (e) => {
-    if (e.button !== 0) return;
-    void window.goodPuppy.startWindowDrag().catch(console.error);
+  // 委托涵盖动态设置页与 Windows 标题栏，避免 pointerdown/mousedown 两条路径重复启动拖动。
+  document.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || !(event.target instanceof Element)) return;
+    if (event.target.closest(".settings-back")) return;
+    if (event.target.closest(".sidebar-drag-region, .main-drag-region, .settings-header, .win-titlebar-drag")) {
+      void window.goodPuppy.startWindowDrag().catch(console.error);
+    }
   }, { signal: page.signal });
 }
 
