@@ -2,6 +2,8 @@
 //
 // 沿自己 pet 右侧「一字排开」：所有远程 pet 窗口底边与自己 pet 窗口底边对齐
 // （无气泡时窗口底边即 pet 视觉底边），依次向右排列。复杂避让属 YAGNI（见 Phase B 设计）。
+import { desktopScaleAtPoint, desktopSizeAtPoint } from "../../shared/monitorGeometry.js";
+import { isWindowPositionVisible } from "../../shared/pet/petLayout.js";
 import type { WindowPoint, WindowSize } from "../../types";
 
 export const PET_ROW_GAP = 12;
@@ -33,4 +35,23 @@ export function computeSemiFreeLayout(opts: {
     previousScale = scale;
   }
   return result;
+}
+
+/** 位置选择不改写存档；调用者确认几何快照仍有效后再清理不可见存档。 */
+export function resolveRemoteLayout(opts: {
+  selfPos: WindowPoint; selfSize: WindowSize; remoteIds: string[]; petSize: WindowSize;
+  monitors: Array<WindowPoint & WindowSize & { desktopScale?: number }>;
+  free: boolean; stored: Map<string, WindowPoint>;
+}) {
+  const layout = computeSemiFreeLayout({ selfPos: opts.selfPos, selfSize: opts.selfSize, remoteIds: opts.remoteIds,
+    petWindowWidth: opts.petSize.width, petWindowHeight: opts.petSize.height,
+    scaleAt: point => desktopScaleAtPoint(opts.monitors, point) });
+  const invalidStored: string[] = [];
+  if (opts.free) for (const userId of opts.remoteIds) {
+    const stored = opts.stored.get(userId);
+    if (!stored) continue;
+    if (isWindowPositionVisible(stored, desktopSizeAtPoint(opts.monitors, stored, opts.petSize), opts.monitors)) layout.set(userId, stored);
+    else invalidStored.push(userId);
+  }
+  return { layout, invalidStored };
 }

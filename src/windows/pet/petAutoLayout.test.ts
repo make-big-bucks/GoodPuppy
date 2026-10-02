@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeSemiFreeLayout, PET_ROW_GAP } from "./petAutoLayout.js";
+import { computeSemiFreeLayout, resolveRemoteLayout, PET_ROW_GAP } from "./petAutoLayout.js";
 
 describe("computeSemiFreeLayout", () => {
   const base = {
@@ -39,4 +39,15 @@ it("chooses scale at the final horizontal slot when a DPI change lies inside the
     remoteIds: ["a", "b"], petWindowWidth: 150, petWindowHeight: 120, scaleAt: point => point.x < 140 ? 2 : 1 });
   expect(layout.get("a")).toEqual({ x: 144, y: 100 });
   expect(layout.get("b")).toEqual({ x: 306, y: 100 });
+});
+
+it("uses visible saved positions in free mode and reports off-screen positions for deferred cleanup", () => {
+  const stored = new Map([["a", { x: 20, y: 30 }], ["b", { x: 4000, y: 30 }]]);
+  const opts = { selfPos: { x: 100, y: 100 }, selfSize: { width: 150, height: 120 }, remoteIds: ["a", "b"],
+    petSize: { width: 150, height: 120 }, monitors: [{ x: 0, y: 0, width: 1920, height: 1080 }], stored };
+  const free = resolveRemoteLayout({ ...opts, free: true });
+  expect(free.layout.get("a")).toEqual(stored.get("a")); expect(free.invalidStored).toEqual(["b"]);
+  expect(stored.has("b")).toBe(true);
+  const semi = resolveRemoteLayout({ ...opts, free: false });
+  expect(semi.layout.get("a")).toEqual({ x: 262, y: 100 }); expect(semi.invalidStored).toEqual([]);
 });

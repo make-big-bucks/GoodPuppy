@@ -92,6 +92,19 @@ describe("remote window lifecycle schedules", () => {
     expect(f.send.mock.calls.some(([, event, value]) => event === "pet-message" && value.payload.message.id === "stale")).toBe(false);
     f.coordinator.dispose(); await f.coordinator.whenIdle();
   });
+  it("does not delete saved positions from a cancelled monitor snapshot", async () => {
+    const removeItem = vi.fn();
+    vi.stubGlobal("localStorage", { getItem: (key: string) => key === "pet-pos:room-a:a" ? JSON.stringify({ x: 4000, y: 100 }) : null,
+      setItem: vi.fn(), removeItem });
+    const f = fixture(); const started = deferred();
+    const monitors = deferred<Array<{ x: number; y: number; width: number; height: number }>>();
+    vi.spyOn(f.bridge, "getMonitors").mockImplementation(async () => { started.resolve(); return monitors.promise; });
+    f.coordinator.onPresenceChange([member]); await started.promise;
+    f.setRoom(null); f.coordinator.onClearRemotePets();
+    monitors.resolve([{ x: 0, y: 0, width: 1920, height: 1080 }]); await f.coordinator.whenIdle();
+    expect(removeItem).not.toHaveBeenCalled(); expect(f.bridge.spawnPetWindow).not.toHaveBeenCalled();
+    f.coordinator.dispose(); await f.coordinator.whenIdle();
+  });
   it("cleans a late pet creation after exit without creating its bubble", async () => {
     const f = fixture(); const started = deferred(); const finish = deferred();
     f.bridge.spawnPetWindow.mockImplementationOnce(async (options) => { started.resolve(); await finish.promise; f.managed.set(options.label, options.instanceId); });

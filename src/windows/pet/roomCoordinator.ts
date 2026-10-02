@@ -1,4 +1,3 @@
-import { desktopScaleAtPoint, desktopSizeAtPoint } from "../../shared/monitorGeometry.js";
 import type { EventSubscription } from "../../shared/eventSubscription.js";
 import { createPresenterDelivery } from "./presenterDelivery.js";
 import { createRoomMessageCache } from "./roomMessageCache.js";
@@ -17,9 +16,8 @@ import {
   getPetWindowSize,
   getBubbleWindowSize,
   computeBubbleWindowPosition,
-  isWindowPositionVisible,
 } from "../../shared/pet/petLayout.js";
-import { computeSemiFreeLayout } from "./petAutoLayout.js";
+import { resolveRemoteLayout } from "./petAutoLayout.js";
 import { readRemotePos, writeRemotePos, clearRemotePos, readSelfPos, writeSelfPos } from "./petPositionStore.js";
 import { readStoredMode, writeStoredMode, type PetMode } from "../../shared/pet/preferences.js";
 import {
@@ -196,40 +194,28 @@ export function createRoomCoordinator(deps: RoomCoordinatorDeps) {
   /** 计算每只在线远程 pet 的目标窗口左上角。
    * - 半自由：一律自动一字排开。
    * - 完全自由：有存档用存档，否则退化到自动排布的槽位。 */
-  async function desiredLayout(roomId: string, orderedIds: string[]): Promise<Map<string, WindowPoint>> {
+  async function desiredLayout(roomId: string, orderedIds: string[]) {
     const { pos, size } = await selfBounds();
-    const petSize = getPetWindowSize();
     const monitors = await bridge.getMonitors();
-    const auto = computeSemiFreeLayout({
-      selfPos: pos,
-      selfSize: size,
-      remoteIds: orderedIds,
-      petWindowWidth: petSize.width,
-      petWindowHeight: petSize.height,
-      scaleAt: (point) => desktopScaleAtPoint(monitors, point),
-    });
-    if (mode === "semi") return auto;
-    // 完全自由：用存档位置，但存档必须仍落在某块已连接屏幕的可见区内——外接屏
-    // 断开后旧坐标会整窗落在屏外，pet 看不见。越界则清掉坏存档、退回自动槽位。
-    const result = new Map<string, WindowPoint>();
-    for (const userId of orderedIds) {
-      const stored = readRemotePos(roomId, userId);
-      if (stored && isWindowPositionVisible(stored, desktopSizeAtPoint(monitors, stored, petSize), monitors)) {
-        result.set(userId, stored);
-      } else {
-        if (stored) clearRemotePos(roomId, userId);
-        result.set(userId, auto.get(userId) ?? pos);
-      }
+    const stored = new Map<string, WindowPoint>();
+    if (mode === "free") for (const userId of orderedIds) {
+      const point = readRemotePos(roomId, userId);
+      if (point) stored.set(userId, point);
     }
-    return result;
+    return resolveRemoteLayout({ selfPos: pos, selfSize: size, remoteIds: orderedIds,
+      petSize: getPetWindowSize(), monitors, free: mode === "free", stored });
   }
 
   async function stableLayout(roomId: string, ids: () => string[], signal: AbortSignal) {
     while (!signal.aborted && roomId === deps.getCurrentRoomId()) {
       const version = arrangementRevision;
       const orderedIds = ids();
-      const layout = await desiredLayout(roomId, orderedIds);
-      if (version === arrangementRevision) return { orderedIds, layout };
+      const result = await desiredLayout(roomId, orderedIds);
+      if (signal.aborted || roomId !== deps.getCurrentRoomId()) return null;
+      if (version === arrangementRevision) {
+        for (const userId of result.invalidStored) clearRemotePos(roomId, userId);
+        return { orderedIds, layout: result.layout };
+      }
     }
     return null;
   }
