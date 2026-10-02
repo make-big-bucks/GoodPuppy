@@ -8,7 +8,7 @@ import { createRemoteWindowQueue } from "./remoteWindowQueue.js";
 // 独占 Supabase 订阅（presence / messages / interactions，由 roomManager 喂进来），
 // 把每只在线远程成员映射成一个独立的 pet 窗口（label pet-<userId>）：
 // presence 变化 → spawn / close 窗口；状态/消息/互动用 emit_to 定向转发给各窗口。
-// 远程窗口是「哑呈现者」，不碰网络。见 docs/superpowers/specs/2026-06-17-多窗口独立桌宠-phaseB-design.md。
+// 远程窗口是「哑呈现者」，不碰网络。见 docs/adr/0013-多窗口独立桌宠与协调者模型.md。
 import { INTERACTIONS, durationFromManifest, loadPetManifest } from "../../shared/pet/animationCatalog.js";
 import { sendInteraction } from "./interactions.js";
 import {

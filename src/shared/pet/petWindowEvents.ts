@@ -1,6 +1,6 @@
 import type { BubbleScope } from "./bubbleScope.js";
 // 跨窗口事件契约（协调者 ⇄ 远程呈现者，按 Tauri 窗口 label 定向）。
-// 见 docs/superpowers/specs/2026-06-17-多窗口独立桌宠-phaseB-design.md。
+// 见 docs/adr/0013-多窗口独立桌宠与协调者模型.md。
 import type { LocalMessage, WindowPoint } from "../../types";
 export type SelfSkinPayload = { userId: string; skin: string };
 export function isOwnSkinUpdate(payload: unknown, userId: string | null): payload is SelfSkinPayload {

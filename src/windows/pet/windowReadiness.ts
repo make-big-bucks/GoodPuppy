@@ -58,6 +58,7 @@ export function createPresenterEndpoint(deps: {
   let sequence = 0;
   let controllerId: string | null = null;
   let disposed = false;
+  let initialized = false;
   const announce = () => deps.send("main", WINDOW_READY, { label: deps.label, instanceId: deps.instanceId, controllerId });
   return {
     listen<T>(event: string, callback: (payload: T) => void) {
@@ -76,11 +77,12 @@ export function createPresenterEndpoint(deps: {
       const ping = deps.listen<{ instanceId?: string; controllerId?: string }>(WINDOW_READY_REQUEST, (payload) => {
         if (!disposed && payload?.instanceId === deps.instanceId && typeof payload.controllerId === "string") {
           if (controllerId !== payload.controllerId) { controllerId = payload.controllerId; sequence = 0; }
-          void announce().catch(console.error);
+          if (initialized) void announce().catch(console.error);
         }
       });
       listeners.push(ping);
       await Promise.all(listeners.map((listener) => listener.ready));
+      initialized = true;
       if (!disposed) await announce();
     },
     dispose() { disposed = true; listeners.forEach((listener) => listener()); },

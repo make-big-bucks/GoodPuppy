@@ -2,7 +2,7 @@ import { createPresenterEndpoint } from "./windowReadiness.js";
 // 远程 pet 窗口（label "pet-<userId>"）的入口：纯「哑呈现者」。
 //
 // 不碰 Supabase。只渲染一只远程成员的 pet，听协调者（"main" 窗口）的定向事件播动画/气泡，
-// 拖动结束把新位置上报回协调者。见 docs/superpowers/specs/2026-06-17-多窗口独立桌宠-phaseB-design.md。
+// 拖动结束把新位置上报回协调者。见 docs/adr/0013-多窗口独立桌宠与协调者模型.md。
 import "../../shared/bridge.js";
 import "../../shared/styles.css";
 import { PetAnimator } from "./petState.js";

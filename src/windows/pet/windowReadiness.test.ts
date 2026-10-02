@@ -59,6 +59,31 @@ describe("presenter readiness and instance protocol", () => {
     expect(render.mock.calls).toEqual([["latest"], ["restored"]]);
     endpoint.dispose();
   });
+  it("does not acknowledge a ping until every data listener is registered", async () => {
+    const events = bus(); const send = vi.fn(async () => {});
+    let registerData!: () => void;
+    const endpoint = createPresenterEndpoint({ label: "pet-a", instanceId: "one", send,
+      listen: <T>(event: string, handler: (payload: T) => void) => {
+        if (event !== "state") return events.listen(event, handler);
+        return createEventSubscription<T>(async (callback) => {
+          await new Promise<void>(resolve => { registerData = resolve; });
+          const subscription = events.listen(event, callback);
+          await subscription.ready;
+          return subscription;
+        }, handler);
+      },
+    });
+    const render = vi.fn(); endpoint.listen("state", render);
+    const ready = endpoint.ready();
+    await Promise.resolve(); await Promise.resolve();
+    events.emit(WINDOW_READY_REQUEST, { instanceId: "one", controllerId: "root" });
+    expect(send).not.toHaveBeenCalled();
+    registerData(); await ready;
+    expect(send).toHaveBeenCalledWith("main", WINDOW_READY, { label: "pet-a", instanceId: "one", controllerId: "root" });
+    events.emit("state", { instanceId: "one", controllerId: "root", sequence: 1, payload: "initial snapshot" });
+    expect(render).toHaveBeenCalledWith("initial snapshot");
+    endpoint.dispose();
+  });
   it("a late old ping failure cannot remove a new wait for the same persistent panel", async () => {
     const events = bus();
     let fail!: (error: Error) => void;
