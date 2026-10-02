@@ -5,6 +5,7 @@ import { createResumeMonitor } from "../../shared/resumeMonitor.js";
 import { createAuthFlow } from "./authFlow.js";
 import { createRefreshController } from "../../shared/refreshController.js";
 import { InvitationStateChangedError, acceptRoomInvitation, createRoomRecord, declineRoomInvitation, joinRoomMembership, leaveRoomMembership, saveDisplayName, saveRoomMetadata, sendRoomInvitation } from "./loungeMutations.js";
+import { createResourceLifetime } from "../../shared/resourceLifetime.js";
 import { createOperationLifetime } from "../../shared/operationLifetime.js";
 import { fetchLoungeData, type LoungeData, type LoungeDataContext } from "./loungeData.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -105,6 +106,8 @@ function requiredQuery<T extends Element>(root: ParentNode, selector: string) {
   return element;
 }
 
+const page = createResourceLifetime();
+window.addEventListener("beforeunload", () => page.dispose(), { once: true });
 let authRevision = 0;
 let supabaseClient: SupabaseClient | null = null;
 let selfAuthId: string | null = null;
@@ -145,7 +148,7 @@ const modalForm = () => document.querySelector<HTMLFormElement>(".lounge-modal")
 const modalLifetime = createOperationLifetime();
 let releaseModalFocus: (() => void) | null = null;
 const authFlow = createAuthFlow({
-  context: () => supabaseClient ? { client: supabaseClient, userId: selfAuthId } : null,
+  context: () => !page.signal.aborted && supabaseClient ? { client: supabaseClient, userId: selfAuthId } : null,
   success: () => onLoginSuccess,
   refresh: () => loadPanelData(),
   notifyError: (message) => showToast(message, "error"),
@@ -160,7 +163,7 @@ function showModal(backdrop: HTMLElement, form: HTMLFormElement) {
 
 function captureModalOperation() {
   const version = authRevision;
-  return modalLifetime.capture(() => version === authRevision);
+  return modalLifetime.capture(() => !page.signal.aborted && version === authRevision);
 }
 
 function captureMutation() {
@@ -168,9 +171,10 @@ function captureMutation() {
   const userId = selfAuthId;
   const roomId = selectedRoomId;
   const version = authRevision;
+  if (page.signal.aborted) throw new DOMException("页面已关闭", "AbortError");
   if (!client || !userId) throw new Error("请先登录");
   return { client, userId, roomId, assertCurrent() {
-    if (version !== authRevision) throw new DOMException("账号已改变", "AbortError");
+    if (page.signal.aborted || version !== authRevision) throw new DOMException("账号已改变", "AbortError");
   } };
 }
 
@@ -1112,6 +1116,7 @@ export function initLoungePanel({
   onLogout: nextOnLogout,
   onSkinSaved: nextOnSkinSaved,
 }: LoungePanelOptions) {
+  if (page.signal.aborted) return;
   supabaseClient = supabase;
   selfAuthId = nextSelfAuthId;
   currentUserIsAnonymous = Boolean(nextSelfAuthId && nextIsAnonymous);
@@ -1133,10 +1138,15 @@ export function initLoungePanel({
     // 网络恢复/长暂停后重新取完整快照，补齐暂停期间丢失的成员/资料变化。
     const disposeResumeMonitor = createResumeMonitor(async () => { if (selfAuthId) await loadPanelData(); });
     const onlineExpiryTimer = setInterval(expireOnlineProjection, 10_000);
-    window.addEventListener("beforeunload", () => {
-      clearInterval(onlineExpiryTimer); disposeResumeMonitor();
-      disposeToastEnterListener?.(); roomTransitions.invalidate(); subscriptions.dispose(); disposeOnlineNotifier(); panelRefresh.dispose();
-    }, { once: true });
+    page.own(() => { authRevision += 1; modalLifetime.invalidate(); });
+    page.own(() => clearInterval(onlineExpiryTimer));
+    page.own(disposeResumeMonitor);
+    page.own(() => disposeToastEnterListener?.());
+    page.own(() => roomTransitions.invalidate());
+    page.own(() => subscriptions.dispose());
+    page.own(disposeOnlineNotifier);
+    page.own(() => panelRefresh.dispose());
+    page.own(closeModal); page.own(closeSettings); page.own(closeChatHistory); page.own(closeShowcase);
   }
   if (selfAuthId) {
     subscriptions.setContext({ client: supabase, userId: selfAuthId });
@@ -1169,6 +1179,7 @@ function startOnlineNotifier() {
 }
 
 export function updateLoungePanelAuth({ supabase, selfAuthId: nextSelfAuthId, isAnonymous: nextIsAnonymous, email: nextEmail }: UpdatePanelAuthOptions) {
+  if (page.signal.aborted) return;
   const previousClient = supabaseClient;
   const changed = selfAuthId !== nextSelfAuthId || previousClient !== supabase;
   if (changed) {
