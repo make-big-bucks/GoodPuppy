@@ -14,7 +14,7 @@
 | [08](2026-10-01-project-diagnosis.md#item-08) | 原生注册表清理 | 本地通过 | 销毁清 HitRegistry、父子偏移和实例表；Rust 与 macOS 原生回归。 |
 | [09](2026-10-01-project-diagnosis.md#item-09) | 快照与实时消息 | 本地通过 | 订阅先就绪、历史合并、重连补查/去重及可取消重试。 |
 | [10](2026-10-01-project-diagnosis.md#item-10) | 发送关联与重复提交 | 本地通过 | 消息请求关联、编辑器版本与在途禁用回归。 |
-| [11](2026-10-01-project-diagnosis.md#item-11) | 异步监听释放 | 本地通过 | eventSubscription 监听就绪、迟到注册和取消回归。 |
+| [11](2026-10-01-project-diagnosis.md#item-11) | 异步监听释放 | 本地通过 | eventSubscription 监听就绪、迟到注册和取消回归；会客厅入口统一释放事件/认证订阅，资源生命周期单项失败不阻断其它释放。 |
 | [12](2026-10-01-project-diagnosis.md#item-12) | 窗口就绪协议 | 本地通过 | windowReadiness 握手/实例/顺序快照，实际 webview 回执。 |
 | [13](2026-10-01-project-diagnosis.md#item-13) | 连接就绪与失败 | 本地通过 | 持续连接状态、进入提交前再次同步与检查；可信快照按连接代次失效，断线后的迟到响应不能恢复旧在线列表。 |
 | [14](2026-10-01-project-diagnosis.md#item-14) | 本地退出与迟到写入 | 本地通过 | 立即失效本地房间；心跳与退出串行、HTTP 限时；失去成员资格的 RLS 收尾已补。 |

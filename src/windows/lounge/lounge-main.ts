@@ -1,9 +1,10 @@
+import { createResourceLifetime } from "../../shared/resourceLifetime.js";
 import { createRoomStateSync } from "./roomStateSync.js";
 import { requestRoomState, type RoomState } from "../../shared/roomState.js";
 import { showToast } from "./views/toast.js";
 import "../../shared/bridge.js";
 import "../../shared/styles.css";
-import { emit, listen } from "@tauri-apps/api/event";
+import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { initLoungePanel, openActiveRoomHistory, openLoungePanel, refreshLoungePanelActiveRoom, updateLoungePanelAuth } from "./lounge.js";
@@ -25,7 +26,7 @@ function hasPersistedSession(): boolean {
 }
 
 async function initWinTitlebar() {
-  if (!navigator.platform.startsWith('Win')) return;
+  if (page.signal.aborted || !navigator.platform.startsWith('Win')) return;
 
   document.body.classList.add('platform-windows');
 
@@ -63,11 +64,12 @@ async function initWinTitlebar() {
   const appWindow = getCurrentWindow();
   try {
     await appWindow.setSize(new LogicalSize(1120, 748));
+    if (page.signal.aborted) return;
     await appWindow.setMinSize(new LogicalSize(1040, 708));
   } catch (error) {
     console.warn('Failed to resize lounge window for custom title bar.', error);
   }
-  await appWindow.show();
+  if (!page.signal.aborted) await appWindow.show();
 }
 
 function initDragRegion() {
@@ -137,6 +139,11 @@ function sessionIsAnonymous(session: Awaited<ReturnType<typeof supabase.auth.get
 }
 
 let requests = new AbortController();
+const page = createResourceLifetime();
+function listenPage<T = unknown>(event: string, handler: (payload: T) => void) {
+  page.own(window.goodPuppy.onAppEvent<T>(event, (payload) => { if (!page.signal.aborted) handler(payload); }));
+}
+window.addEventListener("beforeunload", () => { page.dispose(); requests.abort(); roomStateSync.reset(); }, { once: true });
 const roomStateSync = createRoomStateSync({
   context: () => ({ userId: authenticatedUserId, signal: requests.signal }),
   read: (userId, signal) => requestRoomState({
@@ -181,6 +188,7 @@ async function init() {
   if (hasPersistedSession()) showPanelSkeleton();
 
   const { data } = await supabase.auth.getSession();
+  if (page.signal.aborted) return;
   const selfAuthId = data.session?.user?.id || null;
 
   initLoungePanel({
@@ -207,7 +215,8 @@ async function init() {
 
   authenticatedUserId = selfAuthId;
   // INITIAL_SESSION 也参与身份同步，重复会话由上下文比较消除。
-  supabase.auth.onAuthStateChange((_event, session) => {
+  const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    if (page.signal.aborted) return;
     const nextUserId = session?.user.id ?? null;
     if (nextUserId !== authenticatedUserId) {
       requests.abort();
@@ -224,12 +233,14 @@ async function init() {
     });
   });
 
-  listen("lounge-refresh", () => {
+  page.own(() => subscription.unsubscribe());
+
+  listenPage("lounge-refresh", () => {
     openLoungePanel();
     void synchronizeActiveRoom().catch(reportStateError);
   });
 
-  listen("open-room-history", () => {
+  listenPage("open-room-history", () => {
     openLoungePanel();
     const signal = requests.signal; const userId = authenticatedUserId;
     void synchronizeActiveRoom().then(() => {
@@ -238,8 +249,8 @@ async function init() {
     }).catch(reportStateError);
   });
 
-  listen<RoomState>("active-room-changed", (event) => {
-    roomStateSync.receive(event.payload);
+  listenPage<RoomState>("active-room-changed", (state) => {
+    roomStateSync.receive(state);
   });
 
   openLoungePanel();
@@ -249,6 +260,7 @@ async function init() {
   }
 
   await initWinTitlebar();
+  if (page.signal.aborted) return;
   initDragRegion();
   initResizeHandle();
 }
