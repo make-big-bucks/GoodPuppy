@@ -1,6 +1,6 @@
 # 数据库与实时协议
 
-> 本批前向迁移尚未应用远端，正在等待明确批准；下文描述新源码与迁移的目标约定，新增 RPC/私有频道需要部署后才能使用。
+> 2026-10-02 经明确批准，两条前向迁移已应用生产项目，RPC/权限/RLS/索引和租约表已核验；真实认证客户端与 Realtime 联调仍待完成。客户端须采用修复分支的对应版本。
 
 当前 schema 以 `supabase/migrations/` 为准，本文只说明业务约定，不重复 SQL 实现。历史定义及压缩方法见 `supabase/history/README.md`。
 
@@ -56,12 +56,12 @@
 
 ## 重建与验证
 
-活动迁移包含无数据基线和后续前向迁移；原 11 个服务器迁移及未登记脚本均保留归档。新 Supabase 环境按活动迁移重建；生产迁移历史已于 2026-10-02 对齐为 `20260622134754_baseline`，内容 MD5 与仓库一致；两条前向迁移仍未部署。其它已有环境先对齐压缩后的历史，再执行前向迁移，禁止重放基线或归档中的旧删除语句。
+活动迁移包含无数据基线和后续前向迁移；原 11 个服务器迁移及未登记脚本均保留归档。新 Supabase 环境按活动迁移重建；生产迁移历史已于 2026-10-02 对齐为 `20260622134754_baseline`，内容 MD5 与仓库一致；两条前向迁移已部署，服务器历史版本与仓库一致。其它已有环境先对齐压缩后的历史，再执行前向迁移，禁止重放基线或归档中的旧删除语句。
 
 `npm run test:db` 连接独立本机 PostgreSQL（默认 `postgresql://localhost:55432/postgres`，可用 `GOODPUPPY_TEST_DATABASE_URL` 指定），创建随机临时库，验证空库重建、真实角色 RLS/RPC、私有频道策略及多连接并发接受/退出/加入，最后删除该临时库。它拒绝远程连接；Auth/Realtime/cron 平台替身仅用于本地 SQL 测试，不能代替真实服务的连接验收。
 
-## 认证 Presence 租约（本地接入，远端待部署）
+## 认证 Presence 租约（已部署，联调待验收）
 
-`20261002073000_authenticated_presence_leases.sql` 已在隔离库验证，**前端已接入，必须与源码及授权迁移一起部署**。私有 `presence_clients` 保存认证会话、实例版本与退役标记，`presence_leases` 保存成员约束下的实例状态和服务端租约；真实 Auth session/成员删除级联释放，客户端无直接访问权限。
+`20261002073000_authenticated_presence_leases.sql` 已在隔离库验证并部署生产，前端已接入；无有效认证身份的快照调用已在生产回滚事务中确认拒绝。私有 `presence_clients` 保存认证会话、实例版本与退役标记，`presence_leases` 保存成员约束下的实例状态和服务端租约；真实 Auth session/成员删除级联释放，客户端无直接访问权限。
 
 `activate_room_presence`、`update_room_presence`、`deactivate_room_presence` 校验预期账号与真实认证会话，旧版本/已退役激活被拒绝；`get_room_presence`、`get_online_room_presence` 只返回调用者所属房间的有效投影。客户端 track/broadcast 写入权限撤销，实时事件只提示读取可信快照，在线展示不再消费客户端 key/metadata；心跳续租由房间队列串行，详见 [ADR-0021](adr/0021-认证实例租约与可信在线状态.md)。

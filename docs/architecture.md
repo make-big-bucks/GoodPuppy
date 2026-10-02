@@ -30,6 +30,6 @@
 
 ## 数据库与验证
 
-数据库契约见 [database.md](database.md)。授权修复与迁移基线已通过隔离库测试，**远端应用仍待明确批准**；新 RPC 与私有频道不能被当作已经在生产生效。
+数据库契约见 [database.md](database.md)。授权修复与认证租约已获批准并部署生产，三条迁移历史与仓库一致；权限/RLS/RPC 与无身份拒绝已核验，真实客户端/Realtime 联调仍待验收。
 
 `npm run verify` 检查前端构建、单元测试、Rust 与资源流水线；`test:native` 使用独立应用标识验证窗口与退出回执，`test:db` 使用临时本地数据库验证迁移与并发授权。macOS/Windows CI 已配置，Windows 实机与混合 DPI 验收仍待完成。
