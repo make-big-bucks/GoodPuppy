@@ -23,7 +23,7 @@
 | [17](2026-10-01-project-diagnosis.md#item-17) | 会客厅异步归属 | 本地通过 | 捕获账号/目标、refreshController、弹层实例与换肤账号队列回归；用户名/房间资料校验实际目标行回执，失效账号结果不刷新；拒绝邀请限定接收人/待处理状态并校验回执，冲突补快照。 |
 | [18](2026-10-01-project-diagnosis.md#item-18) | 刷新风暴与租约 | 本地通过 | 刷新合并、可信在线证明按期限本地失效、连接健康同步和暂停后补快照；兼容表心跳失败不阻断认证租约更新。 |
 | [19](2026-10-01-project-diagnosis.md#item-19) | 通知资源调度 | 本地通过 | notificationScheduler 取消/上限/TTL，真实 toast 投递与销毁回归。 |
-| [20](2026-10-01-project-diagnosis.md#item-20) | 显示器坐标与可用区 | 部分 | 实际父窗口选屏、工作区与实例校验已通过单元/原生回归，避免逻辑矩形重叠误选屏，布局使用单次主线程几何快照；平台桌面单位已贯通创建/布局/跟随/存档，Windows CI debug 链接与原生运行已通过，发布安装包与真实多屏边界证据仍缺，见 [坐标契约](coordinate-contract.md)。 |
+| [20](2026-10-01-project-diagnosis.md#item-20) | 显示器坐标与可用区 | 部分 | 实际父窗口选屏、工作区与实例校验已通过单元/原生回归，避免逻辑矩形重叠误选屏，布局使用单次主线程几何快照；平台桌面单位已贯通创建/布局/跟随/存档，Windows CI debug/release 链接、原生运行及 MSI/NSIS 打包通过，安装后实机与真实多屏边界证据仍缺，见 [坐标契约](coordinate-contract.md)。 |
 | [21](2026-10-01-project-diagnosis.md#item-21) | 原生命令实际完成 | 本地通过 | window_tasks 等待实际主线程结果和 Destroyed，实例防过期回归；创建配置失败等待真实销毁并保留错误，原生回归确认同名重试；气泡跟随偏移在实际定位成功后于主线程提交。 |
 | [22](2026-10-01-project-diagnosis.md#item-22) | Windows 父子窗口 | 待平台 | owner 与跟随代码已补；Windows 实机验收缺失。 |
 | [23](2026-10-01-project-diagnosis.md#item-23) | Windows 窗口权限 | 本地通过 | capability 与 AST 调用权限回归；真实 Windows 运行归入平台门禁。 |
@@ -37,7 +37,7 @@
 | [31](2026-10-01-project-diagnosis.md#item-31) | 资源注册与缓存 | 本地通过 | 构建/验收共用实际注册器，保留别名、缺失文件、失败重试及图片回退回归。 |
 | [32](2026-10-01-project-diagnosis.md#item-32) | 持久关联诊断 | 本地通过 | 固定字段本机日志、体积轮转、按需有界复制；原生落盘/读取与保留测试。 |
 | [33](2026-10-01-project-diagnosis.md#item-33) | 模块与状态所有者 | 本地通过 | 窗口入口装配 SDK/事件与显式控制器，面板独占界面投影和弹层 DOM；认证、数据、订阅、房间命令/快照、窗口外观、缓存、投递及布局分别有所有者。纯逻辑与入口交错回归、账号/客户端切换释放弹层、依赖方向门禁通过；所有者索引见 architecture.md。 |
-| [34](2026-10-01-project-diagnosis.md#item-34) | 生命周期与平台门禁 | 待平台 | 受控时序、verify、原生回归和双平台 CI 已配置；修复分支 `e192e2a` 的 macOS/Windows verify/native 与 PostgreSQL 17 全通过；Windows 发布打包新增检查待结果，人工实机证据仍缺。 |
+| [34](2026-10-01-project-diagnosis.md#item-34) | 生命周期与平台门禁 | 待平台 | 受控时序、verify、原生回归和双平台 CI 已配置；修复分支 `2a98ab8` 的 macOS/Windows verify/native、PostgreSQL 17 与 Windows MSI/NSIS 打包全通过；安装后人工实机证据仍缺。 |
 | [35](2026-10-01-project-diagnosis.md#item-35) | 遗留入口与文档 | 本地通过 | 删除独立 login 与假布局接口；更新 AGENTS、ADR 索引、当前架构和资源契约。 |
 | [36](2026-10-01-project-diagnosis.md#item-36) | 窗口角色与契约 | 本地通过 | 原生命令按角色限制、实例校验、请求/结果与皮肤归属 DTO；诊断导出仅会客厅；创建/定位统一校验几何，原生回归确认无效尺寸不会创建窗口。 |
 | [37](2026-10-01-project-diagnosis.md#item-37) | 弹层焦点与归属 | 本地通过 | 通用/聊天/换肤焦点管理、关闭失效、失败保留选择与账号切换释放。 |
