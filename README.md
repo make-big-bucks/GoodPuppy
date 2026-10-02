@@ -102,7 +102,7 @@ python3 -m unittest discover -s skills/hatch-puppy-pet/tests -v
 
 ## 原生窗口回归检查
 
-`npm run test:native` 使用独立应用标识验证创建、显隐、销毁、同名重建与退出清理回执，自动准备 Vite 并回收自己启动的服务器，不使用已保存账号。仅开发构建提供该检查；Windows 需在 Windows 上执行。
+`npm run test:native` 使用独立应用标识验证创建、显隐、父子窗口跟随/偏移更新、销毁、同名重建与退出清理回执，自动准备 Vite 并回收自己启动的服务器，不使用已保存账号。仅开发构建提供该检查；Windows 需在 Windows 上执行。
 
 ## 完整验证
 

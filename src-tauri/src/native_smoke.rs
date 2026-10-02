@@ -25,7 +25,7 @@ pub(crate) fn start(app: AppHandle) {
         });
         match &result {
             Ok(()) => eprintln!(
-                "[native-smoke] PASS: ready snapshots, hidden-focus guard, stale-close guard, same-label recreation and toast delivery"
+                "[native-smoke] PASS: ready snapshots, parent-follow offsets, hidden-focus guard, stale-close guard, same-label recreation and toast delivery"
             ),
             Err(error) => eprintln!("[native-smoke] FAIL: {error}"),
         }
@@ -227,6 +227,7 @@ async fn run(app: &AppHandle) -> Result<(), String> {
             serde_json::json!({"messages":[]}),
         )
         .await?;
+        exercise_parent_follow(app, &instance).await?;
         if !app
             .get_webview_window("pet-smoke")
             .ok_or("pet missing")?
@@ -326,6 +327,89 @@ async fn run(app: &AppHandle) -> Result<(), String> {
     }
     exercise_room_state(app).await?;
     exercise_toast(app).await?;
+    Ok(())
+}
+
+async fn smoke_geometry(
+    app: &AppHandle,
+    label: &str,
+    instance: &str,
+) -> Result<serde_json::Value, String> {
+    let window = app
+        .get_webview_window(label)
+        .ok_or("follow window unavailable")?;
+    let geometry = commands::get_window_geometry(window, Some(instance.into()), None).await?;
+    serde_json::to_value(geometry).map_err(|error| error.to_string())
+}
+
+async fn exercise_parent_follow(app: &AppHandle, instance: &str) -> Result<(), String> {
+    let space = if cfg!(target_os = "windows") {
+        "desktop-physical-v2"
+    } else {
+        "desktop-logical-v2"
+    };
+    for reset_offset in [false, true] {
+        if reset_offset {
+            let child = smoke_geometry(app, "bubble-smoke", instance).await?;
+            commands::set_window_bounds(
+                app.get_webview_window("bubble-smoke")
+                    .ok_or("bubble missing")?,
+                app.state::<Bubbles>(),
+                Some(instance.into()),
+                Some(space.into()),
+                child["x"].as_f64().unwrap() - 15.0,
+                child["y"].as_f64().unwrap() + 20.0,
+                child["width"].as_f64().unwrap(),
+                child["height"].as_f64().unwrap(),
+            )
+            .await?;
+        }
+        let parent = smoke_geometry(app, "pet-smoke", instance).await?;
+        let child = smoke_geometry(app, "bubble-smoke", instance).await?;
+        let offset = (
+            child["x"].as_f64().unwrap() - parent["x"].as_f64().unwrap(),
+            child["y"].as_f64().unwrap() - parent["y"].as_f64().unwrap(),
+        );
+        let target = (
+            parent["x"].as_f64().unwrap() + 40.0,
+            parent["y"].as_f64().unwrap() + 30.0,
+        );
+        commands::set_window_bounds(
+            app.get_webview_window("pet-smoke").ok_or("pet missing")?,
+            app.state::<Bubbles>(),
+            Some(instance.into()),
+            Some(space.into()),
+            target.0,
+            target.1,
+            parent["width"].as_f64().unwrap(),
+            parent["height"].as_f64().unwrap(),
+        )
+        .await?;
+        let started = std::time::Instant::now();
+        loop {
+            let parent = smoke_geometry(app, "pet-smoke", instance).await?;
+            let child = smoke_geometry(app, "bubble-smoke", instance).await?;
+            let px = parent["x"].as_f64().unwrap();
+            let py = parent["y"].as_f64().unwrap();
+            let cx = child["x"].as_f64().unwrap();
+            let cy = child["y"].as_f64().unwrap();
+            if (px - target.0).abs() <= 1.0
+                && (py - target.1).abs() <= 1.0
+                && (cx - px - offset.0).abs() <= 1.0
+                && (cy - py - offset.1).abs() <= 1.0
+            {
+                break;
+            }
+            if started.elapsed() > std::time::Duration::from_secs(5) {
+                return Err(format!("parent follow failed (reset_offset={reset_offset}): parent=({px},{py}), child=({cx},{cy}), offset={offset:?}"));
+            }
+            tauri::async_runtime::spawn_blocking(|| {
+                std::thread::sleep(std::time::Duration::from_millis(50))
+            })
+            .await
+            .map_err(|error| error.to_string())?;
+        }
+    }
     Ok(())
 }
 

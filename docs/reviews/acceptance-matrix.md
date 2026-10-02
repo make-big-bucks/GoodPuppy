@@ -25,7 +25,7 @@
 | [19](2026-10-01-project-diagnosis.md#item-19) | 通知资源调度 | 本地通过 | notificationScheduler 取消/上限/TTL，真实 toast 投递与销毁回归。 |
 | [20](2026-10-01-project-diagnosis.md#item-20) | 显示器坐标与可用区 | 部分 | 实际父窗口选屏、工作区与实例校验已通过单元/原生回归，避免逻辑矩形重叠误选屏，布局使用单次主线程几何快照；平台桌面单位已贯通创建/布局/跟随/存档，Windows CI debug/release 链接、原生运行及 MSI/NSIS 打包通过，安装后实机与真实多屏边界证据仍缺，见 [坐标契约](coordinate-contract.md)。 |
 | [21](2026-10-01-project-diagnosis.md#item-21) | 原生命令实际完成 | 本地通过 | window_tasks 等待实际主线程结果和 Destroyed，实例防过期回归；创建配置失败等待真实销毁并保留错误，原生回归确认同名重试；气泡跟随偏移在实际定位成功后于主线程提交。 |
-| [22](2026-10-01-project-diagnosis.md#item-22) | Windows 父子窗口 | 待平台 | owner 与跟随代码已补；Windows 实机验收缺失。 |
+| [22](2026-10-01-project-diagnosis.md#item-22) | Windows 父子窗口 | 待平台 | owner 与跟随代码已补；父窗移动及子窗重定位后的实际偏移断言已加入原生回归，macOS 通过，Windows CI 结果待核验；人工实机验收仍缺。 |
 | [23](2026-10-01-project-diagnosis.md#item-23) | Windows 窗口权限 | 本地通过 | capability 与 AST 调用权限回归；真实 Windows 运行归入平台门禁。 |
 | [24](2026-10-01-project-diagnosis.md#item-24) | 光标与拖动负载 | 本地通过 | 原生单次采样、成功缓存；共享点击/穿透掩模、失败重试与拖动态释放。 |
 | [25](2026-10-01-project-diagnosis.md#item-25) | 原子建房 | 待远端 | create_room RPC 与本地事务测试通过；远端迁移待批准。 |
