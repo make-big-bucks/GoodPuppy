@@ -16,7 +16,10 @@ export function createBoundedFetch(fetcher: typeof fetch = fetch, timeoutMs = 15
     };
     try {
       const response = await fetcher(input, { ...init, signal: controller.signal });
-      if (!response.body) { cleanup(); return response; }
+      // WebKit 的无内容响应也可能暴露空流；这些状态禁止传入 Response(body)。
+      if (!response.body || response.status === 204 || response.status === 205 || response.status === 304) {
+        cleanup(); return response;
+      }
       const reader = response.body.getReader();
       const body = new ReadableStream<Uint8Array>({
         start(stream) {

@@ -2,6 +2,18 @@ import { describe, expect, it, vi } from "vitest";
 import { executeRoomCommand, isRoomCommand, type RoomCommand } from "./roomProtocol.js";
 const command: RoomCommand = { requestId: "r1", replyTo: "lounge", action: "enter", roomId: "room-a" };
 describe("room command replies", () => {
+  it.each([
+    [{ message: "Presence requires room membership", code: "42501" }, "Presence requires room membership"],
+    ["实时连接失败", "实时连接失败"],
+    [{ message: "" }, "房间操作失败，请重试"],
+    [null, "房间操作失败，请重试"],
+  ])("preserves readable rejected values across windows: %j", async (error, message) => {
+    const result = await executeRoomCommand(command, {
+      enter: async () => { throw error; }, exit: async () => {}, sync: async () => {},
+      getRevision: () => 1, getRoomId: () => null,
+    });
+    expect(result).toMatchObject({ ok: false, error: message, roomId: null });
+  });
   it("validates control payloads and reply target", () => {
     expect(isRoomCommand(command)).toBe(true);
     expect(isRoomCommand({ ...command, replyTo: "bubble-self" })).toBe(false);

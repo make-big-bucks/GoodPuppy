@@ -6,6 +6,9 @@ A transparent, always-on-top desktop pet built with Tauri v2.
 
 开发入口见 [当前架构](docs/architecture.md)，技术演进见 [ADR 索引](docs/adr/README.md)。
 
+进入或退出房间失败时，会客厅顶部显示具体错误消息，主窗口控制台保留原始错误以便排查。
+网络超时封装保留无内容响应，兼容 macOS WebKit 的空响应流，避免进房间时成功的写入被误判为失败。
+
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) (v22; the project includes `.nvmrc` / `.node-version`)

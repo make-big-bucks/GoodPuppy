@@ -5,6 +5,14 @@ export const ROOM_RESULT = "room-command-result";
 export type RoomCommand = { requestId: string; replyTo: "lounge"; action: "enter" | "exit"; roomId?: string };
 export type RoomResult = WindowResponse & { action: "enter" | "exit"; requestedRoomId?: string; roomId: string | null };
 
+function roomErrorMessage(error: unknown): string {
+  if (typeof error === "string" && error.trim()) return error;
+  // PostgREST 和原生桥接可能拒绝普通对象；跨窗口前保留其中的可读消息。
+  if (error && typeof error === "object" && "message" in error
+    && typeof error.message === "string" && error.message.trim()) return error.message;
+  return "房间操作失败，请重试";
+}
+
 export function isRoomCommand(value: unknown): value is RoomCommand {
   if (!value || typeof value !== "object") return false;
   const command = value as Record<string, unknown>;
@@ -34,6 +42,7 @@ export async function executeRoomCommand(command: RoomCommand, deps: {
       && deps.getRoomId() === command.roomId) await deps.exit().catch(console.error);
     // 网络清理失败时，本地隐藏也必须收尾；原始错误仍返回给请求者。
     await deps.sync().catch(console.error);
-    return { ...result, ok: false, roomId: deps.getRoomId(), error: error instanceof Error ? error.message : String(error) };
+    console.error("房间操作失败：", command.action, error);
+    return { ...result, ok: false, roomId: deps.getRoomId(), error: roomErrorMessage(error) };
   }
 }

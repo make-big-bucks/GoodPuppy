@@ -7,6 +7,20 @@ const waitingFetch = vi.fn((_input: unknown, init: RequestInit) => new Promise<R
 }));
 afterEach(() => vi.useRealTimers());
 describe("bounded fetch", () => {
+  it.each([204, 205, 304])("preserves a %i response even when the runtime exposes an empty body stream", async (status) => {
+    vi.useFakeTimers();
+    const original = new Response(null, { status, headers: { "x-request-id": "test" } });
+    // 模拟 WebKit：原始响应为空内容，但 body 属性暴露可读流。
+    const stream = new ReadableStream({ start(controller) { controller.close(); } });
+    Object.defineProperty(original, "body", { value: stream });
+    const response = await createBoundedFetch(vi.fn(async () => original) as never)("https://example.test");
+    expect(response).toBe(original);
+    expect(response.status).toBe(status);
+    expect(response.headers.get("x-request-id")).toBe("test");
+    expect(await response.text()).toBe("");
+    expect(stream.locked).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it("aborts a stalled request at its deadline", async () => {
     vi.useFakeTimers();
     const request = createBoundedFetch(waitingFetch as never, 100)("https://example.test");
