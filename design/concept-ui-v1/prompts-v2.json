@@ -1,0 +1,23 @@
+{
+  "tool": "built-in image_gen",
+  "prompts": [
+    {
+      "n": "01-room-entrance-v2",
+      "prompt": "Create a polished landscape GoodPuppy macOS app screenshot. Warm ivory native window with traffic lights, sage green accents, clear Chinese sans-serif text. This is an APP navigation screen for choosing friend-group rooms. Header 我的房间 with profile and 创建房间. Main content FOUR horizontal clickable room list cards stacked vertically, each with a substantial richly detailed 2D pixel-art interior thumbnail on left and room name, online avatars and text on right, plus a clear 进入房间 button and chevron. Names 辣些年, 下班以后, 周末放映室, 一起造东西; counts 4人在线, 3人在线, 2人在线, 3人在线. Thumbnails show familiar orange shiba, white cat, black cyan monitor robot, brown bear socializing in rooms with couch, desk, cinema or workshop. First card subtly highlighted sage with mouse pointer over button. Cozy pixel art INSIDE thumbnails, refined modern APP layout outside. No world map, no courtyard, no game movement, no decorative sidebar. Front-on screenshot, spacious balanced layout, all four cards fully visible. Match warm style of existing GoodPuppy room designs."
+    },
+    {
+      "n": "04-activity-chooser-v2",
+      "ref": "02-inside-room.png",
+      "prompt": "Edit this exact GoodPuppy room screenshot to show ONLY the result of clicking the bottom 一起活动 button. Preserve the EXACT original room background, furniture positions, four pet positions, right chat panel, top header, bottom bar, window frame and overall screenshot dimensions. No new navigation sidebar or other screens. Add ONE modest ivory rounded activity popover anchored above bottom 一起活动 button, slightly overlapping lower-middle room only, leaving most room and all chat visible. Popover title 发起活动 then five simple clickable rows with small icons: 一起看视频, 一起听音乐, 一起自习, 共同开发, 小游戏. One small close button. No settings panel, no timer configuration, no friend invitation list, no extra modal, no redesigned background. This should visibly be exactly the reference room with an activity menu open, warm ivory and sage native Mac UI. Preserve all other pixels as closely as possible."
+    },
+    {
+      "n": "05-creator-ecosystem-v2",
+      "prompt": "Create ONE elegant simple landscape product ecosystem ARCHITECTURE DIAGRAM for GoodPuppy on warm ivory background, NOT a developer workbench or dashboard. Left side two small distinct illustrated design-sheet cards stacked: upper labeled 桌宠形象设计 with orange shiba pixel character concept sketches and three tiny poses, pencil notes kept minimal; lower labeled 活动插件设计 with small minimal video player and study timer design sketch cards, clean interface wireframe artwork. Two thin sage arrows point from these sheets into a single larger Mac APP window frame on right labeled GoodPuppy. Inside window a warm detailed pixel room with sofa, study desk, four friends orange shiba, white cat, black cyan monitor robot, brown bear. Upper arrow lands near shiba avatar in app, lower arrow lands near small 活动 panel in app containing 看视频 and 一起自习 icons. This visually communicates external pet designs and activity plugins plugging into the application. Minimal text, generous negative space, crisp clear diagram and restrained warm pixel illustration. No creator workbench, no toolbars for creating, no publishing controls, no marketplace intermediate, no complicated flowchart, no sidebar. Match existing GoodPuppy ivory sage palette."
+    },
+    {
+      "n": "06-market-v2",
+      "ref": "06-market.png",
+      "prompt": "Simplify this exact GoodPuppy market app design by removing the ENTIRE left navigation sidebar (logo and 我的房间,伙伴们,市场,活动,设置 items). Expand the market content naturally to fill the window width. Keep a single slim native Mac top bar with traffic lights, GoodPuppy 市场 title and search field. Directly below retain tabs 桌宠 and 活动插件. Preserve warm ivory/sage visual style and same pixel pet art, same 6 pet cards, right selected shiba detail and lower activity plugin cards. Layout should be clean, minimal and spacious, no extra menu, no left rail, no hamburger navigation, no replacement sidebar. High quality front-on landscape Mac app screenshot with readable Chinese text."
+    }
+  ]
+}

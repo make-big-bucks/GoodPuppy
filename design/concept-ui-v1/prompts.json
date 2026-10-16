@@ -1,0 +1,30 @@
+{
+  "tool": "built-in image_gen",
+  "shared": "Use case: ui-mockup. Create ONE polished landscape 16:10 high resolution GoodPuppy Mac desktop application concept screenshot for a presentation. Flat front-facing screenshot, no physical device, no perspective. Consistent visual system: warm ivory native Mac window, traffic light controls, charcoal clean Chinese sans-serif typography, sage green accents, delicate borders. Main spatial artwork is crisp lovingly detailed 2D top-down pixel art, not isometric or 3D; warm wood, cream walls, muted green plants. Recurring small pixel characters: orange shiba dog, white cat, black monitor-headed robot with cyan face, brown bear. These are friends' avatars. Realistic implementable UI with restrained controls, generous spacing, beautifully composed. Chinese labels legible. Do not add slide headings outside the UI, watermarks or annotations. ",
+  "scenes": [
+    {
+      "file": "01-room-entrance.png",
+      "prompt": "My rooms entrance: four separate pixel cutaway rooms around a courtyard; labeled 辣些年、下班以后、周末放映室、一起造东西 with online counts; varied decor and friends; orange shiba outside approaching an open doorway; native Mac header and status controls."
+    },
+    {
+      "file": "02-inside-room.png",
+      "prompt": "Scene 2 of 6: Inside room 辣些年. Header back arrow 我的房间 then 辣些年 · 4人在线 and 邀请朋友. Main area is a large inviting pixel cutaway living room viewed from above: wooden floor, sofa and rug, study desk, bookshelves, plants, music corner. The orange shiba studies at desk with 专注中 label, white cat wears headphones at sofa, black monitor robot stands on rug and brown bear waves beside it. Each has a small name label. A compact subtle chat panel on right with 3 friendly short Chinese messages. Bottom native toolbar has 我的状态, 静音, 发消息, 一起活动, 回到桌面. Spatial artwork occupies 75 percent of window. Visually credible software with furniture and friends instead of member-list rows."
+    },
+    {
+      "file": "03-desktop-companions.png",
+      "prompt": "Scene 3 of 6: Mac DESKTOP screenshot, no main app window. Realistic clear alpine lake and mountain wallpaper like macOS, blue sky, lake rocks, authentic slim Mac menu bar and subtle dock below. The same four pixel friends float directly on desktop at modest size, orange shiba on bottom left showing 专注中, white cat mid right showing ♪ 听音乐, black monitor-headed robot near right shows speech bubble 晚上一起看电影？, brown bear near bottom center waving with small bubble 嗨！. Plenty empty desktop for working. Small floating native capsule top right 辣些年 · 4人在线 with tiny room icon. Pixel pets distinct and consistent, no boxes behind pets, preserve real Mac desktop feeling. No additional software panels."
+    },
+    {
+      "file": "04-activity-chooser.png",
+      "prompt": "Scene 4 of 6: Activity chooser in room 辣些年. Native Mac window. Cozy top-down pixel room with four recurring pet friends visible dimmed slightly behind a large ivory central activity panel. Panel header 今天一起做什么？. Activity selection cards with beautiful pixel thumbnails and concise readable labels: 一起看视频, 一起听音乐, 一起自习, 共同开发, 小游戏. Select 一起自习 with sage outline. Right panel shows pixel study desk illustration, title 一起自习, 专注 25 分钟, 休息 5 分钟, small friend avatars and 2位朋友想参加. Primary button 发起活动. Clear tidy usable frontend interface, visible background room context, no overlapping clutter."
+    },
+    {
+      "file": "05-creator-ecosystem.png",
+      "prompt": "Scene 5 of 6: Creator ecosystem, interface plus simple architecture flow diagram integrated in ONE Mac window. Header 创作者工作台. Left slim navigation 桌宠作品, 活动插件, 发布管理. Main left-center panel selects 桌宠作品 and displays orange shiba pixel pet large preview, small animation frames and labels 待机, 行走, 挥手; buttons 在房间中预览 and 发布作品. A second small activity plugin preview beneath includes 自习计时器 and a tiny room. Right 40 percent is a clean readable vertical flow diagram with thumbnails and arrows: 桌宠创作 / 活动开发 → 发布到市场 → 带进朋友的房间, ending in a small pixel room with four pets. Express creator ecosystem with product interface plus diagram. Few words, clear hierarchy, professional and warm."
+    },
+    {
+      "file": "06-market.png",
+      "prompt": "Scene 6 of 6: Market UI native Mac window. Header GoodPuppy 市场, search field 搜索角色与活动. Prominent tabs 桌宠 and 活动插件. Main view selected 桌宠: 2x3 grid of pixel pet product cards with generous illustrated preview areas, orange shiba 柴犬小柴, white cat 云朵猫, monitor robot 小零, brown bear 奶茶熊, small penguin, rabbit; clean author bylines and 免费 / ¥12 / ¥18 indicators. Right detail sidebar highlights orange shiba with large preview, 3 mini animation poses, title 柴犬小柴, author and green button 带回我的房间. Bottom clearly separated horizontal section 活动插件 with 4 compact thumbnail cards 同步放映室, 共享歌单, 番茄自习室, 桌面小游戏 and small 添加到房间 buttons. Cohesive market discoverability, real frontend, no e-commerce clutter."
+    }
+  ]
+}
