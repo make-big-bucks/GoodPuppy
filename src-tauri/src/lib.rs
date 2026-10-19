@@ -187,8 +187,14 @@ pub fn run() {
             let menu = MenuBuilder::new(app)
                 .items(&[&manage, &room_history, &separator, &quit])
                 .build()?;
+            // macOS 模板只使用 alpha，由系统适配菜单栏明暗；Windows 保留粉色与白边。
+            #[cfg(target_os = "macos")]
+            let tray_bytes = include_bytes!("../icons/tray-template-44.png").as_slice();
+            #[cfg(not(target_os = "macos"))]
+            let tray_bytes = include_bytes!("../icons/tray-windows-64.png").as_slice();
             let _tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(tauri::image::Image::from_bytes(tray_bytes)?)
+                .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("GoodPuppy")
                 .menu(&menu)
                 // 左键直接打开会客厅；右键弹出菜单。

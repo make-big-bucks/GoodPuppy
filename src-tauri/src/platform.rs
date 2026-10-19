@@ -178,6 +178,26 @@ pub(crate) fn set_dock_visible(_visible: bool) {}
 
 #[cfg(target_os = "macos")]
 pub(crate) fn configure_macos_app_activation_policy(app: &mut tauri::App) {
+    // tauri dev 直接运行裸二进制，没有 .app 的 CFBundleIconFile，需显式设置 Dock 图标。
+    // 发布版继续由应用包提供图标，避免覆盖系统对打包图标的处理。
+    #[cfg(debug_assertions)]
+    {
+        use objc2::{AnyThread, MainThreadMarker};
+        use objc2_app_kit::{NSApplication, NSImage};
+        use objc2_foundation::NSData;
+
+        if let Some(mtm) = MainThreadMarker::new() {
+            let data = NSData::with_bytes(include_bytes!("../icons/icon.icns"));
+            if let Some(icon) = NSImage::initWithData(NSImage::alloc(), &data) {
+                // setup 在主线程运行，NSApplication 会保留传入图像。
+                unsafe {
+                    NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&icon));
+                }
+            } else {
+                log::warn!("无法解码开发模式 Dock 图标");
+            }
+        }
+    }
     app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 }
 

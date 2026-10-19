@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "tauri:dev:peer": "tauri dev --config src-tauri/tauri.peer.conf.json",
+    "gen:icons": "node tools/generate-icons.mjs",
     "gen:skins": "node tools/generate-skins.mjs",
     "test": "vitest run",
     "test:native": "node tools/native-smoke.mjs",
