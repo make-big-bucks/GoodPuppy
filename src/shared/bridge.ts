@@ -268,6 +268,7 @@ const goodPuppy: GoodPuppyBridge = {
     return this.onAppEvent("pet-drag-ended", callback);
   },
   async isAutostartEnabled() {
+    if (import.meta.env.DEV) return false;
     if (!inTauri) return false;
     try {
       const { isEnabled } = await import("@tauri-apps/plugin-autostart");
@@ -278,6 +279,7 @@ const goodPuppy: GoodPuppyBridge = {
     }
   },
   async setAutostart(enabled: boolean) {
+    if (import.meta.env.DEV) throw new Error("开发版不支持开机自启动");
     if (!inTauri) return false;
     try {
       const { enable, disable, isEnabled } = await import("@tauri-apps/plugin-autostart");

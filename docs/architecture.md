@@ -24,6 +24,8 @@
 - 账号皮肤保存在 profiles；大小、模式与窗口位置是设备偏好；气泡关闭游标按账号、房间与发送者隔离。资源从 `public/pets/*/pet.json` 通过 `tools/petRegistry.mjs` 自动注册并在构建时检查。
 - Rust `commands.rs` 校验窗口角色、实例与几何，`window_tasks.rs` 等待实际原生结果，`quit.rs` 统一限时退出握手。布局从主线程几何快照读取，`bubbles.rs` 按平台桌面单位维护实际父子偏移；位置使用平台桌面单位、内容尺寸保留逻辑单位，换算与验收见 [坐标契约](reviews/coordinate-contract.md)。
 
+桌面开发入口 `tools/tauri.mjs` 合并 `tauri.dev.conf.json`，将应用标识、WebView 存储和日志与正式版隔离；peer 保持独立标识，调试构建拒绝正式版标识且不注册自启动插件，设置页同步禁用开关。此隔离与云端后端环境相互独立，正式版数据不做迁移。
+
 环境由 `backendConfig.ts` 统一解析，覆盖必须显式选择环境；生产保留既有认证键，开发/测试使用独立键。原生回归独占 1422 端口与测试后端，配置校验在打包前执行。
 
 诊断由 `diagnostics.ts` 记录固定生命周期字段，Rust `diagnostics.rs` 负责有界日志与仅会客厅可调用的按需读取；原始 Error/消息正文不会传入日志接口。

@@ -71,6 +71,10 @@ npm run tauri:dev:peer
 
 两个实例拥有独立的数据目录，Supabase session 互不干扰，适合测试连接、房间邀请等双向交互功能。
 
+`npm run tauri dev` 使用 `GoodPuppy Dev`（`com.goodpuppy.desktop.dev`），第二实例使用 `GoodPuppy Dev Peer`（`com.goodpuppy.desktop.peer`），正式版继续使用 `com.goodpuppy.desktop`；登录会话、设备偏好和日志按应用标识隔离，首次启动隔离后的开发版需要重新登录，不迁移正式版数据。开发入口会自动合并 `tauri.dev.conf.json`，请勿直接使用 `npx tauri dev` 或 `cargo run` 绕过入口；调试构建检测到正式版标识时会拒绝启动，且所有调试构建均不提供自启动插件，设置页会禁用此开关。后端环境仍由现有 `VITE_BACKEND_ENV` 配置决定，本次隔离不会自动创建或切换云端项目。
+
+若旧版开发程序曾开启自启动，需要将系统登录项重新指向正式安装的 GoodPuppy；macOS 的旧项可能位于 `~/Library/LaunchAgents/GoodPuppy.plist`，修复前应确认其中的程序路径，不要删除指向正式版的启动项。
+
 ## Build
 
 在对应平台生成安装包：

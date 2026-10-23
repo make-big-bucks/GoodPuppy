@@ -64,16 +64,17 @@ pub fn run() {
     let hit_shapes: HitShapes = Arc::new(std::sync::Mutex::new(hit_test::HitRegistry::default()));
     let monitor_hit_shapes = hit_shapes.clone();
     let bubbles: Bubbles = Arc::new(std::sync::Mutex::new(BubbleRegistry::default()));
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(diagnostics::plugin())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(updates::UpdateState::default())
-        // 开机自启动（会客厅设置页「通用 → 开机自启动」开关控制）。
-        // macOS 走 LaunchAgent，Windows 走注册表，由插件按平台封装。
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
-        ))
+        .manage(updates::UpdateState::default());
+    // 调试构建不注册自启动插件，避免开发程序写入系统登录项。
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_autostart::init(
+        tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+        None,
+    ));
+    builder
         .manage(hit_shapes)
         .manage(bubbles)
         .manage(window_tasks::WindowInstances::default())
@@ -99,6 +100,10 @@ pub fn run() {
             diagnostics::get_diagnostic_report
         ])
         .setup(move |app| {
+            #[cfg(debug_assertions)]
+            if app.config().identifier == "com.goodpuppy.desktop" {
+                return Err("开发构建必须使用独立应用标识，请通过 npm run tauri dev 启动".into());
+            }
             diagnostics::native(app.handle(), "app-start", "ok");
             configure_macos_app_activation_policy(app);
             // `main` 不再承载记号棒 textarea（已搬进自己的气泡窗口 bubble-self），

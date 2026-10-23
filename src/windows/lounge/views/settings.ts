@@ -171,6 +171,14 @@ async function wireAutostart(root: HTMLElement) {
   const apply = (enabled: boolean) => {
     toggle.setAttribute("aria-checked", String(enabled)); toggle.classList.toggle("is-on", enabled);
   };
+  if (import.meta.env.DEV) {
+    toggle.disabled = true; apply(false);
+    toggle.title = "开发版不支持开机自启动，请在正式版中设置";
+    toggle.setAttribute("aria-label", toggle.title);
+    const description = toggle.closest(".settings-row")?.querySelector(".settings-row-desc");
+    if (description) description.textContent = toggle.title;
+    return;
+  }
   if (!window.__TAURI_INTERNALS__) { toggle.title = "请在桌面应用中设置自启动"; return; }
   try {
     const enabled = await autostart.read();

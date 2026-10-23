@@ -5,11 +5,21 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ emitTo }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ listen, startDragging, setPosition, label: "main" }) }));
 beforeEach(() => {
+  vi.stubEnv("DEV", false);
   vi.resetModules();
   vi.clearAllMocks();
   vi.stubGlobal("window", { __TAURI_INTERNALS__: {} });
 });
 describe("native bridge error contract", () => {
+  it("blocks development autostart without accessing the system plugin", async () => {
+    vi.stubEnv("DEV", true);
+    const bridge = (await import("./bridge.js")).default;
+    expect(await bridge.isAutostartEnabled()).toBe(false);
+    await expect(bridge.setAutostart(true)).rejects.toThrow("开发版不支持开机自启动");
+    await expect(bridge.setAutostart(false)).rejects.toThrow("开发版不支持开机自启动");
+    expect(autostartEnabled).not.toHaveBeenCalled();
+    expect(autostartDisable).not.toHaveBeenCalled();
+  });
   it("does not turn autostart read or disable failures into a false state", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
