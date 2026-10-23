@@ -139,6 +139,10 @@ jobs:
       - run: npm ci
       - name: Verify release version
         run: npm run version:check -- --tag "$RELEASE_TAG"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r skills/hatch-puppy-pet/requirements-test.txt
       - name: Run project checks
         run: npm run verify
       - name: Import Developer ID certificate
