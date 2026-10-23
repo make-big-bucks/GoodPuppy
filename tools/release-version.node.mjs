@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-const script = new URL('./release-version.mjs', import.meta.url).pathname;
+const script = fileURLToPath(new URL('./release-version.mjs', import.meta.url));
 async function fixture(work) {
   const root = await mkdtemp(path.join(tmpdir(), 'goodpuppy-version-'));
   try {

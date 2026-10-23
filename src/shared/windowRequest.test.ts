@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createEventSubscription } from "./eventSubscription.js";
 import { requestWindow, type RequestTransport, type WindowResponse } from "./windowRequest.js";
 
@@ -18,6 +18,7 @@ function fixture() {
   });
   return { start, install, send, receive: (response: WindowResponse) => receive(response), unlisten };
 }
+beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 describe("window request lifecycle", () => {
   it("installs the listener before sending and ignores other request IDs", async () => {
@@ -26,7 +27,8 @@ describe("window request lifecycle", () => {
     await Promise.resolve();
     expect(f.send).not.toHaveBeenCalled();
     f.install();
-    await vi.waitFor(() => expect(f.send).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.send).toHaveBeenCalledTimes(1);
     const request = f.send.mock.calls[0][2] as WindowResponse;
     f.receive({ requestId: "different", ok: true });
     expect(f.unlisten).not.toHaveBeenCalled();
@@ -54,7 +56,8 @@ describe("window request lifecycle", () => {
     const other = fixture();
     const failed = other.start();
     other.install();
-    await vi.waitFor(() => expect(other.send).toHaveBeenCalled());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(other.send).toHaveBeenCalled();
     other.receive({ requestId: (other.send.mock.calls[0][2] as WindowResponse).requestId, ok: false, error: "not a member" });
     await expect(failed).rejects.toThrow("not a member");
   });
@@ -65,11 +68,11 @@ describe("window request lifecycle", () => {
     controller.abort();
     await expect(result).rejects.toMatchObject({ name: "AbortError" });
     f.install();
-    await vi.waitFor(() => expect(f.unlisten).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.unlisten).toHaveBeenCalledTimes(1);
     expect(f.send).not.toHaveBeenCalled();
   });
   it("times out while registering and disposes the late registration", async () => {
-    vi.useFakeTimers();
     const f = fixture();
     const result = expect(f.start()).rejects.toThrow("超时");
     await vi.advanceTimersByTimeAsync(100);
@@ -84,7 +87,8 @@ describe("window request lifecycle", () => {
     const controller = new AbortController();
     const result = f.start({ signal: controller.signal });
     f.install();
-    await vi.waitFor(() => expect(f.send).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.send).toHaveBeenCalledTimes(1);
     controller.abort();
     await expect(result).rejects.toMatchObject({ name: "AbortError" });
     expect(f.send.mock.calls[1][1]).toBe("cancel");
