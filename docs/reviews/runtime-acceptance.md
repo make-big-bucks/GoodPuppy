@@ -13,6 +13,12 @@
 
 当前产物证据（2026-10-02，源码提交 `ee4e5fb`）：macOS arm64 `build:mac` 成功，`.app` 的 Info.plist 检查与 DMG 完整性校验通过；仅 ad-hoc 签名，未安装验收或公证。构建产物位于 `src-tauri/target/release/bundle/`，不提交到 Git。
 
+2026-10-19 本机补验：基于 `9459693` 加打包配置修正，macOS arm64 `build:mac` 成功；显式使用 `signingIdentity: "-"` 完整签署应用包，`codesign --verify --deep --strict`、Info.plist 与 `hdiutil verify` 均通过，挂载 DMG 后再次核验其中应用签名及 Applications 安装链接通过。最初的 `hdiutil: create failed - Device not configured` 发生在代理沙箱内，允许访问系统磁盘镜像服务后相同构建成功。产物汇总到忽略目录 `release/0.1.0/`；仍未公证，未据此声明安装后人工验收通过。
+
+2026-10-19 双平台安装包证据：构建分支 `codex/package-20261019` 的 `7d916c7` 在 [Desktop Packages](https://github.com/make-big-bucks/GoodPuppy/actions/runs/39269822952) 全部成功，macOS 与 Windows 前端测试通过，macOS DMG 和 Windows x64 MSI/NSIS EXE 均已上传；macOS 应用签名和 DMG 完整性另经 CI 校验。该运行不包含构建启动后工作区新增的开发态 Dock 图标改动；安装后的人工窗口、多屏及系统休眠验收仍待完成。
+
+2026-10-23 发布链路补验：Apple Silicon APP 与 DMG 均使用 Developer ID Application 签名并启用 hardened runtime，Apple 公证均为 Accepted，票据装订及验证、`codesign --verify`、Gatekeeper（`source=Notarized Developer ID`）与 DMG 完整性检查通过；最终 APP 更新归档已使用独立更新密钥签名并完成包内容验签。完整本地质量检查通过（377 项前端、21 项 Rust、8 项资源、7 项发布脚本测试），原生窗口与关联退出清理回执回归通过。上述证据不替代 Intel / Windows 的线上构建与安装后人工验收，实际跨版本自动升级仍待验证。
+
 ## 场景与预期
 
 | 范围 | 操作 | 通过条件 |
