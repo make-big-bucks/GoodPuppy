@@ -140,7 +140,7 @@ macOS 上可补 Windows Rust 交叉检查：安装相应 Rust 目标并将 `llvm
 
 应用图标沿用粉色爪印视觉，矢量源文件位于 `design/icons/`，运行 `npm run gen:icons` 可用项目内的 Tauri CLI 重建 `src-tauri/icons/` 下的桌面资源，无需额外图像工具。
 
-- macOS：开发模式启动时显式设置 Dock 图标，避免裸可执行文件显示系统通用 `exec` 图标；发布版从应用包读取。`icon.icns` 提供多分辨率应用/Dock 图标，默认配置用于 APP/DMG；菜单栏使用独立的 44px 单色透明模板（另附 22px），由系统适配浅色、深色菜单栏与 Retina 显示。
+- macOS：开发模式在事件循环就绪及 Dock 重新显示时显式设置 Dock 图标，避免裸可执行文件显示系统通用 `exec` 图标；发布版从应用包读取。`icon.icns` 提供多分辨率应用/Dock 图标，默认配置用于 APP/DMG；菜单栏使用独立的 44px 单色透明模板（另附 22px），由系统适配浅色、深色菜单栏与 Retina 显示。
 - Windows：`icon.ico` 提供多尺寸应用、窗口、任务栏和安装包图标，使用 `npm run build:windows` 加载 MSI/NSIS 配置；彩色托盘使用独立 64px 透明 PNG，由系统缩放，另附 16/20/24/32/40/48px 资源供不同缩放比例使用，白色轮廓增强明暗背景辨识。
 - PNG 资源包括 32/64/128/256px、512px 主图（矢量源画布为 1024px）及 Windows Store 标志，商店标志仅为备用资源，项目尚未配置 MSIX 商店打包。
 

@@ -240,6 +240,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Ready) {
+                platform::configure_development_dock_icon();
+            }
             if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
                 // Tauri 的 restart 不允许 prevent_exit；更新器已在调用前完成退出握手。
                 if code == Some(tauri::RESTART_EXIT_CODE) {
