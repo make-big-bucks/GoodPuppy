@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => {
   resolveBackendEnvironment(loadEnv(mode, __dirname, "VITE_"));
   return {
   clearScreen: false,
+  test: { include: ["src/**/*.test.ts", "tools/**/*.test.{ts,mjs}"] },
   plugins: [{
     name: "pet-assets",
     resolveId(id) { if (id === "virtual:pet-assets") return "\0pet-assets"; },

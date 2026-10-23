@@ -1,3 +1,4 @@
+import { appUpdates } from "../appUpdates.js";
 import { createAutostartController } from "../autostartController.js";
 import { showToast } from "./toast.js";
 // 会客厅设置页（方案 A：整窗内切换）。点侧边栏齿轮 → 隐藏房间布局、显示本视图，
@@ -105,6 +106,14 @@ function buildMarkup() {
       </section>
 
       <section class="settings-group">
+        <h2 class="settings-group-title">应用更新</h2>
+        <div class="settings-row"><div class="settings-row-text">
+          <div class="settings-row-label settings-update-version">GoodPuppy</div>
+          <div class="settings-row-desc settings-update-status" role="status" aria-live="polite"></div>
+        </div><button class="small-btn settings-update-btn" type="button">检查更新</button></div>
+        <p class="settings-row-desc settings-update-notes" style="white-space: pre-wrap" hidden></p>
+      </section>
+      <section class="settings-group">
         <h2 class="settings-group-title">诊断</h2>
         <div class="settings-row"><div class="settings-row-text"><div class="settings-row-label">复制诊断记录</div>
           <div class="settings-row-desc">最近的窗口与房间操作记录，不包含口令或消息正文。</div></div>
@@ -208,6 +217,31 @@ function wirePetPrefs(root: HTMLElement) {
   });
 }
 
+let releaseUpdates: (() => void) | undefined;
+function wireUpdates(root: HTMLElement) {
+  releaseUpdates?.();
+  const button = root.querySelector<HTMLButtonElement>(".settings-update-btn")!;
+  const label = root.querySelector<HTMLElement>(".settings-update-version")!;
+  const description = root.querySelector<HTMLElement>(".settings-update-status")!;
+  const notes = root.querySelector<HTMLElement>(".settings-update-notes")!;
+  if (!window.__TAURI_INTERNALS__) { button.disabled = true; description.textContent = "请在桌面应用中检查更新"; return; }
+  releaseUpdates = appUpdates.subscribe((status) => {
+    label.textContent = status.currentVersion ? `GoodPuppy ${status.currentVersion}` : "GoodPuppy";
+    const messages = {
+      idle: "检查是否有可用的新版本", checking: "正在检查更新…", available: `发现新版本 ${status.version ?? ""}`,
+      downloading: status.progress === null ? "正在下载更新…" : `正在下载更新 ${status.progress}%`,
+      ready: "更新已下载并验证，安装时将退出房间并重启应用", installing: "正在安装并重启…",
+      current: "当前已是最新版本", unconfigured: "当前构建尚未启用自动更新", error: "更新失败，请检查网络后重试",
+    };
+    description.textContent = messages[status.phase];
+    button.disabled = ["checking", "downloading", "installing", "unconfigured"].includes(status.phase);
+    button.textContent = status.phase === "available" ? "下载更新" : status.phase === "ready" ? "安装并重启" : "检查更新";
+    notes.textContent = status.notes; notes.hidden = !status.notes;
+  });
+  button.onclick = () => { void appUpdates.act(); };
+  if (appUpdates.getStatus().phase === "idle") void appUpdates.check();
+}
+
 export function openSettings(cb: SettingsCallbacks) {
   const root = settingsRoot();
   const layout = loungeLayout();
@@ -217,6 +251,7 @@ export function openSettings(cb: SettingsCallbacks) {
   renderAccount(root, cb);
   wirePetPrefs(root);
   void wireAutostart(root);
+  wireUpdates(root);
 
   const diagnostics = root.querySelector<HTMLButtonElement>(".settings-diagnostics-btn");
   if (diagnostics) {
@@ -241,6 +276,7 @@ export function openSettings(cb: SettingsCallbacks) {
 }
 
 export function closeSettings() {
+  releaseUpdates?.(); releaseUpdates = undefined;
   const root = settingsRoot();
   const layout = loungeLayout();
   if (root) {

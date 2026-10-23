@@ -73,13 +73,29 @@ npm run tauri:dev:peer
 
 ## Build
 
-To produce a distributable installer:
+在对应平台生成安装包：
 
 ```bash
-npm run tauri build
+# macOS：APP、DMG
+npm run build:mac
+# Windows：MSI、NSIS EXE
+npm run build:windows
 ```
 
-Output is in `src-tauri/target/release/bundle/`.
+产物位于 `src-tauri/target/release/bundle/`。macOS 默认使用完整的 ad-hoc 应用签名，供本地安装测试；正式分发需通过 `APPLE_SIGNING_IDENTITY` 指定 Developer ID，并配置公证。若代理沙箱中的 DMG 阶段报 `hdiutil: create failed - Device not configured`，需在可访问系统磁盘镜像和 Finder 服务的环境中重试。
+
+正式发布推送 `v*` 版本 tag，由 `.github/workflows/release.yml` 构建 Apple Silicon / Intel macOS 与 Windows x86_64 的 GitHub Release 草稿；macOS 强制 Developer ID 签名、公证与验证，人工验收公开后再推进应用内更新渠道。会客厅「设置 → 应用更新」支持检查、下载和安装重启，正式构建自动检查但不自动安装，未配置更新公钥的本地构建禁用更新。版本命令、GitHub 凭据和验收步骤见下文。
+
+`.github/workflows/packages.yml` 仅支持手动生成测试安装包，完成后在 Actions 的 `Desktop Packages` 运行页下载产物，保留 14 天。
+
+### 版本发布
+
+使用 `npm run version:set -- 0.1.1` 同步项目及锁文件版本，运行 `npm run verify` 和 `npm run test:native` 后提交代码，再为该提交创建并推送 `v0.1.1` tag。等待 `Release preview` 全部成功，验收 Release 草稿中的安装包并补全说明；正式发布时取消预发布标记，再公开草稿，随后 `Publish update feed` 会推进更新渠道。测试版本使用如 `v0.2.0-beta.1` 的 tag 并保留预发布标记。构建失败可手动指定已有 tag 重跑，公开版本禁止覆盖。
+
+GitHub Actions 需配置 Variable `GOODPUPPY_UPDATER_PUBLIC_KEY`（完整 `.pub` 内容），以及 Secrets `TAURI_SIGNING_PRIVATE_KEY`、可选的 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`、`APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_TEAM_ID`、`APPLE_API_KEY_ID`、`APPLE_API_ISSUER`、`APPLE_API_PRIVATE_KEY`；证书为含私钥的 Developer ID Application `.p12`，证书和 `.p8` API 私钥均使用单行 base64 编码。更新公钥在编译时嵌入，私钥须独立备份，不能随意更换。密钥、证书及密码不得提交到仓库。
+
+`updates` 分支由工作流维护 stable / preview 清单，无需手动推送；稳定客户端只接收 stable，预发布客户端读取 preview，正式版本可推进更旧的 preview。首次发布前尚无清单，检查更新会失败；不含更新器的旧版本需要先手动安装一次。正式安装包提供两种 Mac 架构的 DMG 和 Windows x86_64 NSIS EXE，Windows 更新签名不等同于 Authenticode 代码签名。Intel、Windows 及跨版本升级仍需在线上构建和实机验收。
+
 
 ## 诊断
 

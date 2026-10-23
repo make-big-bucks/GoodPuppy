@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "GoodPuppy",
-  "version": "0.1.0",
+  "version": "../package.json",
   "identifier": "com.goodpuppy.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -12,7 +12,9 @@
   "app": {
     "macOSPrivateApi": true,
     "withGlobalTauri": false,
-    "security": { "csp": null },
+    "security": {
+      "csp": null
+    },
     "windows": [
       {
         "label": "lounge",
@@ -49,12 +51,30 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "macOS": {
+      "signingIdentity": "-",
+      "hardenedRuntime": true
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": [
+        "https://raw.githubusercontent.com/make-big-bucks/GoodPuppy/updates/stable.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

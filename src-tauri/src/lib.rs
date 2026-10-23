@@ -7,6 +7,7 @@ mod hit_test;
 mod native_smoke;
 mod platform;
 mod quit;
+mod updates;
 mod window_labels;
 mod window_tasks;
 
@@ -65,6 +66,8 @@ pub fn run() {
     let bubbles: Bubbles = Arc::new(std::sync::Mutex::new(BubbleRegistry::default()));
     tauri::Builder::default()
         .plugin(diagnostics::plugin())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::UpdateState::default())
         // 开机自启动（会客厅设置页「通用 → 开机自启动」开关控制）。
         // macOS 走 LaunchAgent，Windows 走注册表，由插件按平台封装。
         .plugin(tauri_plugin_autostart::init(
@@ -90,6 +93,9 @@ pub fn run() {
             get_pet_monitor_work_area,
             get_window_geometry,
             diagnostics::record_diagnostic,
+            updates::update_check,
+            updates::update_download,
+            updates::update_install,
             diagnostics::get_diagnostic_report
         ])
         .setup(move |app| {
@@ -235,7 +241,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
-                // Tauri 的 restart 不允许 prevent_exit；本项目不调用 restart。
+                // Tauri 的 restart 不允许 prevent_exit；更新器已在调用前完成退出握手。
                 if code == Some(tauri::RESTART_EXIT_CODE) {
                     return;
                 }

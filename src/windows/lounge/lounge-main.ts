@@ -1,3 +1,4 @@
+import { startUpdateChecks } from "./appUpdates.js";
 import { createRoomCommandClient } from "./roomCommandClient.js";
 import { createResourceLifetime } from "../../shared/resourceLifetime.js";
 import { createRoomStateSync } from "./roomStateSync.js";
@@ -38,6 +39,7 @@ function sessionIsAnonymous(session: Awaited<ReturnType<typeof supabase.auth.get
 
 let requests = new AbortController();
 const page = createResourceLifetime();
+page.own(startUpdateChecks());
 function listenPage<T = unknown>(event: string, handler: (payload: T) => void) {
   page.own(window.goodPuppy.onAppEvent<T>(event, (payload) => { if (!page.signal.aborted) handler(payload); }));
 }

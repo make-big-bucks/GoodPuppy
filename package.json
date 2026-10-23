@@ -23,7 +23,10 @@
     "test:assets": "node tools/python-task.mjs assets",
     "build:mac": "tauri build",
     "build:windows": "tauri build --config src-tauri/tauri.windows.conf.json",
-    "check:dependencies": "node tools/check-dependencies.mjs"
+    "check:dependencies": "node tools/check-dependencies.mjs",
+    "version:check": "node tools/release-version.mjs check",
+    "version:set": "node tools/release-version.mjs set",
+    "test:release": "node --test tools/update-release.node.mjs tools/release-version.node.mjs"
   },
   "keywords": [
     "desktop-pet",

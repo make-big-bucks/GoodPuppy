@@ -28,6 +28,10 @@
 
 诊断由 `diagnostics.ts` 记录固定生命周期字段，Rust `diagnostics.rs` 负责有界日志与仅会客厅可调用的按需读取；原始 Error/消息正文不会传入日志接口。
 
+## 发布与应用更新
+
+`release.yml` 从版本 tag 构建三平台架构的 Release 草稿；macOS 正式包须 Developer ID 签名、公证和验证，公开发布后 `publish-update.yml` 才推进 stable / preview 清单。会客厅的 `updateController.ts` 管理自动检查、手动下载与安装状态，`appUpdates.ts` 连接原生调用；Rust `updates.rs` 独占签名更新包、串行安装和重启，复用 `quit.rs` 的房间退出握手。版本与密钥配置见 [README](../README.md#版本发布)，决策见 [ADR-0023](adr/0023-版本发布与签名自动更新.md)。
+
 ## 数据库与验证
 
 数据库契约见 [database.md](database.md)。授权修复与认证租约已获批准并部署生产，三条迁移历史与仓库一致；权限/RLS/RPC 与无身份拒绝已核验，真实客户端/Realtime 联调仍待验收。

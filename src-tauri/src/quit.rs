@@ -37,39 +37,7 @@ pub(crate) fn request<R: Runtime>(app: &AppHandle<R>, exit_code: i32) {
     crate::diagnostics::native(app, "app-quit", "start");
     let app = app.clone();
     std::thread::spawn(move || {
-        let request = QuitRequest {
-            request_id: format!(
-                "{}-{}",
-                std::process::id(),
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos()
-            ),
-        };
-        let expected = request.request_id.clone();
-        let (tx, rx) = std::sync::mpsc::channel();
-        let listener = app.listen("app-quit-ready", move |event| {
-            if matches_ack(event.payload(), &expected) {
-                let _ = tx.send(());
-            }
-        });
-        let mut acknowledged = false;
-        if let Some(pet) = app.get_webview_window("main") {
-            if pet.emit("app-before-quit", request).is_ok() {
-                acknowledged = rx.recv_timeout(Duration::from_secs(3)).is_ok();
-            }
-        }
-        crate::diagnostics::native(
-            &app,
-            "app-quit",
-            if acknowledged {
-                "acknowledged"
-            } else {
-                "timeout"
-            },
-        );
-        app.unlisten(listener);
+        let acknowledged = prepare_for_update(&app);
         app.state::<QuitState>().complete();
         #[cfg(debug_assertions)]
         if std::env::var("GOODPUPPY_NATIVE_SMOKE").as_deref() == Ok("1")
@@ -84,6 +52,44 @@ pub(crate) fn request<R: Runtime>(app: &AppHandle<R>, exit_code: i32) {
         let _ = acknowledged;
         app.exit(exit_code);
     });
+}
+
+// 安装更新前复用房间退出握手；Windows 安装器直接退出进程，不会触发 ExitRequested。
+pub(crate) fn prepare_for_update<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let request = QuitRequest {
+        request_id: format!(
+            "{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ),
+    };
+    let expected = request.request_id.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let listener = app.listen("app-quit-ready", move |event| {
+        if matches_ack(event.payload(), &expected) {
+            let _ = tx.send(());
+        }
+    });
+    let mut acknowledged = false;
+    if let Some(pet) = app.get_webview_window("main") {
+        if pet.emit("app-before-quit", request).is_ok() {
+            acknowledged = rx.recv_timeout(Duration::from_secs(3)).is_ok();
+        }
+    }
+    crate::diagnostics::native(
+        &app,
+        "app-quit",
+        if acknowledged {
+            "acknowledged"
+        } else {
+            "timeout"
+        },
+    );
+    app.unlisten(listener);
+    acknowledged
 }
 
 #[cfg(test)]
