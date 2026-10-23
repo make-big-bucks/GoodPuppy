@@ -10,6 +10,12 @@ on:
         description: Existing release tag to build, for example v0.1.0
         required: true
         type: string
+      platform:
+        description: Build all platforms or complete the Intel assets of an existing draft
+        required: true
+        default: all
+        type: choice
+        options: [all, macos-intel]
 
 permissions:
   contents: write
@@ -112,14 +118,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: aarch64
-            runner: macos-15
-            target: aarch64-apple-darwin
-          - arch: x86_64
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-    runs-on: ${{ matrix.runner }}
+        include: ${{ fromJSON(inputs.platform == 'macos-intel' && '[{"arch":"x86_64","target":"x86_64-apple-darwin"}]' || '[{"arch":"aarch64","target":"aarch64-apple-darwin"},{"arch":"x86_64","target":"x86_64-apple-darwin"}]') }}
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -136,6 +136,7 @@ jobs:
         with:
           workspaces: src-tauri
           key: ${{ matrix.target }}
+          cache-on-failure: true
       - run: npm ci
       - name: Verify release version
         run: npm run version:check -- --tag "$RELEASE_TAG"
@@ -258,7 +259,11 @@ jobs:
             --key-id "$APPLE_API_KEY_ID" \
             --issuer "$APPLE_API_ISSUER" \
             --wait
-          xcrun stapler staple "$dmg_path"
+          for attempt in 1 2 3; do
+            if xcrun stapler staple "$dmg_path"; then break; fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep 15
+          done
 
           codesign --verify --deep --strict --verbose=2 "$app_path"
           signing_details="$(codesign -dvvv "$app_path" 2>&1)"
@@ -377,6 +382,7 @@ jobs:
           rm -rf "$RUNNER_TEMP/private_keys"
 
   build-windows:
+    if: ${{ inputs.platform != 'macos-intel' }}
     name: Windows x86_64
     needs: prepare_release
     runs-on: windows-latest
@@ -420,6 +426,7 @@ jobs:
           gh release upload "$RELEASE_TAG" "$asset" "$asset.sig" "$latest_asset" --clobber
 
   verify_draft:
+    if: ${{ always() && needs.prepare_release.result == 'success' && needs['build-macos'].result == 'success' && (needs['build-windows'].result == 'success' || (inputs.platform == 'macos-intel' && needs['build-windows'].result == 'skipped')) }}
     name: Verify complete release draft
     needs: [prepare_release, build-macos, build-windows]
     runs-on: ubuntu-latest

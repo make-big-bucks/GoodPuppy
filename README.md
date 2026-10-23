@@ -94,7 +94,7 @@ npm run build:windows
 
 ### 版本发布
 
-使用 `npm run version:set -- 0.1.1` 同步项目及锁文件版本，运行 `npm run verify` 和 `npm run test:native` 后提交代码，再为该提交创建并推送 `v0.1.1` tag。等待 `Release preview` 全部成功，验收 Release 草稿中的安装包并补全说明；正式发布时取消预发布标记，再公开草稿，随后 `Publish update feed` 会推进更新渠道。测试版本使用如 `v0.2.0-beta.1` 的 tag 并保留预发布标记。构建失败可手动指定已有 tag 重跑，公开版本禁止覆盖。
+使用 `npm run version:set -- 0.1.1` 同步项目及锁文件版本，运行 `npm run verify` 和 `npm run test:native` 后提交代码，再为该提交创建并推送 `v0.1.1` tag。等待 `Release preview` 全部成功，验收 Release 草稿中的安装包并补全说明；正式发布时取消预发布标记，再公开草稿，随后 `Publish update feed` 会推进更新渠道。测试版本使用如 `v0.2.0-beta.1` 的 tag 并保留预发布标记。构建失败可手动指定已有 tag 重跑；若只需补齐现有草稿的 Intel 产物，可选择 `platform: macos-intel`，仍会校验三平台产物完整，公开版本禁止覆盖。macOS 两种架构均在 Apple Silicon 运行器构建，并对票据装订的网络失败进行有限重试。
 
 GitHub Actions 需配置 Variable `GOODPUPPY_UPDATER_PUBLIC_KEY`（完整 `.pub` 内容），以及 Secrets `TAURI_SIGNING_PRIVATE_KEY`、可选的 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`、`APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_TEAM_ID`、`APPLE_API_KEY_ID`、`APPLE_API_ISSUER`、`APPLE_API_PRIVATE_KEY`；证书为含私钥的 Developer ID Application `.p12`，证书和 `.p8` API 私钥均使用单行 base64 编码。更新公钥在编译时嵌入，私钥须独立备份，不能随意更换。密钥、证书及密码不得提交到仓库。
 
