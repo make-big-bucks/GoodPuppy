@@ -1,0 +1,19 @@
+{
+  "version": "0.1.0",
+  "notes": "GoodPuppy 首个公开版本，一款透明置顶的桌面宠物应用。\n\n## 主要功能\n\n- 桌面宠物、形象换肤、大小调整与好友摆放设置。\n- 会客厅、账号登录、房间创建与邀请，以及房间内的在线状态、消息和互动。\n- 托盘入口、窗口显隐与退出前房间清理。\n- 应用内更新：在「设置 → 应用更新」中检查、下载并安装新版本。\n\n## 下载与安装\n\n| 系统 | 安装包 |\n|---|---|\n| macOS · Apple Silicon（M 系列） | `GoodPuppy_0.1.0_aarch64.dmg` |\n| macOS · Intel | `GoodPuppy_0.1.0_x86_64.dmg` |\n| Windows · x86_64 | `GoodPuppy_0.1.0_x86_64-setup.exe` |\n\nmacOS 安装包经过 Developer ID 签名、Apple 公证与验证，打开 DMG 后将应用拖入 Applications；Windows 运行安装程序即可。\n\n`.app.tar.gz` 和 `.sig` 用于应用内自动更新，无需手动打开；不含版本号的同名安装包是下载别名，内容相同。旧测试版如果没有更新入口，请先手动安装本版本。\n\n## 验证范围\n\n发布流水线执行项目检查并验证安装包完整性。跨版本自动升级、不同系统版本及真实多屏/混合缩放场景仍需持续验收，遇到问题可在仓库 Issues 反馈。\n",
+  "pub_date": "2026-10-23T04:11:34Z",
+  "platforms": {
+    "darwin-aarch64": {
+      "url": "https://github.com/make-big-bucks/GoodPuppy/releases/download/v0.1.0/GoodPuppy_0.1.0_aarch64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSOVN6MEJJVGwyaHg0NXRwVTdHcTRxbUFoZmZ2K3JocFFheGRjRHk3M01qNmNFMHFXNmVVdEJCSXFVUzI0OFkzMlJLM0FkN1ZoOFZkc3p0TndySHMzc0dJZ2J5aHA0bHdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNzI1OTUzCWZpbGU6R29vZFB1cHB5XzAuMS4wX2FhcmNoNjQuYXBwLnRhci5negpsRS9mNUNwdVFLbjBPcUtXUEtzcUJuSng1blMwUzRpWXRGeTgzSFZpMnFFMThGWmFCNjZyaFBubE1RNDlHL1g1ZGtaVUNHZVNYQW8xUkFNUldNR0FEZz09Cg=="
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/make-big-bucks/GoodPuppy/releases/download/v0.1.0/GoodPuppy_0.1.0_x86_64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSOVN6MEJJVGwyaDFMVTg2Z1VZSE1lYlRBTDI3djVvMHpOa0d1M0EvdDN4N3UrU0dUeURFTG52eTJFTjErMTU2bGs3K3VHY0NYZDhTemZxQ0ZsSU1KQkhGOEhKa3h3Z3dVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNzI4NTk2CWZpbGU6R29vZFB1cHB5XzAuMS4wX3g4Nl82NC5hcHAudGFyLmd6ClNoeElEaWZQamJIS1BxVERnTDVYZURiZkUrWUUycExSeXR4YkRhNi8wZkhwZWU2ejRVT3FXQkxjOFNWVHdIWm1QUFhjREJPVWNONTFOVDlNSUNwNEJnPT0K"
+    },
+    "windows-x86_64": {
+      "url": "https://github.com/make-big-bucks/GoodPuppy/releases/download/v0.1.0/GoodPuppy_0.1.0_x86_64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSOVN6MEJJVGwyaDVocUVRbzBBWmlRNEMyWlByZzhkRkxycTI5MW1JZTlNWVZpZjdrVlNCRGwvS3Z4ZHdQYjFad3Z1eUppSllEZlRoSktUK2VMdk9GODEwekJiU1Y1Z1FJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNzI1OTAzCWZpbGU6R29vZFB1cHB5XzAuMS4wX3g4Nl82NC1zZXR1cC5leGUKNWRRV1lCSXl2V3AxZ3NnQTNlcXN6UFdIUGhKYUIxYVE0ZlpEdG9VQThSSGxrM0NUYkE2Q1diT3E5TGwyQTg5ZnBzKzdSNlByd09yY2g3c0lzWHlXQ0E9PQo="
+    }
+  }
+}
